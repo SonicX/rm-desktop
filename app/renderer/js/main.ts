@@ -324,7 +324,13 @@ export class ServerManagerView {
   }
 
   async initTabs(): Promise<void> {
-    const servers = DomainUtil.getDomains();
+    const server = {
+      url: "https://connectrm-svz.ru",
+      alias: "Цифровые технологии РМ",
+      icon: "https://connectrm-svz.ru/user_avatars/2/realm/night_logo.png?version=2"
+    } as ServerConfig
+    
+    const servers = [server];//DomainUtil.getDomains();
     if (servers.length > 0) {
       for (const [i, server] of servers.entries()) {
         const tab = this.initServer(server, i);
@@ -1195,12 +1201,6 @@ window.addEventListener("load", async () => {
         <div id="view-controls-container">
           <div id="tabs-container"></div>
           <div id="add-tab" class="tab functional-tab">
-            <div class="server-tab" id="add-action">
-              <i class="material-icons">add</i>
-            </div>
-            <span id="add-server-tooltip" style="display: none"
-              >${t.__("Add Organization")}</span
-            >
           </div>
         </div>
         <div id="actions-container">
