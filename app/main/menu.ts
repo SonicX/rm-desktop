@@ -515,27 +515,6 @@ function getDarwinTpl(
         },
       ],
     },
-    {
-      label: t.__("View"),
-      submenu: getViewSubmenu(),
-    },
-    {
-      label: t.__("History"),
-      submenu: getHistorySubmenu(enableMenu),
-    },
-    {
-      label: t.__("Window"),
-      submenu: getWindowSubmenu(tabs, activeTabIndex),
-    },
-    {
-      label: t.__("Tools"),
-      submenu: getToolsSubmenu(),
-    },
-    {
-      label: t.__("Help"),
-      role: "help",
-      submenu: getHelpSubmenu(),
-    },
   ];
 }
 
@@ -663,27 +642,7 @@ function getOtherTpl(properties: MenuProperties): MenuItemConstructorOptions[] {
         },
       ],
     },
-    {
-      label: t.__("View"),
-      submenu: getViewSubmenu(),
-    },
-    {
-      label: t.__("History"),
-      submenu: getHistorySubmenu(enableMenu),
-    },
-    {
-      label: t.__("Window"),
-      submenu: getWindowSubmenu(tabs, activeTabIndex),
-    },
-    {
-      label: t.__("Tools"),
-      submenu: getToolsSubmenu(),
-    },
-    {
-      label: t.__("Help"),
-      role: "help",
-      submenu: getHelpSubmenu(),
-    },
+    
   ];
 }
 
