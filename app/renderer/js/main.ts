@@ -379,6 +379,38 @@ export class ServerManagerView {
 
   initServer(server: ServerConfig, index: number): ServerTab {
     const tabIndex = this.getTabIndex();
+    const webView = WebView.create({
+      $root: this.$webviewsContainer,
+      rootWebContents,
+      index,
+      tabIndex,
+      url: server.url,
+      role: "server",
+      hasPermission: (origin: string, permission: string) => {
+        return true;
+      },
+      isActive: () => index === this.activeTabIndex,
+      switchLoading: async (loading: boolean, url: string) => {
+        if (loading) {
+          this.loading.add(url);
+        } else {
+          this.loading.delete(url);
+        }
+    
+        const tab = this.tabs[this.activeTabIndex];
+        this.showLoading(
+          tab instanceof ServerTab &&
+            this.loading.has((await tab.webview).properties.url),
+        );
+      },
+      onNetworkError: async (index: number) => {
+        await this.openNetworkTroubleshooting(index);
+      },
+      onTitleChange: this.updateBadge.bind(this),
+      preload: url.pathToFileURL(path.join(bundlePath, "preload.js")).href,
+      unsupportedMessage: DomainUtil.getUnsupportedMessage(server),
+    });    
+
     const tab = new ServerTab({
       role: "server",
       icon: DomainUtil.iconAsUrl(server.icon),
@@ -389,38 +421,7 @@ export class ServerManagerView {
       tabIndex,
       onHover: this.onHover.bind(this, index),
       onHoverOut: this.onHoverOut.bind(this, index),
-      webview: WebView.create({
-        $root: this.$webviewsContainer,
-        rootWebContents,
-        index,
-        tabIndex,
-        url: server.url,
-        role: "server",
-        hasPermission: (origin: string, permission: string) =>
-          origin === server.url &&
-          permission === "notifications" &&
-          ConfigUtil.getConfigItem("showNotification", true),
-        isActive: () => index === this.activeTabIndex,
-        switchLoading: async (loading: boolean, url: string) => {
-          if (loading) {
-            this.loading.add(url);
-          } else {
-            this.loading.delete(url);
-          }
-
-          const tab = this.tabs[this.activeTabIndex];
-          this.showLoading(
-            tab instanceof ServerTab &&
-              this.loading.has((await tab.webview).properties.url),
-          );
-        },
-        onNetworkError: async (index: number) => {
-          await this.openNetworkTroubleshooting(index);
-        },
-        onTitleChange: this.updateBadge.bind(this),
-        preload: url.pathToFileURL(path.join(bundlePath, "preload.js")).href,
-        unsupportedMessage: DomainUtil.getUnsupportedMessage(server),
-      }),
+      webview: webView
     });
     this.tabs.push(tab);
     this.loading.add(server.url);
