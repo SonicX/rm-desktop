@@ -89,12 +89,11 @@ function createMainWindow(): BrowserWindow {
     webPreferences: {
       preload: path.join(bundlePath, "renderer.js"),
       sandbox: false,
-      webviewTag: true,
-      devTools: true
+      webviewTag: true
     },
     show: false,
   });
-  win.webContents.openDevTools();
+  // win.webContents.openDevTools();
   remoteMain.enable(win.webContents);
 
   win.on("focus", () => {
