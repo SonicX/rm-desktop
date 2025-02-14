@@ -78,7 +78,7 @@ function createMainWindow(): BrowserWindow {
 
   const win = new BrowserWindow({
     // This settings needs to be saved in config
-    title: "Zulip",
+    title: "RM",
     icon: iconPath(),
     x: mainWindowState.x,
     y: mainWindowState.y,
@@ -90,9 +90,11 @@ function createMainWindow(): BrowserWindow {
       preload: path.join(bundlePath, "renderer.js"),
       sandbox: false,
       webviewTag: true,
+      devTools: true
     },
     show: false,
   });
+  win.webContents.openDevTools();
   remoteMain.enable(win.webContents);
 
   win.on("focus", () => {
@@ -125,7 +127,7 @@ function createMainWindow(): BrowserWindow {
     }
   });
 
-  win.setTitle("Zulip");
+  win.setTitle("Цифровые технологии РМ");
 
   win.on("enter-full-screen", () => {
     send(win.webContents, "enter-fullscreen");
@@ -170,7 +172,7 @@ function createMainWindow(): BrowserWindow {
   }
 
   // Used for notifications on Windows
-  app.setAppUserModelId("org.zulip.zulip-electron");
+  app.setAppUserModelId("ru.rm.rm-electron");
 
   remoteMain.initialize();
 
@@ -430,7 +432,7 @@ function createMainWindow(): BrowserWindow {
     AppMenu.setMenu(properties);
     if (properties.activeTabIndex !== undefined) {
       const activeTab = properties.tabs[properties.activeTabIndex];
-      mainWindow.setTitle(`Zulip - ${activeTab.label}`);
+      mainWindow.setTitle(`${activeTab.label}`);
     }
   });
 

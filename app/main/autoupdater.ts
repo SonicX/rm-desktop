@@ -60,7 +60,7 @@ export async function appUpdater(updateFromMenu = false): Promise<void> {
 
       await dialog.showMessageBox({
         message: t.__(
-          "A new version {{{version}}} of Zulip Desktop is available.",
+          "A new version {{{version}}} of RM is available.",
           {version: info.version},
         ),
         detail: t.__(
@@ -79,7 +79,7 @@ export async function appUpdater(updateFromMenu = false): Promise<void> {
       await dialog.showMessageBox({
         message: t.__("No updates available."),
         detail: t.__(
-          "You are running the latest version of Zulip Desktop.\nVersion: {{{version}}}",
+          "You are running the latest version of RM Desktop.\nVersion: {{{version}}}",
           {version: app.getVersion()},
         ),
       });
@@ -101,7 +101,7 @@ export async function appUpdater(updateFromMenu = false): Promise<void> {
         buttons: [t.__("Manual Download"), t.__("Cancel")],
         message: messageText,
         detail: t.__(
-          "Error: {{{error}}}\n\nThe latest version of Zulip Desktop is available at:\n{{{link}}}\nCurrent version: {{{version}}}",
+          "Error: {{{error}}}\n\nThe latest version of RM Desktop is available at:\n{{{link}}}\nCurrent version: {{{version}}}",
           {error: error.message, link, version: app.getVersion()},
         ),
       });

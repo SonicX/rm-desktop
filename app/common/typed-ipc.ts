@@ -34,7 +34,7 @@ export type MainCall = {
 
 export type RendererMessage = {
   back: () => void;
-  "copy-zulip-url": () => void;
+  "copy-rm-url": () => void;
   destroytray: () => void;
   "enter-fullscreen": () => void;
   focus: () => void;

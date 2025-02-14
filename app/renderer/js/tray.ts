@@ -147,7 +147,7 @@ function sendAction<Channel extends keyof RendererMessage>(
 const createTray = function (): void {
   const contextMenu = Menu.buildFromTemplate([
     {
-      label: "Zulip",
+      label: "RM",
       click() {
         ipcRenderer.send("focus-app");
       },

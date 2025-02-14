@@ -1,8 +1,8 @@
 {
-	"About Zulip": "A proposito di Zulip",
+	"About Zulip": "A proposito di RM",
 	"Actual Size": "Dimensione Attuale",
 	"Add Organization": "Aggiungi Organizzazione",
-	"Add a Zulip organization": "Aggiungi organizzazione a Zulip",
+	"Add a Zulip organization": "Aggiungi organizzazione a RM",
 	"Add custom CSS": "Aggiungi codice CSS personalizzato",
 	"AddServer": "AddServer",
 	"Advanced": "Avanzate",
@@ -26,7 +26,7 @@
 	"Connect to another organization": "Connetti ad un'altra organizzazione",
 	"Connected organizations": "Organizzazioni connesse",
 	"Copy": "Copia",
-	"Copy Zulip URL": "Copia URL Zulip",
+	"Copy Zulip URL": "Copia URL RM",
 	"Create a new organization": "Crea nuova organizzazione",
 	"Cut": "Taglia",
 	"Default download location": "Percorso predefinito di download",
@@ -65,7 +65,7 @@
 	"Log Out of Organization": "Esci dall'organizzazione",
 	"Manual proxy configuration": "Configurazione proxy manuale",
 	"Minimize": "Minimizza",
-	"Mute all sounds from Zulip": "Silenzia tutti i suoni di Zulip",
+	"Mute all sounds from Zulip": "Silenzia tutti i suoni di RM",
 	"NO": "NO",
 	"Network": "Rete",
 	"Network and Proxy Settings": "Impostazioni di rete e proxy",
@@ -100,10 +100,10 @@
 	"Start app at login": "Avvia l'applicazione all'avvio",
 	"Switch to Next Organization": "Passa alla Prossima Organizzazione",
 	"Switch to Previous Organization": "Passa alla Precedente Organizzazione",
-	"These desktop app shortcuts extend the Zulip webapp's": "Queste scorciatoie per l'app desktop, estendono le webapp di Zulip",
+	"These desktop app shortcuts extend the Zulip webapp's": "Queste scorciatoie per l'app desktop, estendono le webapp di RM",
 	"Tip": "Consiglio",
 	"Toggle DevTools for Active Tab": "Attiva/Disattiva Tool di Sviluppo per il Tab Attivo",
-	"Toggle DevTools for Zulip App": "Attiva/Disattiva Tool di Sviluppo per l'applicazione Zulip",
+	"Toggle DevTools for Zulip App": "Attiva/Disattiva Tool di Sviluppo per l'applicazione RM",
 	"Toggle Do Not Disturb": "Attiva/Disattiva il Non Disturbare",
 	"Toggle Full Screen": "Attiva/Disattiva Schermo Intero",
 	"Toggle Sidebar": "Attiva/Disattiva Barra Laterale",
@@ -123,5 +123,5 @@
 	"Zoom Out": "Riduci",
 	"keyboard shortcuts": "scorciatoie tastiera",
 	"script": "script",
-	"{{{server}}} runs an outdated Zulip Server version {{{version}}}. It may not fully work in this app.": "{{{server}}} esegue una versione obsoleta di Zulip Server {{{version}}}. Potrebbe non funzionare completamente in questa app."
+	"{{{server}}} runs an outdated Zulip Server version {{{version}}}. It may not fully work in this app.": "{{{server}}} esegue una versione obsoleta di RM Server {{{version}}}. Potrebbe non funzionare completamente in questa app."
 }

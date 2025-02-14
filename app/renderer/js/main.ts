@@ -3,7 +3,7 @@ import path from "node:path";
 import process from "node:process";
 import url from "node:url";
 
-import {Menu, app, dialog, session} from "@electron/remote";
+import {Menu, app, ipcMain, desktopCapturer, dialog, session} from "@electron/remote";
 import * as remote from "@electron/remote";
 import * as Sentry from "@sentry/electron/renderer";
 
@@ -61,6 +61,26 @@ const rootWebContents = remote.getCurrentWebContents();
 const dingSound = new Audio(
   new URL("resources/sounds/ding.ogg", bundleUrl).href,
 );
+
+app.whenReady().then((choice) => {
+  process.stdout.write('**--: ' + 12);
+  // Обработка запроса на захват экрана
+  ipcMain.on('capture-screen', async (event) => {
+    process.stdout.write('**--: ' + 13);
+    try {
+      const sources = await desktopCapturer.getSources({ types: ['screen', 'window'] });
+      const sourceOptions = sources.map((source) => ({
+        name: source.name,
+        id: source.id
+      }));
+
+      // Отправляем список доступных источников обратно в рендерер
+      event.reply('screen-sources', sourceOptions);
+    } catch (error) {
+      process.stdout.write('**-- Ошибка при получении источников экрана:  ' + error);
+    }
+  });
+})
 
 export class ServerManagerView {
   $addServerButton: HTMLButtonElement;
@@ -130,6 +150,7 @@ export class ServerManagerView {
     this.presetOrgs = [];
     this.functionalTabs = new Map();
     this.tabIndex = 0;
+    logger.info("Тут Ооочень нужен лог");
   }
 
   async init(): Promise<void> {
@@ -317,20 +338,21 @@ export class ServerManagerView {
       );
       dialog.showErrorBox(title, content);
       if (DomainUtil.getDomains().length === 0) {
-        // No orgs present, stop showing loading gif
-        await this.openSettings("AddServer");
       }
     }
   }
 
   async initTabs(): Promise<void> {
     const server = {
-      url: "https://connectrm-svz.ru",
+      url: "https://connectrm-svz.ru/",
       alias: "Цифровые технологии РМ",
-      icon: "https://connectrm-svz.ru/user_avatars/2/realm/night_logo.png?version=2"
+      icon: "https://connectrm-svz.ru//user_avatars/2/realm/night_logo.png?version=2"
     } as ServerConfig
-    
-    const servers = [server];//DomainUtil.getDomains();
+
+    DomainUtil.removeDomains();
+    DomainUtil.addDomain(server);
+
+    const servers = [server];
     if (servers.length > 0) {
       for (const [i, server] of servers.entries()) {
         const tab = this.initServer(server, i);
@@ -370,8 +392,6 @@ export class ServerManagerView {
       // Remove focus from the settings icon at sidebar bottom
       this.$settingsButton.classList.remove("active");
     } else if (this.presetOrgs.length === 0) {
-      // Not attempting to add organisations in the background
-      await this.openSettings("AddServer");
     } else {
       this.showLoading(true);
     }
@@ -379,6 +399,7 @@ export class ServerManagerView {
 
   initServer(server: ServerConfig, index: number): ServerTab {
     const tabIndex = this.getTabIndex();
+
     const webView = WebView.create({
       $root: this.$webviewsContainer,
       rootWebContents,
@@ -409,7 +430,7 @@ export class ServerManagerView {
       onTitleChange: this.updateBadge.bind(this),
       preload: url.pathToFileURL(path.join(bundlePath, "preload.js")).href,
       unsupportedMessage: DomainUtil.getUnsupportedMessage(server),
-    });    
+    });
 
     const tab = new ServerTab({
       role: "server",
@@ -462,9 +483,6 @@ export class ServerManagerView {
     this.$reloadButton.addEventListener("click", async () => {
       const tab = this.tabs[this.activeTabIndex];
       if (tab instanceof ServerTab) (await tab.webview).reload();
-    });
-    this.$addServerButton.addEventListener("click", async () => {
-      await this.openSettings("AddServer");
     });
     this.$settingsButton.addEventListener("click", async () => {
       await this.openSettings("General");
@@ -823,29 +841,6 @@ export class ServerManagerView {
       event.preventDefault();
       const template = [
         {
-          label: t.__("Disconnect organization"),
-          async click() {
-            const {response} = await dialog.showMessageBox({
-              type: "warning",
-              buttons: [t.__("Yes"), t.__("No")],
-              defaultId: 0,
-              message: t.__(
-                "Are you sure you want to disconnect this organization?",
-              ),
-            });
-            if (response === 0) {
-              if (DomainUtil.removeDomain(index)) {
-                ipcRenderer.send("reload-full-app");
-              } else {
-                const {title, content} = Messages.orgRemovalError(
-                  DomainUtil.getDomain(index).url,
-                );
-                dialog.showErrorBox(title, content);
-              }
-            }
-          },
-        },
-        {
           label: t.__("Notification settings"),
           enabled: await this.isLoggedIn(index),
           click: async () => {
@@ -857,7 +852,7 @@ export class ServerManagerView {
           },
         },
         {
-          label: t.__("Copy Zulip URL"),
+          label: t.__("Copy RM URL"),
           click() {
             clipboard.writeText(DomainUtil.getDomain(index).url);
           },
@@ -959,30 +954,8 @@ export class ServerManagerView {
         },
         permissionCallbackId: number,
       ) => {
-        const grant =
-          webContentsId === null
-            ? origin === "null" && permission === "notifications"
-            : (
-                await Promise.all(
-                  this.tabs.map(async (tab) => {
-                    if (!(tab instanceof ServerTab)) return false;
-                    const webview = await tab.webview;
-                    return (
-                      webview.webContentsId === webContentsId &&
-                      webview.properties.hasPermission?.(origin, permission)
-                    );
-                  }),
-                )
-              ).some(Boolean);
-        console.log(
-          grant ? "Granted" : "Denied",
-          "permissions request for",
-          permission,
-          "from",
-          origin,
-        );
-        ipcRenderer.send("permission-callback", permissionCallbackId, grant);
-      },
+        ipcRenderer.send("permission-callback", permissionCallbackId, true);
+      }
     );
 
     ipcRenderer.on("open-settings", async () => {
@@ -990,11 +963,6 @@ export class ServerManagerView {
     });
 
     ipcRenderer.on("open-about", this.openAbout.bind(this));
-
-    ipcRenderer.on("open-help", async () => {
-      // Open help page of current active server
-      await LinkUtil.openBrowser(new URL("https://zulip.com/help/"));
-    });
 
     ipcRenderer.on("reload-viewer", this.reloadView.bind(this));
 
@@ -1006,10 +974,6 @@ export class ServerManagerView {
 
     ipcRenderer.on("switch-server-tab", async (event, index: number) => {
       await this.activateLastTab(index);
-    });
-
-    ipcRenderer.on("open-org-tab", async () => {
-      await this.openSettings("AddServer");
     });
 
     ipcRenderer.on("reload-proxy", async (event, showAlert: boolean) => {
@@ -1158,12 +1122,8 @@ export class ServerManagerView {
       );
     });
 
-    ipcRenderer.on("copy-zulip-url", async () => {
+    ipcRenderer.on("copy-rm-url", async () => {
       clipboard.writeText(await this.getCurrentActiveServer());
-    });
-
-    ipcRenderer.on("new-server", async () => {
-      await this.openSettings("AddServer");
     });
 
     ipcRenderer.on("set-active", async () =>

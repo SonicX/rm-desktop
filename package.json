@@ -1,21 +1,18 @@
 {
-  "name": "zulip",
-  "productName": "Zulip",
+  "name": "RM",
+  "productName": "Связь РМ",
   "version": "5.11.1",
   "main": "./dist-electron",
-  "description": "Zulip Desktop App",
+  "description": "Приложение Связь РМ",
   "license": "Apache-2.0",
-  "copyright": "Kandra Labs, Inc.",
+  "copyright": "Цифровые технологии РМ",
   "author": {
-    "name": "Kandra Labs, Inc.",
-    "email": "support@zulip.com"
+    "name": "Цифровые технологии РМ.",
+    "email": "root33@live.ru"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/zulip/zulip-desktop.git"
-  },
-  "bugs": {
-    "url": "https://github.com/zulip/zulip-desktop/issues"
+    "url": "https://github.com/sg12/zulip-desktop.git"
   },
   "engines": {
     "node": ">=18"
@@ -39,7 +36,7 @@
     "test"
   ],
   "build": {
-    "appId": "org.zulip.zulip-electron",
+    "appId": "ru.rm.rm-electron",
     "asar": true,
     "asarUnpack": [
       "**/*.node"
@@ -47,7 +44,7 @@
     "files": [
       "dist-electron/**/*"
     ],
-    "copyright": "©2020 Kandra Labs, Inc.",
+    "copyright": "©Цифровые технологии РМ",
     "mac": {
       "category": "public.app-category.productivity",
       "target": [
@@ -69,13 +66,13 @@
       "darkModeSupport": true,
       "artifactName": "${productName}-${version}-${arch}.${ext}",
       "notarize": {
-        "teamId": "66KHCWMEYB"
+        "teamId": ""
       }
     },
     "linux": {
       "category": "Chat;GNOME;GTK;Network;InstantMessaging",
-      "icon": "build/icon.icns",
-      "description": "Zulip Desktop Client for Linux",
+      "icon": "build/icons",
+      "description": "RM Desktop Client for Linux",
       "target": [
         "deb",
         "tar.xz",
@@ -87,7 +84,7 @@
     },
     "deb": {
       "packageCategory": "net",
-      "synopsis": "Zulip Desktop App",
+      "synopsis": "RM Desktop App",
       "afterInstall": "./packaging/deb-after-install.sh",
       "fpm": [
         "./packaging/deb-apt.list=/etc/apt/sources.list.d/zulip-desktop.list",
@@ -96,7 +93,7 @@
       ]
     },
     "snap": {
-      "synopsis": "Zulip Desktop App"
+      "synopsis": "RM Desktop App"
     },
     "dmg": {
       "background": "build/dmg-background.tiff",
@@ -119,8 +116,8 @@
           ]
         }
       ],
-      "icon": "build/icon.ico",
-      "publisherName": "Kandra Labs, Inc.",
+      "icon": "build/icon.png",
+      "publisherName": "Цифровые технологии РМ",
       "sign": "./scripts/win-sign.js",
       "signingHashAlgorithms": [
         "sha256"
@@ -139,7 +136,7 @@
     }
   },
   "keywords": [
-    "Zulip",
+    "RM",
     "Group Chat app",
     "electron-app",
     "electron",
@@ -157,6 +154,7 @@
     "@types/adm-zip": "^0.5.0",
     "@types/auto-launch": "^5.0.2",
     "@types/backoff": "^2.5.2",
+    "@types/electron": "^1.4.38",
     "@types/i18n": "^0.13.1",
     "@types/node": "^20.11.30",
     "@types/requestidlecallback": "^0.3.4",

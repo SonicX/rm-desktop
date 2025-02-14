@@ -54,22 +54,9 @@ export class PreferenceView {
     this.navigationItem = navigationItem;
     this.nav.select(navigationItem);
     switch (navigationItem) {
-      case "AddServer": {
-        initServersSection({
-          $root: this.$settingsContainer,
-        });
-        break;
-      }
 
       case "General": {
         initGeneralSection({
-          $root: this.$settingsContainer,
-        });
-        break;
-      }
-
-      case "Organizations": {
-        initConnectedOrgSection({
           $root: this.$settingsContainer,
         });
         break;

@@ -15,8 +15,6 @@ export default class PreferenceNavigation {
     this.navigationItems = [
       {navigationItem: "General", label: t.__("General")},
       {navigationItem: "Network", label: t.__("Network")},
-      {navigationItem: "AddServer", label: t.__("Add Organization")},
-      {navigationItem: "Organizations", label: t.__("Organizations")},
       {navigationItem: "Shortcuts", label: t.__("Shortcuts")},
     ];
 

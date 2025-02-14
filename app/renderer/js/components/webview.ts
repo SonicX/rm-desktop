@@ -49,6 +49,8 @@ export default class WebView {
           <span class="webview-unsupported-dismiss">×</span>
         </div>
         <webview
+          allowpopups
+          allow="microphone; camera;"
           data-tab-id="${properties.tabIndex}"
           src="${properties.url}"
           ${properties.preload === undefined
@@ -194,12 +196,12 @@ export default class WebView {
     const $backButton = document.querySelector(
       "#actions-container #back-action",
     )!;
-    $backButton.classList.toggle("disable", !this.getWebContents().canGoBack());
+    $backButton.classList.toggle("disable", !this.getWebContents().navigationHistory.canGoBack());
   }
 
   forward(): void {
-    if (this.getWebContents().canGoForward()) {
-      this.getWebContents().goForward();
+    if (this.getWebContents().navigationHistory.canGoForward()) {
+      this.getWebContents().navigationHistory.goForward();
     }
   }
 

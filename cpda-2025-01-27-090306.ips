@@ -1,0 +1,404 @@
+{"app_name":"cpda","timestamp":"2025-01-27 09:03:06.00 +0700","app_version":"871010703","slice_uuid":"4178600a-b3bd-346a-8b40-b7dd36c42d44","build_version":"1","platform":1,"share_with_app_devs":1,"is_first_party":1,"bug_type":"309","os_version":"macOS 15.2 (24C101)","roots_installed":0,"incident_id":"6455A494-A77D-4C74-8C91-04B8C692D10B","name":"cpda"}
+{
+  "uptime" : 420000,
+  "procRole" : "Unspecified",
+  "version" : 2,
+  "userID" : 0,
+  "deployVersion" : 210,
+  "modelCode" : "MacBookPro18,2",
+  "coalitionID" : 514,
+  "osVersion" : {
+    "train" : "macOS 15.2",
+    "build" : "24C101",
+    "releaseType" : "User"
+  },
+  "captureTime" : "2025-01-27 09:03:05.9847 +0700",
+  "codeSigningMonitor" : 1,
+  "incident" : "6455A494-A77D-4C74-8C91-04B8C692D10B",
+  "pid" : 82490,
+  "translated" : true,
+  "cpuType" : "X86-64",
+  "roots_installed" : 0,
+  "bug_type" : "309",
+  "procLaunch" : "2025-01-27 09:03:05.7140 +0700",
+  "procStartAbsTime" : 10217796513848,
+  "procExitAbsTime" : 10217802998994,
+  "procName" : "cpda",
+  "procPath" : "\/Library\/Application Support\/Checkpoint\/*\/cpda",
+  "bundleInfo" : {"CFBundleVersion":"1","CFBundleShortVersionString":"871010703"},
+  "parentProc" : "launchd",
+  "parentPid" : 1,
+  "coalitionName" : "com.checkpoint.cpda",
+  "crashReporterKey" : "E3D2FF29-E1C0-3AD2-64BA-26398EBFD242",
+  "throttleTimeout" : 10,
+  "codeSigningID" : "cpda",
+  "codeSigningTeamID" : "TZ3UEPFYKD",
+  "codeSigningFlags" : 570425345,
+  "codeSigningValidationCategory" : 6,
+  "codeSigningTrustLevel" : 4294967295,
+  "bootSessionUUID" : "F6FFBE71-C235-45DB-B13B-50900D55CF06",
+  "wakeTime" : 3604,
+  "sleepWakeUUID" : "6784247D-323B-45E5-8E7A-D2FABF9B9BA8",
+  "sip" : "enabled",
+  "exception" : {"codes":"0x0000000000000000, 0x0000000000000000","rawCodes":[0,0],"type":"EXC_CRASH","signal":"SIGABRT"},
+  "termination" : {"flags":0,"code":6,"namespace":"SIGNAL","indicator":"Abort trap: 6","byProc":"cpda","byPid":82490},
+  "extMods" : {"caller":{"thread_create":0,"thread_set_state":0,"task_for_pid":0},"system":{"thread_create":0,"thread_set_state":1074,"task_for_pid":27},"targeted":{"thread_create":0,"thread_set_state":0,"task_for_pid":0},"warnings":0},
+  "faultingThread" : 0,
+  "threads" : [{"triggered":true,"id":19201056,"threadState":{"flavor":"x86_THREAD_STATE","rbp":{"value":734},"r12":{"value":4380532736},"rosetta":{"tmp2":{"value":140703543368776},"tmp1":{"value":140705964468824},"tmp0":{"value":18446744073709551615}},"rbx":{"value":0},"r8":{"value":13120047144},"r15":{"value":22},"r10":{"value":0},"rdx":{"value":0},"rdi":{"value":4380532736},"r9":{"value":734},"r13":{"value":4377010958},"rflags":{"value":647},"rax":{"value":0},"rsp":{"value":0},"r11":{"value":0},"rcx":{"value":0},"r14":{"value":259},"rsi":{"value":8675987968,"symbolLocation":0,"symbol":"_main_thread"}},"queue":"com.apple.main-thread","frames":[{"imageOffset":140705964468868,"imageIndex":33},{"imageOffset":31826,"symbol":"__pthread_kill","symbolLocation":10,"imageIndex":34},{"imageOffset":24453,"symbol":"pthread_kill","symbolLocation":262,"imageIndex":35},{"imageOffset":527129,"symbol":"abort","symbolLocation":126,"imageIndex":36},{"imageOffset":523740,"symbol":"__assert_rtn","symbolLocation":314,"imageIndex":36},{"imageOffset":145405,"symbol":"boost::shared_ptr<CDA>::operator->() const","symbolLocation":45,"imageIndex":3},{"imageOffset":476277,"symbol":"DeviceAgentService::Start()","symbolLocation":77,"imageIndex":3},{"imageOffset":26243,"symbol":"CLaunchDaemonService::StartServiceRunLoop()","symbolLocation":313,"imageIndex":5},{"imageOffset":477336,"symbol":"main","symbolLocation":775,"imageIndex":3},{"imageOffset":25293,"symbol":"start","symbolLocation":1805,"imageIndex":0}]},{"id":19201061,"name":"com.apple.rosetta.exceptionserver","threadState":{"flavor":"x86_THREAD_STATE","rbp":{"value":9908489551872},"r12":{"value":0},"rosetta":{"tmp2":{"value":0},"tmp1":{"value":0},"tmp0":{"value":0}},"rbx":{"value":0},"r8":{"value":2307},"r15":{"value":0},"r10":{"value":4515300164},"rdx":{"value":0},"rdi":{"value":0},"r9":{"value":4515300196},"r13":{"value":0},"rflags":{"value":515},"rax":{"value":268451845},"rsp":{"value":0},"r11":{"value":0},"rcx":{"value":17314086914},"r14":{"value":0},"rsi":{"value":2616}},"frames":[{"imageOffset":16032,"imageIndex":1}]},{"id":19201097,"frames":[{"imageOffset":140705964468868,"imageIndex":33},{"imageOffset":40402,"symbol":"__select","symbolLocation":10,"imageIndex":34},{"imageOffset":94984,"symbol":"apr_sleep","symbolLocation":70,"imageIndex":37},{"imageOffset":137723,"symbol":"log4cxx::helpers::FileWatchdog::run(apr_thread_t*, void*)","symbolLocation":29,"imageIndex":13},{"imageOffset":429429,"symbol":"log4cxx::helpers::Thread::launcher(apr_thread_t*, void*)","symbolLocation":67,"imageIndex":13},{"imageOffset":25171,"symbol":"_pthread_start","symbolLocation":99,"imageIndex":35},{"imageOffset":7151,"symbol":"thread_start","symbolLocation":15,"imageIndex":35}],"threadState":{"flavor":"x86_THREAD_STATE","rbp":{"value":18446744069414584320},"r12":{"value":105553179300320},"rosetta":{"tmp2":{"value":140703543357828},"tmp1":{"value":140705964468824},"tmp0":{"value":18446744073709551615}},"rbx":{"value":0},"r8":{"value":13120577408},"r15":{"value":0},"r10":{"value":0},"rdx":{"value":0},"rdi":{"value":140350941298688},"r9":{"value":18446744069414584320},"r13":{"value":0},"rflags":{"value":642},"rax":{"value":4},"rsp":{"value":13120577360},"r11":{"value":8192},"rcx":{"value":0},"r14":{"value":105553179300224},"rsi":{"value":60}}},{"id":19201098,"frames":[{"imageOffset":141652,"imageIndex":1}],"threadState":{"flavor":"x86_THREAD_STATE","rbp":{"value":18446744073709551615},"r12":{"value":0},"rosetta":{"tmp2":{"value":0},"tmp1":{"value":0},"tmp0":{"value":0}},"rbx":{"value":0},"r8":{"value":0},"r15":{"value":0},"r10":{"value":0},"rdx":{"value":13120589824},"rdi":{"value":0},"r9":{"value":0},"r13":{"value":0},"rflags":{"value":531},"rax":{"value":13121126400},"rsp":{"value":409604},"r11":{"value":0},"rcx":{"value":9987},"r14":{"value":0},"rsi":{"value":0}}}],
+  "usedImages" : [
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 8675377152,
+    "size" : 573440,
+    "uuid" : "7e2d5f84-7d4f-3322-83cb-dd7bd247f06a",
+    "path" : "\/usr\/lib\/dyld",
+    "name" : "dyld"
+  },
+  {
+    "source" : "P",
+    "arch" : "arm64",
+    "base" : 140703126261760,
+    "size" : 196608,
+    "uuid" : "6a360c41-1729-30a8-b7d2-055dddac0786",
+    "path" : "\/usr\/libexec\/rosetta\/runtime",
+    "name" : "runtime"
+  },
+  {
+    "source" : "P",
+    "arch" : "arm64",
+    "base" : 4514762752,
+    "size" : 425984,
+    "uuid" : "4cb71c5f-4e41-3ce6-a65a-b283bc4bfab5",
+    "path" : "\/Library\/Apple\/*\/libRosettaRuntime",
+    "name" : "libRosettaRuntime"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4376350720,
+    "size" : 778240,
+    "uuid" : "4178600a-b3bd-346a-8b40-b7dd36c42d44",
+    "path" : "\/Library\/Application Support\/Checkpoint\/*\/cpda",
+    "name" : "cpda"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4525973504,
+    "size" : 1556480,
+    "uuid" : "fc1a0b8a-f92a-3b46-9d8a-9cb77be9ca8a",
+    "path" : "\/Library\/Application Support\/Checkpoint\/*\/libGuiMessageSystem.dylib",
+    "name" : "libGuiMessageSystem.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4521119744,
+    "size" : 163840,
+    "uuid" : "295789c0-75d8-3cc1-ac55-8bdf1578938f",
+    "path" : "\/Library\/Application Support\/Checkpoint\/*\/libEPCommon.dylib",
+    "name" : "libEPCommon.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4520755200,
+    "size" : 24576,
+    "uuid" : "019e4db2-9d66-3739-8c32-2defcf93624e",
+    "path" : "\/Library\/Application Support\/Checkpoint\/*\/libImpersonateClient.dylib",
+    "name" : "libImpersonateClient.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4522098688,
+    "size" : 90112,
+    "uuid" : "05b200fe-39b5-3d77-ad9a-13130c226ce9",
+    "path" : "\/Library\/Application Support\/Checkpoint\/*\/libOSXEventsNotify.dylib",
+    "name" : "libOSXEventsNotify.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4521803776,
+    "size" : 40960,
+    "uuid" : "8e22984f-419c-3ef7-a2b2-4e300f7653e9",
+    "path" : "\/Library\/Application Support\/Checkpoint\/*\/libKerberosClient.dylib",
+    "name" : "libKerberosClient.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4520927232,
+    "size" : 32768,
+    "uuid" : "1c4b596f-f15a-33ac-bde3-ec7e3dfcf8fe",
+    "path" : "\/Library\/Application Support\/Checkpoint\/*\/libKerberosCommon.dylib",
+    "name" : "libKerberosCommon.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4522635264,
+    "size" : 24576,
+    "uuid" : "b7398ea0-41c0-3fe9-b99d-9fd261b74cc9",
+    "path" : "\/Library\/Application Support\/Checkpoint\/*\/libUserMessages.dylib",
+    "name" : "libUserMessages.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4523130880,
+    "size" : 94208,
+    "uuid" : "f30c910d-8538-3608-a36f-4c2a66ba3641",
+    "path" : "\/Library\/Application Support\/Checkpoint\/*\/libCpProtoBufTransport.dylib",
+    "name" : "libCpProtoBufTransport.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4539424768,
+    "size" : 1650688,
+    "uuid" : "40304f8e-1660-342a-95b1-029e4dfb62eb",
+    "path" : "\/Library\/Application Support\/Checkpoint\/*\/libprotobuf.15.dylib",
+    "name" : "libprotobuf.15.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4535791616,
+    "size" : 704512,
+    "uuid" : "b759d495-4b90-3118-9233-4bdfe6033b33",
+    "path" : "\/Library\/Application Support\/Checkpoint\/*\/libeplog.dylib",
+    "name" : "libeplog.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4523700224,
+    "size" : 118784,
+    "uuid" : "a2352478-71ce-38c9-87dc-b61fbd82f37f",
+    "path" : "\/Library\/Application Support\/Checkpoint\/*\/libOS.dylib",
+    "name" : "libOS.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4546433024,
+    "size" : 339968,
+    "uuid" : "d6af0ab0-837a-342b-a56b-5be61173424c",
+    "path" : "\/Library\/Application Support\/Checkpoint\/*\/libCpDafLoggerSrv.dylib",
+    "name" : "libCpDafLoggerSrv.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4524621824,
+    "size" : 131072,
+    "uuid" : "8c54e2a4-473b-333a-9f49-eb3b1af38d51",
+    "path" : "\/Library\/Application Support\/Checkpoint\/*\/libCpProviderStoreSrv.dylib",
+    "name" : "libCpProviderStoreSrv.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4524179456,
+    "size" : 49152,
+    "uuid" : "e1a89660-9cbd-352a-aedc-e8494bbccfc5",
+    "path" : "\/Library\/Application Support\/Checkpoint\/*\/libpolicyactivationsrv.dylib",
+    "name" : "libpolicyactivationsrv.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4548091904,
+    "size" : 118784,
+    "uuid" : "baf8d989-d336-3f49-92f4-8be20c613ce0",
+    "path" : "\/Library\/Application Support\/Checkpoint\/*\/libcppolicystoragesrv.dylib",
+    "name" : "libcppolicystoragesrv.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4525441024,
+    "size" : 69632,
+    "uuid" : "e6989559-cc68-32cd-8e35-91804d1c111f",
+    "path" : "\/Library\/Application Support\/Checkpoint\/*\/libCpDafLoggerClient.dylib",
+    "name" : "libCpDafLoggerClient.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4548829184,
+    "size" : 81920,
+    "uuid" : "7e090531-3d27-3ba8-a875-8c4323685cbc",
+    "path" : "\/Library\/Application Support\/Checkpoint\/*\/libcppolicystorageclient.dylib",
+    "name" : "libcppolicystorageclient.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4549857280,
+    "size" : 131072,
+    "uuid" : "9378b6c2-a174-3049-b075-83f2abf86038",
+    "path" : "\/Library\/Application Support\/Checkpoint\/*\/libCpProviderStoreClient.dylib",
+    "name" : "libCpProviderStoreClient.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4549390336,
+    "size" : 45056,
+    "uuid" : "627a9800-7e90-34b3-bba4-930e770ee478",
+    "path" : "\/Library\/Application Support\/Checkpoint\/*\/libpolicyactivationclient.dylib",
+    "name" : "libpolicyactivationclient.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4550717440,
+    "size" : 249856,
+    "uuid" : "6b4e8a88-2cdb-3743-89dc-009f693780cd",
+    "path" : "\/Library\/Application Support\/Checkpoint\/*\/cryptocore.dylib",
+    "name" : "cryptocore.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4556197888,
+    "size" : 1896448,
+    "uuid" : "e18a631f-5477-3cff-9def-5c55d3bb183d",
+    "path" : "\/Library\/Application Support\/Checkpoint\/*\/libcpxerces_c.dylib",
+    "name" : "libcpxerces_c.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4551745536,
+    "size" : 233472,
+    "uuid" : "11645d35-b337-3eec-9ce4-355d30816267",
+    "path" : "\/Library\/Application Support\/Checkpoint\/*\/libDataStruct.dylib",
+    "name" : "libDataStruct.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4552581120,
+    "size" : 114688,
+    "uuid" : "88b615c1-0101-3a42-9593-ce18819eb2c3",
+    "path" : "\/Library\/Application Support\/Checkpoint\/*\/libUepmLogSchemaLib.dylib",
+    "name" : "libUepmLogSchemaLib.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4553158656,
+    "size" : 81920,
+    "uuid" : "6962f5dc-11e4-3d7b-9f4b-ecc8e1682d3e",
+    "path" : "\/Library\/Application Support\/Checkpoint\/*\/libUepmLogXformLib.dylib",
+    "name" : "libUepmLogXformLib.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4553584640,
+    "size" : 155648,
+    "uuid" : "a91316fc-b62c-3f3c-a57b-2f114a84b1b1",
+    "path" : "\/Library\/Application Support\/Checkpoint\/*\/libCPSrvIS.dylib",
+    "name" : "libCPSrvIS.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4522823680,
+    "size" : 24576,
+    "uuid" : "642e1b79-f0a5-30ee-ad74-6736bfc53f29",
+    "path" : "\/Library\/Application Support\/Checkpoint\/*\/libEncode.dylib",
+    "name" : "libEncode.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4551372800,
+    "size" : 69632,
+    "uuid" : "78e2ecf6-b1af-345b-9e4e-a343f2c7e0a5",
+    "path" : "\/Library\/Application Support\/Checkpoint\/*\/libProdUtils.dylib",
+    "name" : "libProdUtils.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4522930176,
+    "size" : 24576,
+    "uuid" : "b2c8f058-70c1-3db1-b78a-dc2607c2887c",
+    "path" : "\/Library\/Application Support\/Checkpoint\/*\/libResolve.dylib",
+    "name" : "libResolve.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4554153984,
+    "size" : 98304,
+    "uuid" : "1b6b7e0b-9f72-39b7-a4b0-2a9b1a1976b4",
+    "path" : "\/Library\/Application Support\/Checkpoint\/*\/libComUtils.dylib",
+    "name" : "libComUtils.dylib"
+  },
+  {
+    "size" : 0,
+    "source" : "A",
+    "base" : 0,
+    "uuid" : "00000000-0000-0000-0000-000000000000"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 140703543336960,
+    "size" : 245760,
+    "uuid" : "907f6ba6-6b4b-39d3-ba4b-d1f4244b50bc",
+    "path" : "\/usr\/lib\/system\/libsystem_kernel.dylib",
+    "name" : "libsystem_kernel.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 140703543582720,
+    "size" : 49152,
+    "uuid" : "7324bb8c-37ad-3a44-becd-969f31077819",
+    "path" : "\/usr\/lib\/system\/libsystem_pthread.dylib",
+    "name" : "libsystem_pthread.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 140703542165504,
+    "size" : 561144,
+    "uuid" : "83c4abe1-cf0a-3460-80c9-123e8ecd53ae",
+    "path" : "\/usr\/lib\/system\/libsystem_c.dylib",
+    "name" : "libsystem_c.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 140725091905536,
+    "size" : 106496,
+    "uuid" : "6e7248b6-1710-33ec-a379-2a6f5ad7c2d2",
+    "path" : "\/usr\/lib\/libapr-1.0.dylib",
+    "name" : "libapr-1.0.dylib"
+  }
+],
+  "sharedCache" : {
+  "base" : 140703539101696,
+  "size" : 25769803776,
+  "uuid" : "a808c443-7710-3b25-8053-c8076aa3c7c8"
+},
+  "vmSummary" : "ReadOnly portion of Libraries: Total=1.0G resident=0K(0%) swapped_out_or_unallocated=1.0G(100%)\nWritable regions: Total=828.0M written=819K(0%) resident=819K(0%) swapped_out=0K(0%) unallocated=827.2M(100%)\n\n                                VIRTUAL   REGION \nREGION TYPE                        SIZE    COUNT (non-coalesced) \n===========                     =======  ======= \nActivity Tracing                   256K        1 \nKernel Alloc Once                    8K        1 \nMALLOC                           659.1M       15 \nMALLOC guard page                   96K        6 \nRosetta Arena                     4096K        2 \nRosetta Generic                   1344K      333 \nRosetta IndirectBranch             128K        1 \nRosetta JIT                      128.0M        1 \nRosetta Return Stack                80K        8 \nRosetta Thread Context              80K        8 \nSTACK GUARD                          4K        1 \nStack                             9228K        3 \nStack Guard                       56.0M        2 \nVM_ALLOCATE                        160K       23 \nVM_ALLOCATE (reserved)              40K        8         reserved VM address space (unallocated)\n__CTF                               824        1 \n__DATA                            19.0M      619 \n__DATA_CONST                      61.2M      600 \n__DATA_DIRTY                      1527K      206 \n__FONT_DATA                        2352        1 \n__LINKEDIT                       289.2M       37 \n__OBJC_RO                         76.8M        1 \n__OBJC_RW                         2370K        2 \n__TEXT                           724.7M      645 \n__TPRO_CONST                       280K        2 \nmapped file                       20.6M       92 \nowned unmapped memory               32K        1 \npage table in kernel               819K        1 \nshared memory                       64K        3 \n===========                     =======  ======= \nTOTAL                              2.0G     2624 \nTOTAL, minus reserved VM space     2.0G     2624 \n",
+  "legacyInfo" : {
+  "threadTriggered" : {
+    "queue" : "com.apple.main-thread"
+  }
+},
+  "logWritingSignature" : "5798f8396c98dbc657e19e65a78542af136eb05d",
+  "reportNotes" : [
+  "PC register does not match crashing frame (0x0 vs 0x7FF8A907AA84)"
+]
+}

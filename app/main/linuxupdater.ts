@@ -34,7 +34,7 @@ export async function linuxUpdateNotification(session: Session): Promise<void> {
       const notified = LinuxUpdateUtil.getUpdateItem(latestVersion);
       if (notified === null) {
         new Notification({
-          title: "Zulip Update",
+          title: "RM Update",
           body: `A new version ${latestVersion} is available. Please update using your package manager.`,
         }).show();
         LinuxUpdateUtil.setUpdateItem(latestVersion, true);

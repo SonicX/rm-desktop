@@ -19,7 +19,7 @@ export function initShortcutsSection({
       <div class="settings-card tip">
         <p>
           <b><i class="material-icons md-14">settings</i>${t.__("Tip")}: </b
-          >${t.__("These desktop app shortcuts extend the Zulip webapp's")}
+          >${t.__("These desktop app shortcuts extend the RM webapp's")}
           <span id="open-hotkeys-link"> ${t.__("keyboard shortcuts")}</span>.
         </p>
       </div>
@@ -52,7 +52,7 @@ export function initShortcutsSection({
           </tr>
           <tr ${process.platform === "darwin" ? "" : "hidden"}>
             <td><kbd>${cmdOrCtrl}</kbd> + <kbd>H</kbd></td>
-            <td>${t.__("Hide Zulip")}</td>
+            <td>${t.__("Hide RM")}</td>
           </tr>
           <tr ${process.platform === "darwin" ? "" : "hidden"}>
             <td><kbd>Option</kbd> + <kbd>${cmdOrCtrl}</kbd> + <kbd>H</kbd></td>
@@ -60,7 +60,7 @@ export function initShortcutsSection({
           </tr>
           <tr>
             <td><kbd>${cmdOrCtrl}</kbd> + <kbd>Q</kbd></td>
-            <td>${t.__("Quit Zulip")}</td>
+            <td>${t.__("Quit RM")}</td>
           </tr>
         </table>
         <div class="setting-control"></div>
@@ -162,11 +162,11 @@ export function initShortcutsSection({
           </tr>
           <tr ${process.platform === "darwin" ? "" : "hidden"}>
             <td><kbd>Option</kbd> + <kbd>${cmdOrCtrl}</kbd> + <kbd>I</kbd></td>
-            <td>${t.__("Toggle DevTools for Zulip App")}</td>
+            <td>${t.__("Toggle DevTools for RM App")}</td>
           </tr>
           <tr ${process.platform === "darwin" ? "hidden" : ""}>
             <td><kbd>${cmdOrCtrl}</kbd> + <kbd>Shift</kbd> + <kbd>I</kbd></td>
-            <td>${t.__("Toggle DevTools for Zulip App")}</td>
+            <td>${t.__("Toggle DevTools for RM App")}</td>
           </tr>
           <tr ${process.platform === "darwin" ? "" : "hidden"}>
             <td><kbd>Option</kbd> + <kbd>${cmdOrCtrl}</kbd> + <kbd>U</kbd></td>
