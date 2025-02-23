@@ -1,22 +1,22 @@
-import {clipboard} from "electron/common";
+import { clipboard } from "electron/common";
 import path from "node:path";
 import process from "node:process";
 import url from "node:url";
 
-import {Menu, app, dialog, session} from "@electron/remote";
+import { Menu, app, dialog, session } from "@electron/remote";
 import * as remote from "@electron/remote";
 import * as Sentry from "@sentry/electron/renderer";
 
-import type {Config} from "../../common/config-util.js";
+import type { Config } from "../../common/config-util.js";
 import * as ConfigUtil from "../../common/config-util.js";
 import * as DNDUtil from "../../common/dnd-util.js";
-import type {DndSettings} from "../../common/dnd-util.js";
+import type { DndSettings } from "../../common/dnd-util.js";
 import * as EnterpriseUtil from "../../common/enterprise-util.js";
-import {html} from "../../common/html.js";
+import { html } from "../../common/html.js";
 import * as LinkUtil from "../../common/link-util.js";
 import Logger from "../../common/logger-util.js";
 import * as Messages from "../../common/messages.js";
-import {bundlePath, bundleUrl} from "../../common/paths.js";
+import { bundlePath, bundleUrl } from "../../common/paths.js";
 import * as t from "../../common/translation-util.js";
 import type {
   NavigationItem,
@@ -29,10 +29,10 @@ import defaultIcon from "../img/icon.png";
 import FunctionalTab from "./components/functional-tab.js";
 import ServerTab from "./components/server-tab.js";
 import WebView from "./components/webview.js";
-import {AboutView} from "./pages/about.js";
-import {PreferenceView} from "./pages/preference/preference.js";
-import {initializeTray} from "./tray.js";
-import {ipcRenderer} from "./typed-ipc-renderer.js";
+import { AboutView } from "./pages/about.js";
+import { PreferenceView } from "./pages/preference/preference.js";
+import { initializeTray } from "./tray.js";
+import { ipcRenderer } from "./typed-ipc-renderer.js";
 import * as DomainUtil from "./utils/domain-util.js";
 import ReconnectUtil from "./utils/reconnect-util.js";
 
@@ -134,6 +134,9 @@ export class ServerManagerView {
 
   async init(): Promise<void> {
     initializeTray(this);
+
+    // await requestMacOSPermissions();
+
     await this.loadProxy();
     this.initDefaultSettings();
     this.initSidebar();
@@ -161,14 +164,14 @@ export class ServerManagerView {
 
     await session.fromPartition("persist:webviewsession").setProxy(
       ConfigUtil.getConfigItem("useSystemProxy", false)
-        ? {mode: "system"}
+        ? { mode: "system" }
         : ConfigUtil.getConfigItem("useManualProxy", false)
           ? {
-              pacScript: ConfigUtil.getConfigItem("proxyPAC", ""),
-              proxyRules: ConfigUtil.getConfigItem("proxyRules", ""),
-              proxyBypassRules: ConfigUtil.getConfigItem("proxyBypass", ""),
-            }
-          : {mode: "direct"},
+            pacScript: ConfigUtil.getConfigItem("proxyPAC", ""),
+            proxyRules: ConfigUtil.getConfigItem("proxyRules", ""),
+            proxyBypassRules: ConfigUtil.getConfigItem("proxyBypass", ""),
+          }
+          : { mode: "direct" },
     );
   }
 
@@ -224,7 +227,7 @@ export class ServerManagerView {
     }
 
     for (const [setting, value] of Object.entries(settingOptions) as Array<
-      {[Key in keyof Config]: [Key, Config[Key]]}[keyof Config]
+      { [Key in keyof Config]: [Key, Config[Key]] }[keyof Config]
     >) {
       // Give preference to defaults defined in global_config.json
       if (EnterpriseUtil.configItemExists(setting)) {
@@ -288,7 +291,7 @@ export class ServerManagerView {
       if (preAddedDomains.length > 0) {
         // User already has servers added
         // ask them before reloading the app
-        const {response} = await dialog.showMessageBox({
+        const { response } = await dialog.showMessageBox({
           type: "question",
           buttons: [t.__("Yes"), t.__("Later")],
           defaultId: 0,
@@ -311,7 +314,7 @@ export class ServerManagerView {
         failedDomains.push(org);
       }
 
-      const {title, content} = Messages.enterpriseOrgError(
+      const { title, content } = Messages.enterpriseOrgError(
         domainsAdded.length,
         failedDomains,
       );
@@ -322,14 +325,18 @@ export class ServerManagerView {
       }
     }
   }
-
+  
+  // url: "https://joinrm-svz.ru",
+  // url: "http://localhost:9991",
+  // url: "https://connectrm-svz.ru",
+  
   async initTabs(): Promise<void> {
     const server = {
-      url: "https://connectrm-svz.ru",
+      url: "https://joinrm-svz.ru",
       alias: "Цифровые технологии РМ",
       icon: "https://connectrm-svz.ru/user_avatars/2/realm/night_logo.png?version=2"
     } as ServerConfig
-    
+
     const servers = [server];//DomainUtil.getDomains();
     if (servers.length > 0) {
       for (const [i, server] of servers.entries()) {
@@ -378,6 +385,10 @@ export class ServerManagerView {
   }
 
   initServer(server: ServerConfig, index: number): ServerTab {
+    // console.log("$webviewsContainer:", this.$webviewsContainer);
+    // console.log("server.url:", server.url);
+    // console.log("preload:", url.pathToFileURL(path.join(bundlePath, "preload.js")).href);
+
     const tabIndex = this.getTabIndex();
     const webView = WebView.create({
       $root: this.$webviewsContainer,
@@ -396,11 +407,11 @@ export class ServerManagerView {
         } else {
           this.loading.delete(url);
         }
-    
+
         const tab = this.tabs[this.activeTabIndex];
         this.showLoading(
           tab instanceof ServerTab &&
-            this.loading.has((await tab.webview).properties.url),
+          this.loading.has((await tab.webview).properties.url),
         );
       },
       onNetworkError: async (index: number) => {
@@ -409,7 +420,42 @@ export class ServerManagerView {
       onTitleChange: this.updateBadge.bind(this),
       preload: url.pathToFileURL(path.join(bundlePath, "preload.js")).href,
       unsupportedMessage: DomainUtil.getUnsupportedMessage(server),
-    });    
+    });
+
+    // // console.log('----------------------------Процесс рендера запущен.');
+    // process.stdout.write('**--: ' + 1);
+
+    // navigator.mediaDevices.getUserMedia({ audio: true })
+    //   .then((stream) => {
+    //     process.stdout.write('**--: ' + 'Микрофон доступен. Разрешение предоставлено.');
+    //     // console.log('Микрофон доступен. Разрешение предоставлено.');
+    //     // Останавливаем стрим, чтобы не блокировать микрофон
+    //     stream.getTracks().forEach(track => track.stop());
+    //   })
+    //   .catch((err) => {
+    //     process.stdout.write('**--: ' + 'Доступ к микрофону отклонён или произошла ошибка:' + err.message);
+    //     // console.error('Доступ к микрофону отклонён или произошла ошибка:', err.message);
+    //   });
+
+    // navigator.mediaDevices.getUserMedia({ video: true })
+    //   .then((stream) => {
+    //     process.stdout.write('**--: ' + 'Камера доступна. Доступ предоставлен.');
+    //     // Останавливаем стрим, чтобы не занимать камеру
+    //     stream.getTracks().forEach(track => track.stop());
+    //   })
+    //   .catch((err) => {
+    //     process.stdout.write('**--: ' + 'Доступ к камере отклонён или произошла ошибка:' + err.message);
+    //   });
+
+    //   navigator.mediaDevices.getDisplayMedia({ video: true })
+    //     .then((stream) => {
+    //       process.stdout.write('**--: ' + 'Захват экрана доступен. Доступ предоставлен.');
+    //       // Останавливаем стрим, чтобы не блокировать доступ
+    //       stream.getTracks().forEach(track => track.stop());
+    //     })
+    //     .catch((err) => {
+    //       process.stdout.write('**--: ' + 'Доступ к захвату экрана отклонён или произошла ошибка: ' + err.message);
+    //     });
 
     const tab = new ServerTab({
       role: "server",
@@ -539,7 +585,7 @@ export class ServerManagerView {
       // as that of its parent element.
       // This needs to handled only for the add server tooltip and not others.
       if (addServer) {
-        const {top} = SidebarButton.getBoundingClientRect();
+        const { top } = SidebarButton.getBoundingClientRect();
         SidebarTooltip.style.top = `${top}px`;
       }
     });
@@ -555,7 +601,7 @@ export class ServerManagerView {
     // To handle position of servers' tooltip due to scrolling of list of organizations
     // This could not be handled using CSS, hence the top of the tooltip is made same
     // as that of its parent element.
-    const {top} =
+    const { top } =
       this.$serverIconTooltip[index].parentElement!.getBoundingClientRect();
     this.$serverIconTooltip[index].style.top = `${top}px`;
   }
@@ -704,7 +750,7 @@ export class ServerManagerView {
     if (tab instanceof ServerTab) {
       try {
         (await tab.webview).canGoBackButton();
-      } catch {}
+      } catch { }
     } else {
       document
         .querySelector("#actions-container #back-action")!
@@ -716,7 +762,7 @@ export class ServerManagerView {
 
     this.showLoading(
       tab instanceof ServerTab &&
-        this.loading.has((await tab.webview).properties.url),
+      this.loading.has((await tab.webview).properties.url),
     );
 
     ipcRenderer.send("update-menu", {
@@ -825,7 +871,7 @@ export class ServerManagerView {
         {
           label: t.__("Disconnect organization"),
           async click() {
-            const {response} = await dialog.showMessageBox({
+            const { response } = await dialog.showMessageBox({
               type: "warning",
               buttons: [t.__("Yes"), t.__("No")],
               defaultId: 0,
@@ -837,7 +883,7 @@ export class ServerManagerView {
               if (DomainUtil.removeDomain(index)) {
                 ipcRenderer.send("reload-full-app");
               } else {
-                const {title, content} = Messages.orgRemovalError(
+                const { title, content } = Messages.orgRemovalError(
                   DomainUtil.getDomain(index).url,
                 );
                 dialog.showErrorBox(title, content);
@@ -864,7 +910,7 @@ export class ServerManagerView {
         },
       ];
       const contextMenu = Menu.buildFromTemplate(template);
-      contextMenu.popup({window: remote.getCurrentWindow()});
+      contextMenu.popup({ window: remote.getCurrentWindow() });
     });
   }
 
@@ -872,67 +918,67 @@ export class ServerManagerView {
     const webviewListeners: Array<
       [WebviewListener, (webview: WebView) => void]
     > = [
-      [
-        "webview-reload",
-        (webview) => {
-          webview.reload();
-        },
-      ],
-      [
-        "back",
-        (webview) => {
-          webview.back();
-        },
-      ],
-      [
-        "focus",
-        (webview) => {
-          webview.focus();
-        },
-      ],
-      [
-        "forward",
-        (webview) => {
-          webview.forward();
-        },
-      ],
-      [
-        "zoomIn",
-        (webview) => {
-          webview.zoomIn();
-        },
-      ],
-      [
-        "zoomOut",
-        (webview) => {
-          webview.zoomOut();
-        },
-      ],
-      [
-        "zoomActualSize",
-        (webview) => {
-          webview.zoomActualSize();
-        },
-      ],
-      [
-        "log-out",
-        (webview) => {
-          webview.logOut();
-        },
-      ],
-      [
-        "show-keyboard-shortcuts",
-        (webview) => {
-          webview.showKeyboardShortcuts();
-        },
-      ],
-      [
-        "tab-devtools",
-        (webview) => {
-          webview.openDevTools();
-        },
-      ],
-    ];
+        [
+          "webview-reload",
+          (webview) => {
+            webview.reload();
+          },
+        ],
+        [
+          "back",
+          (webview) => {
+            webview.back();
+          },
+        ],
+        [
+          "focus",
+          (webview) => {
+            webview.focus();
+          },
+        ],
+        [
+          "forward",
+          (webview) => {
+            webview.forward();
+          },
+        ],
+        [
+          "zoomIn",
+          (webview) => {
+            webview.zoomIn();
+          },
+        ],
+        [
+          "zoomOut",
+          (webview) => {
+            webview.zoomOut();
+          },
+        ],
+        [
+          "zoomActualSize",
+          (webview) => {
+            webview.zoomActualSize();
+          },
+        ],
+        [
+          "log-out",
+          (webview) => {
+            webview.logOut();
+          },
+        ],
+        [
+          "show-keyboard-shortcuts",
+          (webview) => {
+            webview.showKeyboardShortcuts();
+          },
+        ],
+        [
+          "tab-devtools",
+          (webview) => {
+            webview.openDevTools();
+          },
+        ],
+      ];
 
     for (const [channel, listener] of webviewListeners) {
       ipcRenderer.on(channel, async () => {
@@ -963,17 +1009,17 @@ export class ServerManagerView {
           webContentsId === null
             ? origin === "null" && permission === "notifications"
             : (
-                await Promise.all(
-                  this.tabs.map(async (tab) => {
-                    if (!(tab instanceof ServerTab)) return false;
-                    const webview = await tab.webview;
-                    return (
-                      webview.webContentsId === webContentsId &&
-                      webview.properties.hasPermission?.(origin, permission)
-                    );
-                  }),
-                )
-              ).some(Boolean);
+              await Promise.all(
+                this.tabs.map(async (tab) => {
+                  if (!(tab instanceof ServerTab)) return false;
+                  const webview = await tab.webview;
+                  return (
+                    webview.webContentsId === webContentsId &&
+                    webview.properties.hasPermission?.(origin, permission)
+                  );
+                }),
+              )
+            ).some(Boolean);
         console.log(
           grant ? "Granted" : "Denied",
           "permissions request for",
@@ -1245,4 +1291,5 @@ window.addEventListener("load", async () => {
 
   const serverManagerView = new ServerManagerView();
   await serverManagerView.init();
+
 });
