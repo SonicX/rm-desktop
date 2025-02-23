@@ -68,13 +68,30 @@ const toggleApp = (): void => {
   }
 };
 
+function setFeaturesApp(){
+  // app.commandLine.appendSwitch("disable-web-security"); // Отключаем CORS
+  // app.commandLine.appendSwitch("enable-features", "WebRTC-ScreenCapture"); // Включаем WebRTC
+  app.commandLine.appendSwitch("use-fake-ui-for-media-stream"); // Убираем UI запроса доступа
+  // app.commandLine.appendSwitch("allow-file-access-from-files"); // Доступ к локальным файлам
+  // app.commandLine.appendSwitch("disable-site-isolation-trials"); // Отключаем Site Isolation
+  // app.commandLine.appendSwitch("disable-features", "CrossOriginOpenerPolicy");
+  // app.commandLine.appendSwitch("disable-features", "MediaSessionService");
+  // app.commandLine.appendSwitch("enable-experimental-web-platform-features"); // Включаем экспериментальные API
+  // app.commandLine.appendSwitch("disable-webrtc-hw-decoding"); // Отключаем аппаратное декодирование WebRTC
+  // app.commandLine.appendSwitch("disable-webrtc-hw-encoding"); // Отключаем аппаратное кодирование WebRTC
+}
+
+
 function createMainWindow(): BrowserWindow {
+
+  // setFeaturesApp();
   // Load the previous state with fallback to defaults
   mainWindowState = windowStateKeeper({
     defaultWidth: 1100,
     defaultHeight: 720,
     path: `${app.getPath("userData")}/config`,
   });
+  process.stdout.write('**--: ' + 2);
 
   const win = new BrowserWindow({
     // This settings needs to be saved in config
@@ -89,11 +106,19 @@ function createMainWindow(): BrowserWindow {
     webPreferences: {
       preload: path.join(bundlePath, "renderer.js"),
       sandbox: false,
-      webviewTag: true
+      webviewTag: true,
+      // nodeIntegration: false, // Разрешаем Node.js API
+      // contextIsolation: true, // Отключаем изоляцию контекста
+      // nativeWindowOpen: true, // Включаем поддержку окон
+      // webSecurity: false,
+      // enableRemoteModule: false,
+      // allowRunningInsecureContent: true,
+      //additionalArguments: ['--enable-features=WebRTCPipeWireCapturer'],
     },
     show: false,
   });
   // win.webContents.openDevTools();
+
   remoteMain.enable(win.webContents);
 
   win.on("focus", () => {
@@ -157,6 +182,8 @@ function createMainWindow(): BrowserWindow {
     return;
   }
 
+  setFeaturesApp();
+  
   await app.whenReady();
 
   if (process.env.GDK_BACKEND !== GDK_BACKEND) {
@@ -180,7 +207,6 @@ function createMainWindow(): BrowserWindow {
       if (mainWindow.isMinimized()) {
         mainWindow.restore();
       }
-
       mainWindow.show();
     }
   });
@@ -261,8 +287,10 @@ function createMainWindow(): BrowserWindow {
   AppMenu.setMenu({
     tabs: [],
   });
-  mainWindow = createMainWindow();
 
+  console.log("🖼 Создаём окно...");
+  mainWindow = createMainWindow();
+  console.log("✅ Окно создано!");
   // Auto-hide menu bar on Windows + Linux
   if (process.platform !== "darwin") {
     const shouldHideMenu = ConfigUtil.getConfigItem("autoHideMenubar", false);
