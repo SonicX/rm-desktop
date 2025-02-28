@@ -3,7 +3,7 @@ import path from "node:path";
 import process from "node:process";
 import url from "node:url";
 
-import { Menu, app, dialog, session } from "@electron/remote";
+import { Menu, app, desktopCapturer, dialog, session } from "@electron/remote";
 import * as remote from "@electron/remote";
 import * as Sentry from "@sentry/electron/renderer";
 
@@ -35,6 +35,7 @@ import { initializeTray } from "./tray.js";
 import { ipcRenderer } from "./typed-ipc-renderer.js";
 import * as DomainUtil from "./utils/domain-util.js";
 import ReconnectUtil from "./utils/reconnect-util.js";
+import { ipcMain } from "electron/main";
 
 Sentry.init({});
 
@@ -83,7 +84,6 @@ app.whenReady().then((choice) => {
 })
 
 export class ServerManagerView {
-  $addServerButton: HTMLButtonElement;
   $tabsContainer: Element;
   $reloadButton: HTMLButtonElement;
   $loadingIndicator: HTMLButtonElement;
@@ -109,7 +109,6 @@ export class ServerManagerView {
   presetOrgs: string[];
   preferenceView?: PreferenceView;
   constructor() {
-    this.$addServerButton = document.querySelector("#add-tab")!;
     this.$tabsContainer = document.querySelector("#tabs-container")!;
 
     const $actionsContainer = document.querySelector("#actions-container")!;
@@ -353,55 +352,20 @@ export class ServerManagerView {
     const server = {
       url: "https://joinrm-svz.ru",
       alias: "Цифровые технологии РМ",
-      icon: "https://connectrm-svz.ru//user_avatars/2/realm/night_logo.png?version=2"
+      icon: "https://connectrm-svz.ru//user_avatars/2/realm/night_logo.png?version=2",
+      zulipVersion: "5.0"
     } as ServerConfig
 
-    DomainUtil.removeDomains();
-    DomainUtil.addDomain(server);
-
-    const servers = [server];
-    if (servers.length > 0) {
-      for (const [i, server] of servers.entries()) {
-        const tab = this.initServer(server, i);
-        (async () => {
-          const serverConfig = await DomainUtil.updateSavedServer(
-            server.url,
-            i,
-          );
-          tab.setLabel(serverConfig.alias);
-          tab.setIcon(DomainUtil.iconAsUrl(serverConfig.icon));
-          (await tab.webview).setUnsupportedMessage(
-            DomainUtil.getUnsupportedMessage(serverConfig),
-          );
-        })();
-      }
-
-      // Open last active tab
-      let lastActiveTab = ConfigUtil.getConfigItem("lastActiveTab", 0);
-      if (lastActiveTab >= servers.length) {
-        lastActiveTab = 0;
-      }
-
-      // `webview.load()` for lastActiveTab before the others
-      await this.activateTab(lastActiveTab);
-      await Promise.all(
-        servers.map(async (server, i) => {
-          // After the lastActiveTab is activated, we load the others in the background
-          // without activating them, to prevent flashing of server icons
-          if (i === lastActiveTab) {
-            return;
-          }
-
-          const tab = this.tabs[i];
-          if (tab instanceof ServerTab) (await tab.webview).load();
-        }),
+    const tab = this.initServer(server, 0);
+    (async () => {
+      const serverConfig = await DomainUtil.updateSavedServer(server.url, 0);
+      tab.setLabel(serverConfig.alias);
+      tab.setIcon(DomainUtil.iconAsUrl(serverConfig.icon));
+      (await tab.webview).setUnsupportedMessage(
+        DomainUtil.getUnsupportedMessage(serverConfig),
       );
-      // Remove focus from the settings icon at sidebar bottom
-      this.$settingsButton.classList.remove("active");
-    } else if (this.presetOrgs.length === 0) {
-    } else {
-      this.showLoading(true);
-    }
+    })();
+    await this.activateTab(0);
   }
 
   initServer(server: ServerConfig, index: number): ServerTab {
@@ -503,7 +467,6 @@ export class ServerManagerView {
       if (tab instanceof ServerTab) (await tab.webview).back();
     });
 
-    this.sidebarHoverEvent(this.$addServerButton, this.$addServerTooltip, true);
     this.sidebarHoverEvent(this.$loadingIndicator, this.$loadingTooltip);
     this.sidebarHoverEvent(this.$settingsButton, this.$settingsTooltip);
     this.sidebarHoverEvent(this.$reloadButton, this.$reloadTooltip);
@@ -1172,8 +1135,6 @@ window.addEventListener("load", async () => {
       <div id="sidebar" class="toggle-sidebar">
         <div id="view-controls-container">
           <div id="tabs-container"></div>
-          <div id="add-tab" class="tab functional-tab">
-          </div>
         </div>
         <div id="actions-container">
           <div class="action-button" id="dnd-action">

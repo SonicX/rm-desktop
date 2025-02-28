@@ -23,7 +23,7 @@ export class AboutView {
       <div class="maintenance-info">
         <p class="detail maintainer">
           ${new Html({
-            html: t.__("Maintained by {{{link}}}Zulip{{{endLink}}}", {
+            html: t.__("Maintained by {{{link}}}RM{{{endLink}}}", {
               link: '<a href="https://zulip.com" target="_blank" rel="noopener noreferrer">',
               endLink: "</a>",
             }),

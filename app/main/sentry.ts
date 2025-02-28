@@ -15,7 +15,7 @@ export const sentryInit = (): void => {
     // We should ignore this error since it's harmless and we know the reason behind this
     // This error mainly comes from the console logs.
     // This is a temp solution until Sentry supports disabling the console logs
-    ignoreErrors: ["does not appear to be a valid Zulip server"],
+    ignoreErrors: ["does not appear to be a valid RM server"],
 
     /// sendTimeout: 30 // wait 30 seconds before considering the sending capture to have failed, default is 1 second
   });

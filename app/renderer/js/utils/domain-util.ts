@@ -41,7 +41,7 @@ try {
   if (typeof oldDomain === "string") {
     (async () => {
       await addDomain({
-        alias: "Zulip",
+        alias: "RM",
         url: oldDomain,
       });
       database.delete("/domain");
