@@ -63,26 +63,6 @@ const dingSound = new Audio(
   new URL("resources/sounds/ding.ogg", bundleUrl).href,
 );
 
-app.whenReady().then((choice) => {
-  process.stdout.write('**--: ' + 12);
-  // Обработка запроса на захват экрана
-  ipcMain.on('capture-screen', async (event) => {
-    process.stdout.write('**--: ' + 13);
-    try {
-      const sources = await desktopCapturer.getSources({ types: ['screen', 'window'] });
-      const sourceOptions = sources.map((source) => ({
-        name: source.name,
-        id: source.id
-      }));
-
-      // Отправляем список доступных источников обратно в рендерер
-      event.reply('screen-sources', sourceOptions);
-    } catch (error) {
-      process.stdout.write('**-- Ошибка при получении источников экрана:  ' + error);
-    }
-  });
-})
-
 export class ServerManagerView {
   $tabsContainer: Element;
   $reloadButton: HTMLButtonElement;
@@ -161,9 +141,9 @@ export class ServerManagerView {
     this.initDefaultSettings();
     this.initSidebar();
     this.removeUaFromDisk();
-    if (EnterpriseUtil.hasConfigFile()) {
-      await this.initPresetOrgs();
-    }
+    // if (EnterpriseUtil.hasConfigFile()) {
+    //   await this.initPresetOrgs();
+    // }
 
     await this.initTabs();
     this.initActions();
@@ -350,28 +330,26 @@ export class ServerManagerView {
   
   async initTabs(): Promise<void> {
     const server = {
-      url: "https://joinrm-svz.ru",
+      url: "https://connectrm-svz.ru",
       alias: "Цифровые технологии РМ",
-      icon: "https://connectrm-svz.ru//user_avatars/2/realm/night_logo.png?version=2",
-      zulipVersion: "5.0"
+      icon: "https://connectrm-svz.ru//user_avatars/2/realm/night_logo.png?version=2"
     } as ServerConfig
 
+    DomainUtil.removeDomains()
     const tab = this.initServer(server, 0);
+    DomainUtil.addDomain(server);
+
     (async () => {
-      const serverConfig = await DomainUtil.updateSavedServer(server.url, 0);
-      tab.setLabel(serverConfig.alias);
-      tab.setIcon(DomainUtil.iconAsUrl(serverConfig.icon));
-      (await tab.webview).setUnsupportedMessage(
-        DomainUtil.getUnsupportedMessage(serverConfig),
-      );
+      tab.setLabel(server.alias);
+      tab.setIcon(DomainUtil.iconAsUrl(server.icon));
     })();
     await this.activateTab(0);
   }
 
   initServer(server: ServerConfig, index: number): ServerTab {
-    // console.log("$webviewsContainer:", this.$webviewsContainer);
-    // console.log("server.url:", server.url);
-    // console.log("preload:", url.pathToFileURL(path.join(bundlePath, "preload.js")).href);
+    console.log("$webviewsContainer:", this.$webviewsContainer);
+    console.log("server.url:", server.url);
+    console.log("preload:", url.pathToFileURL(path.join(bundlePath, "preload.js")).href);
 
     const tabIndex = this.getTabIndex();
 

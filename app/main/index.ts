@@ -117,7 +117,7 @@ function createMainWindow(): BrowserWindow {
     },
     show: false,
   });
-  // win.webContents.openDevTools();
+  win.webContents.openDevTools();
 
   remoteMain.enable(win.webContents);
 
