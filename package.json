@@ -1,6 +1,6 @@
 {
-  "name": "RM",
-  "productName": "Связь РМ",
+  "name": "rm",
+  "productName": "РМ Связь",
   "version": "5.11.1",
   "main": "./dist-electron",
   "description": "Приложение Связь РМ",
@@ -8,7 +8,7 @@
   "copyright": "Цифровые технологии РМ",
   "author": {
     "name": "Цифровые технологии РМ.",
-    "email": "root33@live.ru"
+    "email": "yuriy.tereschenko@yandex.ru"
   },
   "repository": {
     "type": "git",
@@ -37,13 +37,6 @@
   ],
   "build": {
     "appId": "ru.rm.rm-electron",
-    "asar": true,
-    "asarUnpack": [
-      "**/*.node"
-    ],
-    "files": [
-      "dist-electron/**/*"
-    ],
     "copyright": "©Цифровые технологии РМ",
     "mac": {
       "category": "public.app-category.productivity",
@@ -102,14 +95,7 @@
     "win": {
       "target": [
         {
-          "target": "nsis-web",
-          "arch": [
-            "x64",
-            "ia32"
-          ]
-        },
-        {
-          "target": "msi",
+          "target": "nsis",
           "arch": [
             "x64",
             "ia32"
@@ -117,22 +103,14 @@
         }
       ],
       "icon": "build/icon.png",
-      "publisherName": "Цифровые технологии РМ",
-      "sign": "./scripts/win-sign.js",
-      "signingHashAlgorithms": [
-        "sha256"
-      ]
-    },
-    "msi": {
-      "artifactName": "${productName}-${version}-${arch}.${ext}"
+      "publisherName": "Цифровые технологии РМ"
     },
     "nsis": {
-      "allowToChangeInstallationDirectory": true,
       "oneClick": false,
-      "perMachine": false
-    },
-    "nsisWeb": {
-      "artifactName": "${productName}-Web-Setup-${version}.${ext}"
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "РМ Связь"
     }
   },
   "keywords": [

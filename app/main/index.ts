@@ -106,7 +106,7 @@ function createMainWindow(): BrowserWindow {
     webPreferences: {
       preload: path.join(bundlePath, "renderer.js"),
       sandbox: false,
-      webviewTag: true,
+      webviewTag: true
       // nodeIntegration: false, // Разрешаем Node.js API
       // contextIsolation: true, // Отключаем изоляцию контекста
       // nativeWindowOpen: true, // Включаем поддержку окон
@@ -117,7 +117,7 @@ function createMainWindow(): BrowserWindow {
     },
     show: false,
   });
-  win.webContents.openDevTools();
+  //win.webContents.openDevTools();
 
   remoteMain.enable(win.webContents);
 
