@@ -1,6 +1,6 @@
 {
   "name": "rm",
-  "productName": "РМ Связь",
+  "productName": "RMConnect",
   "version": "5.11.1",
   "main": "./dist-electron",
   "description": "Приложение Связь РМ",
@@ -30,7 +30,7 @@
     "test-e2e": "vite build && tape \"tests/**/*.js\"",
     "pack": "vite build && electron-builder --dir",
     "dist": "vite build && electron-builder",
-    "mas": "vite build && electron-builder --mac mas"
+    "mas": "vite build && electron-builder --windows --config.win.target=nsis"
   },
   "pre-commit": [
     "test"
