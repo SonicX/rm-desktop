@@ -13,6 +13,8 @@ import {Buffer} from "node:buffer";
 import crypto from "node:crypto";
 import path from "node:path";
 import process from "node:process";
+import { autoUpdater } from "electron-updater";
+import log from "electron-log";
 
 import * as remoteMain from "@electron/remote/main";
 import windowStateKeeper from "electron-window-state";
@@ -33,6 +35,14 @@ import {setAutoLaunch} from "./startup.js";
 import {ipcMain, send} from "./typed-ipc-main.js";
 
 import "gatemaker/electron-setup"; // eslint-disable-line import/no-unassigned-import
+
+// Настройка логирования
+log.transports.file.level = 'info';
+autoUpdater.logger = log;
+
+// Настройка автообновления
+autoUpdater.autoDownload = true; // Автоматическая загрузка обновлений
+autoUpdater.autoInstallOnAppQuit = true; // Установка при закрытии приложения
 
 // eslint-disable-next-line @typescript-eslint/naming-convention
 const {GDK_BACKEND} = process.env;
@@ -506,6 +516,39 @@ function createMainWindow(): BrowserWindow {
 
 app.on("before-quit", () => {
   isQuitting = true;
+});
+
+// Проверка обновлений при запуске
+app.whenReady().then(() => {
+  autoUpdater.checkForUpdatesAndNotify(); // Проверка обновлений с уведомлением пользователя
+});
+
+// События обновления
+autoUpdater.on('checking-for-update', () => {
+  log.info('Проверка обновлений...');
+});
+
+autoUpdater.on('update-available', (info) => {
+  log.info(`Доступно обновление: v${info.version}`);
+});
+
+autoUpdater.on('update-not-available', () => {
+  log.info('Обновлений нет.');
+});
+
+autoUpdater.on('download-progress', (progress) => {
+  log.info(`Прогресс загрузки: ${progress.percent}%`);
+});
+
+autoUpdater.on('update-downloaded', () => {
+  log.info('Обновление загружено. Перезапуск через 5 секунд...');
+  setTimeout(() => {
+    autoUpdater.quitAndInstall(); // Перезапуск и установка
+  }, 5000);
+});
+
+autoUpdater.on('error', (err) => {
+  log.error('Ошибка обновления:', err);
 });
 
 // Send crash reports

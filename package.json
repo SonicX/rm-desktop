@@ -38,6 +38,14 @@
   "build": {
     "appId": "ru.rm.rm-electron",
     "copyright": "©Цифровые технологии РМ",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "sg12",
+        "repo": "sg12/zulip-desktop",
+        "releaseType": "release"
+      }
+    ],
     "mac": {
       "category": "public.app-category.productivity",
       "target": [
