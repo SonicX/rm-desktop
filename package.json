@@ -112,7 +112,7 @@
       ],
       "icon": "build/icon.png",
       "publisherName": "Цифровые технологии РМ",
-      "sign": "scripts/sign.bat"
+      "sign": "scripts/sign.js"
     },
     "nsis": {
       "oneClick": false,
@@ -120,7 +120,7 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "shortcutName": "Связь РМ",
-      "icon": "build/installer-icon.ico"
+      "installerIcon": "build/installer-icon.ico"
     }
   },
   "keywords": [
