@@ -1,6 +1,6 @@
 {
   "name": "rm",
-  "productName": "RMConnect",
+  "productName": "Связь РМ",
   "version": "5.11.1",
   "main": "./dist-electron",
   "description": "Приложение Связь РМ",
@@ -111,14 +111,16 @@
         }
       ],
       "icon": "build/icon.png",
-      "publisherName": "Цифровые технологии РМ"
+      "publisherName": "Цифровые технологии РМ",
+      "sign": "scripts/sign.bat"
     },
     "nsis": {
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "shortcutName": "РМ Связь"
+      "shortcutName": "Связь РМ",
+      "icon": "build/installer-icon.ico"
     }
   },
   "keywords": [
