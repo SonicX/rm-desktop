@@ -29,7 +29,7 @@
     "test": "tsc && npm run lint-html && npm run lint-css && npm run lint-js && npm run prettier-non-js",
     "test-e2e": "vite build && tape \"tests/**/*.js\"",
     "pack": "vite build && electron-builder --dir",
-    "dist": "vite build && electron-builder",
+    "dist": "vite build && electron-builder --publish always",
     "mas": "vite build && electron-builder --windows --config.win.target=nsis"
   },
   "pre-commit": [
@@ -42,7 +42,7 @@
       {
         "provider": "github",
         "owner": "sg12",
-        "repo": "sg12/zulip-desktop",
+        "repo": "zulip-desktop",
         "releaseType": "release"
       }
     ],
