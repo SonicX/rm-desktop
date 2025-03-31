@@ -1,7 +1,7 @@
 {
   "name": "rm",
   "productName": "Связь РМ",
-  "version": "5.11.1",
+  "version": "5.20.0",
   "main": "./dist-electron",
   "description": "Приложение Связь РМ",
   "license": "Apache-2.0",
@@ -110,7 +110,7 @@
           ]
         }
       ],
-      "icon": "build/icon.png",
+      "icon": "build/icon.ico",
       "publisherName": "Цифровые технологии РМ",
       "sign": "scripts/sign.js"
     },
