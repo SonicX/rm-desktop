@@ -1,5 +1,5 @@
-import type { DndSettings } from "./dnd-util.js";
-import type { MenuProperties, ServerConfig } from "./types.js";
+import type {DndSettings} from "./dnd-util.js";
+import type {MenuProperties, ServerConfig} from "./types.js";
 
 export type MainMessage = {
   "clear-app-settings": () => void;
@@ -7,9 +7,9 @@ export type MainMessage = {
   "fetch-user-agent": () => string;
   "focus-app": () => void;
   "focus-this-webview": () => void;
-  "new-clipboard-key": () => { key: Uint8Array; sig: Uint8Array };
+  "new-clipboard-key": () => {key: Uint8Array; sig: Uint8Array};
   "permission-callback": (permissionCallbackId: number, grant: boolean) => void;
-  "quit-app": () => void;
+  "quit-app": () => void; // Уже есть в MainMessage
   "realm-icon-changed": (serverURL: string, iconURL: string) => void;
   "realm-name-changed": (serverURL: string, realmName: string) => void;
   "reload-full-app": () => void;
@@ -23,8 +23,7 @@ export type MainMessage = {
   "update-badge": (messageCount: number) => void;
   "update-menu": (properties: MenuProperties) => void;
   "update-taskbar-icon": (data: string, text: string) => void;
-  // Добавленные каналы для автообновления
-  "restart_app": () => void; // Для перезапуска приложения
+  "restart_app": () => void; // Для автообновления
 };
 
 export type MainCall = {
@@ -53,7 +52,7 @@ export type RendererMessage = {
   "open-org-tab": () => void;
   "open-settings": () => void;
   "permission-request": (
-    options: { webContentsId: number | null; origin: string; permission: string },
+    options: {webContentsId: number | null; origin: string; permission: string},
     rendererCallbackId: number,
   ) => void;
   "play-ding-sound": () => void;
@@ -67,7 +66,10 @@ export type RendererMessage = {
   "show-notification-settings": () => void;
   "switch-server-tab": (index: number) => void;
   "tab-devtools": () => void;
-  "toggle-autohide-menubar": (autoHideMenubar: boolean, updateMenu: boolean) => void;
+  "toggle-autohide-menubar": (
+    autoHideMenubar: boolean,
+    updateMenu: boolean,
+  ) => void;
   "toggle-dnd": (state: boolean, newSettings: Partial<DndSettings>) => void;
   "toggle-sidebar": (show: boolean) => void;
   "toggle-silent": (state: boolean) => void;
@@ -80,9 +82,9 @@ export type RendererMessage = {
   zoomActualSize: () => void;
   zoomIn: () => void;
   zoomOut: () => void;
-  // Добавленные каналы для автообновления
   "update_available": (version: string) => void;
   "update_progress": (percent: number) => void;
   "update_downloaded": () => void;
   "update_error": (message: string) => void;
+  "quit-app": () => void; // Добавляем quit-app в RendererMessage
 };

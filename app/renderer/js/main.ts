@@ -747,7 +747,7 @@ export class ServerManagerView {
       ["show-keyboard-shortcuts", (webview) => { webview.showKeyboardShortcuts(); }],
       ["tab-devtools", (webview) => { webview.openDevTools(); }],
     ];
-
+  
     for (const [channel, listener] of webviewListeners) {
       ipcRenderer.on(channel, async () => {
         const tab = this.tabs[this.activeTabIndex];
@@ -757,6 +757,11 @@ export class ServerManagerView {
         }
       });
     }
+
+    ipcRenderer.on("quit-app", () => {
+      console.log("Renderer: Received quit-app event, forwarding to main process");
+      ipcRenderer.send("quit-app");
+    });
 
     ipcRenderer.on("permission-request", async (
       event,

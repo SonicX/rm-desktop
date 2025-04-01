@@ -60,10 +60,17 @@ const mainUrl = new URL("app/renderer/main.html", bundleUrl).href;
 const permissionCallbacks = new Map<number, (grant: boolean) => void>();
 let nextPermissionCallbackId = 0;
 
-const appIcon = path.join(publicPath, "resources/Icon");
+const appIcon = path.join(publicPath, "resources/icon");
 
-const iconPath = (): string =>
-  appIcon + (process.platform === "win32" ? ".ico" : ".png");
+const iconPath = (): string => {
+  if (process.platform === "win32") {
+    return appIcon + ".ico";
+  } else if (process.platform === "darwin") {
+    return appIcon + ".icns";
+  } else {
+    return appIcon + ".png";
+  }
+};
 
 const toggleApp = (): void => {
   if (!mainWindow.isVisible() || mainWindow.isMinimized()) {
@@ -101,7 +108,7 @@ function createMainWindow(): BrowserWindow {
     },
     show: false,
   });
-
+  // win.webContents.openDevTools();
   remoteMain.enable(win.webContents);
 
   win.on("focus", () => {
@@ -160,6 +167,28 @@ function createMainWindow(): BrowserWindow {
 
   setFeaturesApp();
   await app.whenReady();
+
+  const ses = session.fromPartition("persist:webviewsession");
+  ses.setUserAgent(`ZulipElectron/${app.getVersion()} ${ses.getUserAgent()}`);
+
+  // Регистрация обработчиков IPC
+  ipcMain.handle("get-server-settings", async (event, domain: string) =>
+    _getServerSettings(domain, ses),
+  );
+
+  ipcMain.handle("save-server-icon", async (event, url: string) =>
+    _saveServerIcon(url, ses),
+  );
+
+  ipcMain.handle("is-online", async (event, url: string) =>
+    _isOnline(url, ses),
+  );
+
+  ipcMain.on("quit-app", () => {
+    log.info("Main: Received quit-app event, closing application...");
+    isQuitting = true;
+    app.quit();
+  });
 
   if (process.env.GDK_BACKEND !== GDK_BACKEND) {
     console.warn(

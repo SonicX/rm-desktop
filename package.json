@@ -66,13 +66,14 @@
       ],
       "darkModeSupport": true,
       "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "icon": "build/icon.icns",
       "notarize": {
         "teamId": ""
       }
     },
     "linux": {
       "category": "Chat;GNOME;GTK;Network;InstantMessaging",
-      "icon": "build/icons",
+      "icon": "build/icon",
       "description": "RM Desktop Client for Linux",
       "target": [
         "deb",

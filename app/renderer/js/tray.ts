@@ -1,16 +1,15 @@
-import {type NativeImage, nativeImage} from "electron/common";
-import type {Tray as ElectronTray} from "electron/main";
+import { type NativeImage, nativeImage } from "electron/common";
 import path from "node:path";
 import process from "node:process";
-
-import {BrowserWindow, Menu, Tray} from "@electron/remote";
+import * as remote from "@electron/remote";
+import { BrowserWindow, Menu, Tray } from "@electron/remote";
+import type { Tray as ElectronTray } from "electron"; // Импортируем тип Tray из electron
 
 import * as ConfigUtil from "../../common/config-util.js";
-import {publicPath} from "../../common/paths.js";
-import type {RendererMessage} from "../../common/typed-ipc.js";
-
-import type {ServerManagerView} from "./main.js";
-import {ipcRenderer} from "./typed-ipc-renderer.js";
+import { publicPath } from "../../common/paths.js";
+import type { RendererMessage } from "../../common/typed-ipc.js";
+import type { ServerManagerView } from "./main.js";
+import { ipcRenderer } from "./typed-ipc-renderer.js";
 
 let tray: ElectronTray | null = null;
 
@@ -20,10 +19,7 @@ const iconPath = (): string => {
   if (process.platform === "linux") {
     return appIcon + "linux.png";
   }
-
-  return (
-    appIcon + (process.platform === "win32" ? "win.ico" : "macOSTemplate.png")
-  );
+  return appIcon + (process.platform === "win32" ? "win.ico" : "macOSTemplate.png");
 };
 
 const winUnreadTrayIconPath = (): string => appIcon + "unread.ico";
@@ -32,25 +28,17 @@ let unread = 0;
 
 const trayIconSize = (): number => {
   switch (process.platform) {
-    case "darwin": {
+    case "darwin":
       return 20;
-    }
-
-    case "win32": {
+    case "win32":
       return 100;
-    }
-
-    case "linux": {
+    case "linux":
       return 100;
-    }
-
-    default: {
+    default:
       return 80;
-    }
   }
 };
 
-//  Default config for Icon we might make it OS specific if needed like the size
 const config = {
   pixelRatio: window.devicePixelRatio,
   unreadCount: 0,
@@ -80,8 +68,6 @@ const renderCanvas = function (argument: number): HTMLCanvasElement {
   canvas.height = size;
   const context = canvas.getContext("2d")!;
 
-  // Circle
-  // If (!config.thick || config.thick && hasCount) {
   context.beginPath();
   context.arc(center, center, size / 2 - padding, 0, 2 * Math.PI, false);
   context.fillStyle = backgroundColor;
@@ -89,7 +75,7 @@ const renderCanvas = function (argument: number): HTMLCanvasElement {
   context.lineWidth = size / (config.thick ? 10 : 20);
   context.strokeStyle = backgroundColor;
   context.stroke();
-  // Count or Icon
+
   if (hasCount) {
     context.fillStyle = color;
     context.textAlign = "center";
@@ -101,22 +87,13 @@ const renderCanvas = function (argument: number): HTMLCanvasElement {
       context.fillText(String(config.unreadCount), center, center + size * 0.2);
     } else {
       context.font = `${config.thick ? "bold " : ""}${size * 0.5}px Helvetica`;
-      context.fillText(
-        String(config.unreadCount),
-        center,
-        center + size * 0.15,
-      );
+      context.fillText(String(config.unreadCount), center, center + size * 0.15);
     }
   }
 
   return canvas;
 };
 
-/**
- * Renders the tray icon as a native image
- * @param arg: Unread count
- * @return the native image
- */
 const renderNativeImage = function (argument: number): NativeImage {
   if (process.platform === "win32") {
     return nativeImage.createFromPath(winUnreadTrayIconPath());
@@ -165,7 +142,8 @@ const createTray = function (): void {
     {
       label: "Quit",
       click() {
-        ipcRenderer.send("quit-app");
+        console.log("Tray: Sending quit-app event to main process");
+        remote.getCurrentWindow().webContents.send("quit-app");
       },
     },
   ]);
@@ -197,7 +175,6 @@ export function initializeTray(serverManagerView: ServerManagerView) {
       return;
     }
 
-    // We don't want to create tray from unread messages on macOS since it already has dock badges.
     if (process.platform === "linux" || process.platform === "win32") {
       if (argument === 0) {
         unread = argument;
@@ -220,7 +197,6 @@ export function initializeTray(serverManagerView: ServerManagerView) {
       if (tray.isDestroyed()) {
         tray = null;
       }
-
       ConfigUtil.setConfigItem("trayIcon", false);
     } else {
       state = true;
@@ -230,7 +206,6 @@ export function initializeTray(serverManagerView: ServerManagerView) {
         tray!.setImage(image);
         tray!.setToolTip(`${unread} unread messages`);
       }
-
       ConfigUtil.setConfigItem("trayIcon", true);
     }
 
