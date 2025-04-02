@@ -134,16 +134,35 @@ export class ServerManagerView {
   }
 
   async init(): Promise<void> {
-    initializeTray(this);
-
-    await this.loadProxy();
-    this.initDefaultSettings();
-    this.initSidebar();
-    this.removeUaFromDisk();
-
+    // Показываем индикатор загрузки
+    const loadingIndicator = document.getElementById("loading-indicator");
+    if (loadingIndicator) {
+      loadingIndicator.style.display = "flex";
+    }
+  
+    // Выполняем асинхронные операции параллельно
+    await Promise.all([
+      (async () => {
+        initializeTray(this);
+      })(),
+      (async () => {
+        await this.loadProxy();
+      })(),
+      (async () => {
+        this.initDefaultSettings();
+        this.initSidebar();
+        this.removeUaFromDisk();
+      })(),
+    ]);
+  
     await this.initTabs();
     this.initActions();
     this.registerIpcs();
+  
+    // Скрываем индикатор загрузки
+    if (loadingIndicator) {
+      loadingIndicator.style.display = "none";
+    }
   }
 
   async loadProxy(): Promise<void> {
@@ -298,17 +317,27 @@ export class ServerManagerView {
     const server = {
       url: "https://connectrm-svz.ru",
       alias: "Цифровые технологии РМ",
-      icon: "https://connectrm-svz.ru//user_avatars/2/realm/night_logo.png?version=2",
+      icon: "https://disk.yandex.ru/i/m2aj56OOhsJfyw",
     } as ServerConfig;
-
+  
     DomainUtil.removeDomains();
     const tab = this.initServer(server, 0);
     DomainUtil.addDomain(server);
-
-    (async () => {
-      tab.setLabel(server.alias);
-      tab.setIcon(DomainUtil.iconAsUrl(server.icon));
-    })();
+  
+    // Устанавливаем метку сразу
+    tab.setLabel(server.alias);
+  
+    // Откладываем загрузку иконки
+    setTimeout(async () => {
+      try {
+        const iconUrl = await DomainUtil.saveServerIcon(server.icon);
+        tab.setIcon(DomainUtil.iconAsUrl(iconUrl));
+      } catch (error) {
+        console.log("Error loading server icon:", error);
+        tab.setIcon(DomainUtil.iconAsUrl("https://connectrm-svz.ru//user_avatars/2/realm/night_logo.png?version=2")); // Используем запасную иконку
+      }
+    }, 0);
+  
     await this.activateTab(0);
   }
 
@@ -879,22 +908,22 @@ export class ServerManagerView {
 
     // Обработчики для автообновления
     ipcRenderer.on("update_available", (event, version: string) => {
-      this.$updateTooltip.innerText = `Доступно обновление: v${version}`;
+      this.$updateTooltip.innerText = `Доступно: v${version}`;
       this.$updateButton.classList.remove("hidden");
     });
 
     ipcRenderer.on("update_progress", (event, percent: number) => {
-      this.$updateTooltip.innerText = `Загрузка обновления: ${percent}%`;
+      this.$updateTooltip.innerText = `Загрузка: ${~~percent}%`;
       this.$updateButton.classList.remove("hidden");
     });
 
     ipcRenderer.on("update_downloaded", () => {
-      this.$updateTooltip.innerText = "Обновление готово! Нажмите для перезапуска.";
+      this.$updateTooltip.innerText = "Готово!";
       this.$updateButton.classList.remove("hidden");
     });
 
     ipcRenderer.on("update_error", (event, message: string) => {
-      this.$updateTooltip.innerText = `Ошибка обновления: ${message}`;
+      this.$updateTooltip.innerText = `Ошибка: ${message}`;
       this.$updateButton.classList.remove("hidden");
     });
   }

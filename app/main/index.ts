@@ -66,7 +66,7 @@ const iconPath = (): string => {
   if (process.platform === "win32") {
     return appIcon + ".ico";
   } else if (process.platform === "darwin") {
-    return appIcon + ".icns";
+    return appIcon + ".png";
   } else {
     return appIcon + ".png";
   }
@@ -92,9 +92,11 @@ function createMainWindow(): BrowserWindow {
     path: `${app.getPath("userData")}/config`,
   });
 
+  let icon = iconPath();
+
   const win = new BrowserWindow({
     title: "RM",
-    icon: iconPath(),
+    icon: icon,
     x: mainWindowState.x,
     y: mainWindowState.y,
     width: mainWindowState.width,
@@ -107,15 +109,18 @@ function createMainWindow(): BrowserWindow {
       webviewTag: true,
     },
     show: false,
+    backgroundColor: '#fff', // Устанавливаем белый фон, чтобы избежать мигания
   });
-  // win.webContents.openDevTools();
+  win.webContents.openDevTools();
   remoteMain.enable(win.webContents);
 
-  win.on("focus", () => {
-    send(win.webContents, "focus");
+  win.loadURL(mainUrl).then(() => {
+    if (ConfigUtil.getConfigItem("startMinimized", false)) {
+      win.hide();
+    } else {
+      win.show();
+    }
   });
-
-  (async () => win.loadURL(mainUrl))();
 
   win.on("close", (event) => {
     if (ConfigUtil.getConfigItem("quitOnClose", false)) {
@@ -124,6 +129,7 @@ function createMainWindow(): BrowserWindow {
 
     if (!isQuitting && !shouldQuitForUpdate()) {
       event.preventDefault();
+
       if (process.platform === "darwin") {
         if (win.isFullScreen()) {
           win.setFullScreen(false);
@@ -139,8 +145,6 @@ function createMainWindow(): BrowserWindow {
     }
   });
 
-  win.setTitle("Цифровые технологии РМ");
-
   win.on("enter-full-screen", () => {
     send(win.webContents, "enter-fullscreen");
   });
@@ -155,6 +159,8 @@ function createMainWindow(): BrowserWindow {
     }
   });
 
+  win.setTitle("Цифровые технологии РМ");
+
   mainWindowState.manage(win);
   return win;
 }
@@ -166,6 +172,7 @@ function createMainWindow(): BrowserWindow {
   }
 
   setFeaturesApp();
+  
   await app.whenReady();
 
   const ses = session.fromPartition("persist:webviewsession");
@@ -184,10 +191,19 @@ function createMainWindow(): BrowserWindow {
     _isOnline(url, ses),
   );
 
+  ipcMain.on("focus-app", () => {
+    mainWindow.show();
+  });
+
   ipcMain.on("quit-app", () => {
     log.info("Main: Received quit-app event, closing application...");
     isQuitting = true;
     app.quit();
+  });
+
+  ipcMain.on("reload-full-app", () => {
+    mainWindow.reload();
+    send(page, "destroytray");
   });
 
   if (process.env.GDK_BACKEND !== GDK_BACKEND) {
@@ -213,8 +229,6 @@ function createMainWindow(): BrowserWindow {
     }
   });
 
-  // ... (остальной код до создания окна без изменений)
-
   console.log("🖼 Создаём окно...");
   mainWindow = createMainWindow();
   console.log("✅ Окно создано!");
@@ -235,14 +249,15 @@ function createMainWindow(): BrowserWindow {
     }
   });
 
-  // Проверка обновлений после загрузки окна
-  page.once("did-frame-finish-load", async () => {
+  page.once("did-frame-finish-load", () => {
+    // Запускаем проверку обновлений в фоновом режиме
     if (ConfigUtil.getConfigItem("autoUpdate", true)) {
-      await appUpdater(); // Оставляем вызов appUpdater
+      appUpdater().catch((error) => {
+        log.error("Error during app update check:", error);
+      });
     }
   });
 
-  // ... (остальной код до конца async блока без изменений)
 })();
 
 app.on("before-quit", () => {

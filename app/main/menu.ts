@@ -323,7 +323,7 @@ function sendAction<Channel extends keyof RendererMessage>(
 }
 
 async function checkForUpdate(): Promise<void> {
-  await appUpdater(true);
+  await appUpdater();
 }
 
 function getNextServer(tabs: TabData[], activeTabIndex: number): number {

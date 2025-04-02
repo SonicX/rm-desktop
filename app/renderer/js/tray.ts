@@ -3,7 +3,7 @@ import path from "node:path";
 import process from "node:process";
 import * as remote from "@electron/remote";
 import { BrowserWindow, Menu, Tray } from "@electron/remote";
-import type { Tray as ElectronTray } from "electron"; // Импортируем тип Tray из electron
+import type { Tray as ElectronTray } from "electron";
 
 import * as ConfigUtil from "../../common/config-util.js";
 import { publicPath } from "../../common/paths.js";
@@ -130,20 +130,13 @@ const createTray = function (): void {
       },
     },
     {
-      label: "Settings",
-      click() {
-        ipcRenderer.send("focus-app");
-        sendAction("open-settings");
-      },
-    },
-    {
       type: "separator",
     },
     {
       label: "Quit",
       click() {
         console.log("Tray: Sending quit-app event to main process");
-        remote.getCurrentWindow().webContents.send("quit-app");
+        BrowserWindow.getAllWindows()[0].webContents.send("quit-app");
       },
     },
   ]);
@@ -157,6 +150,12 @@ const createTray = function (): void {
 };
 
 export function initializeTray(serverManagerView: ServerManagerView) {
+  // Уничтожаем старый tray, если он существует
+  if (tray) {
+    tray.destroy();
+    tray = null;
+  }
+
   ipcRenderer.on("destroytray", () => {
     if (!tray) {
       return;
