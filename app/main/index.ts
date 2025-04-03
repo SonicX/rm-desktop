@@ -60,7 +60,7 @@ const mainUrl = new URL("app/renderer/main.html", bundleUrl).href;
 const permissionCallbacks = new Map<number, (grant: boolean) => void>();
 let nextPermissionCallbackId = 0;
 
-const appIcon = path.join(publicPath, "resources/icon");
+const appIcon = path.join(publicPath, "resources/Icon");
 
 const iconPath = (): string => {
   if (process.platform === "win32") {
@@ -109,9 +109,9 @@ function createMainWindow(): BrowserWindow {
       webviewTag: true,
     },
     show: false,
-    backgroundColor: '#fff', // Устанавливаем белый фон, чтобы избежать мигания
+    backgroundColor: '#333', // Устанавливаем белый фон, чтобы избежать мигания
   });
-  win.webContents.openDevTools();
+  //win.webContents.openDevTools();
   remoteMain.enable(win.webContents);
 
   win.loadURL(mainUrl).then(() => {

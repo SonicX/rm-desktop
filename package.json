@@ -1,7 +1,7 @@
 {
-  "name": "rm",
+  "name": "RMConnect",
   "productName": "Связь РМ",
-  "version": "5.20.0",
+  "version": "5.20.2",
   "main": "./dist-electron",
   "description": "Приложение Связь РМ",
   "license": "Apache-2.0",
@@ -29,7 +29,8 @@
     "test": "tsc && npm run lint-html && npm run lint-css && npm run lint-js && npm run prettier-non-js",
     "test-e2e": "vite build && tape \"tests/**/*.js\"",
     "pack": "vite build && electron-builder --dir",
-    "dist": "vite build && electron-builder --publish always",
+    "dist": "vite build && electron-builder",
+    "publish": "vite build && electron-builder",
     "mas": "vite build && electron-builder --windows --config.win.target=nsis"
   },
   "pre-commit": [
@@ -112,8 +113,7 @@
         }
       ],
       "icon": "build/icon.ico",
-      "publisherName": "Цифровые технологии РМ",
-      "sign": "scripts/sign.js"
+      "publisherName": "Цифровые технологии РМ"
     },
     "nsis": {
       "oneClick": false,
