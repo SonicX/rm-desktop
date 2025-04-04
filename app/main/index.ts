@@ -198,7 +198,7 @@ function createMainWindow(): BrowserWindow {
   }
 
   // Used for notifications on Windows
-  app.setAppUserModelId("ru.rm.rm-electron");
+  app.setAppUserModelId("org.rm.rm-electron");
 
   remoteMain.initialize();
 

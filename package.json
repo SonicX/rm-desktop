@@ -1,7 +1,7 @@
 {
-  "name": "rm",
-  "productName": "RMConnect",
-  "version": "5.11.1",
+  "name": "RMConnect",
+  "productName": "Связь РМ",
+  "version": "5.20.2",
   "main": "./dist-electron",
   "description": "Приложение Связь РМ",
   "license": "Apache-2.0",
@@ -30,14 +30,23 @@
     "test-e2e": "vite build && tape \"tests/**/*.js\"",
     "pack": "vite build && electron-builder --dir",
     "dist": "vite build && electron-builder",
+    "publish": "vite build && electron-builder",
     "mas": "vite build && electron-builder --windows --config.win.target=nsis"
   },
   "pre-commit": [
     "test"
   ],
   "build": {
-    "appId": "ru.rm.rm-electron",
+    "appId": "org.rm.rm-electron",
     "copyright": "©Цифровые технологии РМ",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "sg12",
+        "repo": "zulip-desktop",
+        "releaseType": "release"
+      }
+    ],
     "mac": {
       "category": "public.app-category.productivity",
       "target": [
@@ -58,13 +67,14 @@
       ],
       "darkModeSupport": true,
       "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "icon": "build/icon.icns",
       "notarize": {
         "teamId": ""
       }
     },
     "linux": {
       "category": "Chat;GNOME;GTK;Network;InstantMessaging",
-      "icon": "build/icons",
+      "icon": "build/icon",
       "description": "RM Desktop Client for Linux",
       "target": [
         "deb",
@@ -102,7 +112,7 @@
           ]
         }
       ],
-      "icon": "build/icon.png",
+      "icon": "build/icon.ico",
       "publisherName": "Цифровые технологии РМ"
     },
     "nsis": {
@@ -110,7 +120,8 @@
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "shortcutName": "РМ Связь"
+      "shortcutName": "Связь РМ",
+      "installerIcon": "build/installer-icon.ico"
     }
   },
   "keywords": [
