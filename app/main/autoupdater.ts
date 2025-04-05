@@ -20,7 +20,7 @@ export function shouldQuitForUpdate(): boolean {
   return quitting;
 }
 
-export async function appUpdater(updateFromMenu = false): Promise<void> {
+export async function appUpdater(updateFromMenu = true): Promise<void> {
   // Don't initiate auto-updates in development
   if (!app.isPackaged) {
     return;
