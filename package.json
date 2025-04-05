@@ -133,7 +133,6 @@
     "InstantMessaging"
   ],
   "dependencies": {
-    "@jitsi/electron-sdk": "^7.0.2",
     "gatemaker": "https://github.com/andersk/gatemaker/archive/d31890ae1cb293faabcb1e4e465c673458f6eed2.tar.gz",
     "webrtc-adapter": "^9.0.1"
   },
