@@ -1,4 +1,4 @@
-import {ipcRenderer} from "../typed-ipc-renderer.js";
+import { ipcRenderer } from "../typed-ipc-renderer.js";
 
 export const connectivityError: string[] = [
   "ERR_INTERNET_DISCONNECTED",
@@ -9,8 +9,20 @@ export const connectivityError: string[] = [
   "ERR_NETWORK_CHANGED",
 ];
 
-const userAgent = ipcRenderer.sendSync("fetch-user-agent");
+let userAgent: string | null = null;
 
-export function getUserAgent(): string {
+async function fetchUserAgent() {
+  if (!userAgent) {
+    const result = await ipcRenderer.invoke("fetch-user-agent");
+    if (typeof result === "string") {
+      userAgent = result;
+    } else {
+      throw new Error("Unexpected user-agent value: " + result);
+    }
+  }
   return userAgent;
+}
+
+export async function getUserAgent(): Promise<string> {
+  return fetchUserAgent();
 }
