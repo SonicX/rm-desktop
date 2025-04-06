@@ -202,12 +202,12 @@ export function initializeTray(serverManagerView: ServerManagerView) {
       if (argument === 0) {
         unread = argument;
         tray.setImage(iconPath());
-        tray.setToolTip("No unread messages");
+        tray.setToolTip("Нет сообщений");
       } else {
         unread = argument;
         const image = renderNativeImage(argument);
         tray.setImage(image);
-        tray.setToolTip(`${argument} unread messages`);
+        tray.setToolTip(`Сообщения ${argument}`);
       }
     }
   });
@@ -228,7 +228,7 @@ export function initializeTray(serverManagerView: ServerManagerView) {
       if (process.platform === "linux" || process.platform === "win32") {
         const image = renderNativeImage(unread);
         tray!.setImage(image);
-        tray!.setToolTip(`${unread} unread messages`);
+        tray!.setToolTip(`Сообщения ${unread}`);
       }
 
       ConfigUtil.setConfigItem("trayIcon", true);

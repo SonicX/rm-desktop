@@ -60,11 +60,11 @@ export async function appUpdater(updateFromMenu = true): Promise<void> {
 
       await dialog.showMessageBox({
         message: t.__(
-          "A new version {{{version}}} of RM is available.",
+          "Новая версия \"Связь РМ\" {{{version}}}.",
           {version: info.version},
         ),
         detail: t.__(
-          "The update will be downloaded in the background. You will be notified when it is ready to be installed.",
+          "Обновление будет выполнено в фоне. Мы уведомим вас об завершении.",
         ),
       });
     }
@@ -77,9 +77,9 @@ export async function appUpdater(updateFromMenu = true): Promise<void> {
       autoUpdater.removeAllListeners();
 
       await dialog.showMessageBox({
-        message: t.__("No updates available."),
+        message: t.__("Нет доступных обновлений."),
         detail: t.__(
-          "You are running the latest version of RM Desktop.\nVersion: {{{version}}}",
+          "Вы запустили последнюю версию \"Связь РМ\".\ Версия: {{{version}}}",
           {version: app.getVersion()},
         ),
       });
@@ -93,15 +93,15 @@ export async function appUpdater(updateFromMenu = true): Promise<void> {
       autoUpdater.removeAllListeners();
 
       const messageText = updateAvailable
-        ? t.__("Unable to download the update.")
-        : t.__("Unable to check for updates.");
-      const link = "https://zulip.com/apps/";
+        ? t.__("Неудалось скачать обновления.")
+        : t.__("Неудалось проверить обновления.");
+      const link = "https://rusmanul.com/";
       const {response} = await dialog.showMessageBox({
         type: "error",
-        buttons: [t.__("Manual Download"), t.__("Cancel")],
+        buttons: [t.__("Установить вручную"), t.__("Закрыть")],
         message: messageText,
         detail: t.__(
-          "Error: {{{error}}}\n\nThe latest version of RM Desktop is available at:\n{{{link}}}\nCurrent version: {{{version}}}",
+          "Ошибка: {{{error}}}\n\nПоследняя версия \"Связь РМ\" доступна:\n{{{link}}}\nТекущая версия: {{{version}}}",
           {error: error.message, link, version: app.getVersion()},
         ),
       });
@@ -116,13 +116,13 @@ export async function appUpdater(updateFromMenu = true): Promise<void> {
     // Ask user to update the app
     const {response} = await dialog.showMessageBox({
       type: "question",
-      buttons: [t.__("Install and Relaunch"), t.__("Install Later")],
+      buttons: [t.__("Установить и перезагрузить"), t.__("Установить позже")],
       defaultId: 0,
-      message: t.__("A new update {{{version}}} has been downloaded.", {
+      message: t.__("Новое обновление {{{version}}} было скачено.", {
         version: event.version,
       }),
       detail: t.__(
-        "It will be installed the next time you restart the application.",
+        "Оно будет установлен при следующем перезапуске приложения.",
       ),
     });
     if (response === 0) {
