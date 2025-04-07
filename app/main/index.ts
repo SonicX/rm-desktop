@@ -107,13 +107,6 @@ function createMainWindow(): BrowserWindow {
       preload: path.join(bundlePath, "renderer.js"),
       sandbox: false,
       webviewTag: true
-      // nodeIntegration: false, // Разрешаем Node.js API
-      // contextIsolation: true, // Отключаем изоляцию контекста
-      // nativeWindowOpen: true, // Включаем поддержку окон
-      // webSecurity: false,
-      // enableRemoteModule: false,
-      // allowRunningInsecureContent: true,
-      //additionalArguments: ['--enable-features=WebRTCPipeWireCapturer'],
     },
     show: false,
   });
