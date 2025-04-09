@@ -70,22 +70,6 @@ export async function appUpdater(updateFromMenu = true): Promise<void> {
     }
   });
 
-  autoUpdater.on("update-not-available", async () => {
-    if (updateFromMenu) {
-      // Remove all autoUpdator listeners so that next time autoUpdator is manually called these
-      // listeners don't trigger multiple times.
-      autoUpdater.removeAllListeners();
-
-      await dialog.showMessageBox({
-        message: t.__("Нет доступных обновлений."),
-        detail: t.__(
-          "Вы запустили последнюю версию \"Связь РМ\".\ Версия: {{{version}}}",
-          {version: app.getVersion()},
-        ),
-      });
-    }
-  });
-
   autoUpdater.on("error", async (error: Error) => {
     if (updateFromMenu) {
       // Remove all autoUpdator listeners so that next time autoUpdator is manually called these
