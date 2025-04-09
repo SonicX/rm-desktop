@@ -1,7 +1,7 @@
 {
   "name": "RMConnect",
   "productName": "Связь РМ",
-  "version": "5.25.2",
+  "version": "5.25.7",
   "main": "./dist-electron",
   "description": "Приложение Связь РМ",
   "license": "Apache-2.0",
