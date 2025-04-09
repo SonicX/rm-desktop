@@ -46,8 +46,7 @@ export async function appUpdater(updateFromMenu = true): Promise<void> {
   autoUpdater.allowPrerelease = isBetaUpdate;
 
   const eventsListenerRemove = [
-    "update-available",
-    "update-not-available",
+    "update-available"
   ] as const;
   autoUpdater.on("update-available", async (info: UpdateInfo) => {
     if (updateFromMenu) {
