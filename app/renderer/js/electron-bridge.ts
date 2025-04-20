@@ -1,15 +1,13 @@
-import {EventEmitter} from "node:events";
-
+import { EventEmitter } from "node:events";
+import { ipcRenderer } from "./typed-ipc-renderer.js";
 import {
   type ClipboardDecrypter,
   ClipboardDecrypterImplementation,
 } from "./clipboard-decrypter.js";
-import {type NotificationData, newNotification} from "./notification/index.js";
-import {ipcRenderer} from "./typed-ipc-renderer.js";
+import { type NotificationData, newNotification } from "./notification/index.js";
 
 type ListenerType = (...arguments_: any[]) => void;
 
-/* eslint-disable @typescript-eslint/naming-convention */
 export type ElectronBridge = {
   send_event: (eventName: string | symbol, ...arguments_: unknown[]) => boolean;
   on_event: (eventName: string, listener: ListenerType) => void;
@@ -24,22 +22,21 @@ export type ElectronBridge = {
   set_send_notification_reply_message_supported: (value: boolean) => void;
   decrypt_clipboard: (version: number) => ClipboardDecrypter;
 };
-/* eslint-enable @typescript-eslint/naming-convention */
 
 let notificationReplySupported = false;
-// Indicates if the user is idle or not
 let idle = false;
-// Indicates the time at which user was last active
 let lastActive = Date.now();
 
-export const bridgeEvents = new EventEmitter(); // eslint-disable-line unicorn/prefer-event-target
+export const bridgeEvents = new EventEmitter();
 
-/* eslint-disable @typescript-eslint/naming-convention */
 const electron_bridge: ElectronBridge = {
-  send_event: (eventName: string | symbol, ...arguments_: unknown[]): boolean =>
-    bridgeEvents.emit(eventName, ...arguments_),
+  send_event: (eventName: string | symbol, ...arguments_: unknown[]): boolean => {
+    ipcRenderer.send("preload-log", `Bridge: Отправлено событие: ${eventName} ${JSON.stringify(arguments_)}`);
+    return bridgeEvents.emit(eventName, ...arguments_);
+  },
 
   on_event(eventName: string, listener: ListenerType): void {
+    ipcRenderer.send("preload-log", `Bridge: Установка слушателя события: ${eventName}`);
     bridgeEvents.on(eventName, listener);
   },
 
@@ -63,13 +60,11 @@ const electron_bridge: ElectronBridge = {
   decrypt_clipboard: (version: number): ClipboardDecrypter =>
     new ClipboardDecrypterImplementation(version),
 };
-/* eslint-enable @typescript-eslint/naming-convention */
 
 bridgeEvents.on("total_unread_count", (unreadCount: unknown) => {
   if (typeof unreadCount !== "number") {
-    throw new TypeError("Expected string for unreadCount");
+    throw new TypeError("Expected number for unreadCount");
   }
-
   ipcRenderer.send("unread-count", unreadCount);
 });
 
@@ -77,7 +72,6 @@ bridgeEvents.on("realm_name", (realmName: unknown) => {
   if (typeof realmName !== "string") {
     throw new TypeError("Expected string for realmName");
   }
-
   const serverUrl = location.origin;
   ipcRenderer.send("realm-name-changed", serverUrl, realmName);
 });
@@ -86,7 +80,6 @@ bridgeEvents.on("realm_icon_url", (iconUrl: unknown) => {
   if (typeof iconUrl !== "string") {
     throw new TypeError("Expected string for iconUrl");
   }
-
   const serverUrl = location.origin;
   ipcRenderer.send(
     "realm-icon-changed",
@@ -95,20 +88,18 @@ bridgeEvents.on("realm_icon_url", (iconUrl: unknown) => {
   );
 });
 
-// Set user as active and update the time of last activity
 ipcRenderer.on("set-active", () => {
   idle = false;
   lastActive = Date.now();
 });
 
-// Set user as idle and time of last activity is left unchanged
 ipcRenderer.on("set-idle", () => {
   idle = true;
 });
 
-// This follows node's idiomatic implementation of event
-// emitters to make event handling more simpler instead of using
-// functions zulip side will emit event using ElectronBridge.send_event
-// which is alias of .emit and on this side we can handle the data by adding
-// a listener for the event.
+ipcRenderer.on("trigger-open-desktop-picker", () => {
+  ipcRenderer.send("preload-log", "✅ Bridge: Получена команда trigger-open-desktop-picker");
+  electron_bridge.send_event("open-desktop-picker");
+});
+
 export default electron_bridge;

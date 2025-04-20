@@ -8,6 +8,7 @@ import {
   powerMonitor,
   session,
   webContents,
+  desktopCapturer,
 } from "electron/main";
 import { Buffer } from "node:buffer";
 import crypto from "node:crypto";
@@ -34,15 +35,13 @@ import { sentryInit } from "./sentry.js";
 import { setAutoLaunch } from "./startup.js";
 import { ipcMain, send } from "./typed-ipc-main.js";
 
-import "gatemaker/electron-setup"; // eslint-disable-line import/no-unassigned-import
-
 // Настройка логирования
 log.transports.file.level = "info";
 autoUpdater.logger = log;
 
 // Настройка автообновления
-autoUpdater.autoDownload = true; // Автоматическая загрузка обновлений
-autoUpdater.autoInstallOnAppQuit = true; // Установка при закрытии приложения
+autoUpdater.autoDownload = true;
+autoUpdater.autoInstallOnAppQuit = true;
 
 // eslint-disable-next-line @typescript-eslint/naming-convention
 const { GDK_BACKEND } = process.env;
@@ -84,7 +83,7 @@ function setFeaturesApp() {
   app.commandLine.appendSwitch("use-fake-ui-for-media-stream");
 }
 
-function createMainWindow(): BrowserWindow {
+async function createMainWindow(): Promise<BrowserWindow> {
   setFeaturesApp();
   mainWindowState = windowStateKeeper({
     defaultWidth: 1100,
@@ -109,13 +108,26 @@ function createMainWindow(): BrowserWindow {
       webviewTag: true,
     },
     show: false,
-    backgroundColor: '#333', // Устанавливаем белый фон, чтобы избежать мигания
+    backgroundColor: '#333',
   });
-  //win.webContents.openDevTools();
+
+  win.webContents.openDevTools();
+
   remoteMain.enable(win.webContents);
 
-  win.loadURL(mainUrl).then(() => {
-    if (ConfigUtil.getConfigItem("startMinimized", false)) {
+  win.webContents.on('preload-error', (event, preloadPath, error) => {
+    console.error('Ошибка загрузки preload:', preloadPath, error);
+    log.error('Ошибка загрузки preload:', preloadPath, error);
+  });
+
+  const mainHtmlPath = path.join(__dirname, 'app/renderer/main.html');
+  const mainUrl = `file://${mainHtmlPath}`;
+
+  console.log('mainUrl:', mainUrl);
+
+  await win.loadURL(mainUrl).then(() => {
+    console.log('✅ Окно создано!');
+    if (ConfigUtil.getConfigItem('startMinimized', false)) {
       win.hide();
     } else {
       win.show();
@@ -172,13 +184,14 @@ function createMainWindow(): BrowserWindow {
   }
 
   setFeaturesApp();
-  
+
+  app.disableHardwareAcceleration();
+
   await app.whenReady();
 
   const ses = session.fromPartition("persist:webviewsession");
   ses.setUserAgent(`ZulipElectron/${app.getVersion()} ${ses.getUserAgent()}`);
 
-  // Регистрация обработчиков IPC
   ipcMain.handle("get-server-settings", async (event, domain: string) =>
     _getServerSettings(domain, ses),
   );
@@ -206,6 +219,11 @@ function createMainWindow(): BrowserWindow {
     send(page, "destroytray");
   });
 
+  ipcMain.on("preload-log", (event, message) => {
+    log.info("Main: Preload (IPC):", message);
+    console.log("Main: Preload (IPC):", message);
+  });
+
   if (process.env.GDK_BACKEND !== GDK_BACKEND) {
     console.warn(
       "Reverting GDK_BACKEND to work around https://github.com/electron/electron/issues/28436",
@@ -230,14 +248,118 @@ function createMainWindow(): BrowserWindow {
   });
 
   console.log("🖼 Создаём окно...");
-  mainWindow = createMainWindow();
+  mainWindow = await createMainWindow();
   console.log("✅ Окно создано!");
+  console.log("✅ Окно создано!-1");
+  console.log("✅ Окно создано!-2");
+
+  ipcMain.on("open-desktop-picker", () => {
+    log.info("Main: Вызов DesktopPicker");
+    console.log("Main: Вызов DesktopPicker");
+    webContents.getAllWebContents().forEach(content => {
+      content.send("forward-message", "trigger-open-desktop-picker");
+    });
+  });
+
+  ipcMain.on("desktop-source-chosen", (event, sources) => {
+    log.info("Main: Источники выбраны:", sources);
+    console.log("Main: Источники выбраны:", sources);
+    mainWindow.webContents.send("desktop-source-chosen", sources);
+  });
+
+  ipcMain.on("requestDesktopSources", () => {
+    log.info("Main: Получен запрос requestDesktopSources");
+    console.log("Main: Получен запрос requestDesktopSources");
+    webContents.getAllWebContents().forEach(content => {
+        log.info(`Main: Отправлен forward-message: request-desktop-sources to WebContents #${content.id}`);
+        content.send("forward-message", "request-desktop-sources");
+    });
+  });
+
+  ipcMain.handle("get-desktop-sources", async () => {
+    try {
+        log.info("Main: Запрос источников экрана");
+        const sources = await desktopCapturer.getSources({
+            types: ['screen', 'window'],
+            thumbnailSize: { width: 50, height: 50 } // Радикально уменьшаем размер
+        });
+        if (!sources || sources.length === 0) {
+            log.warn("Main: Источники экрана пусты");
+            throw new Error("Источники экрана не найдены");
+        }
+        log.info("Main: Источники экрана и окон:", sources.map(s => `${s.name} (${s.id})`));
+        const formattedSources = sources.map(source => {
+            const thumbnailData = source.thumbnail.toDataURL();
+            log.info(`Main: Thumbnail для ${source.name}, длина: ${thumbnailData.length}, первые 50 символов: ${thumbnailData.slice(0, 50)}`);
+            return {
+                id: source.id,
+                name: source.name,
+                thumbnail: { dataUrl: thumbnailData }
+            };
+        });
+        webContents.getAllWebContents().forEach(content => {
+            log.info(`Main: WebContents #${content.id} URL: ${content.getURL()}`);
+            log.info(`Main: Отправлен desktop-sources-response: ${formattedSources.map(s => s.name).join(', ')} to WebContents #${content.id}`);
+            content.send("desktop-sources-response", {
+                sources: formattedSources,
+                error: null
+            });
+        });
+        return formattedSources;
+    } catch (error) {
+        log.error("Main: Ошибка получения источников экрана:", error.message);
+        webContents.getAllWebContents().forEach(content => {
+            log.info(`Main: WebContents #${content.id} URL: ${content.getURL()}`);
+            content.send("desktop-sources-response", {
+                sources: null,
+                error: error.message
+            });
+        });
+        throw error;
+    }
+  });
+
+  // Обработчик jitsi-log-event
+  ipcMain.on('jitsi-log-event', (event, logData) => {
+      log.info(`Jitsi Log [${logData.level}]: ${logData.message}`);
+      console.log(`Jitsi Log [${logData.level}]: ${logData.message}`);
+  });
 
   if (process.platform !== "darwin") {
     const shouldHideMenu = ConfigUtil.getConfigItem("autoHideMenubar", false);
     mainWindow.autoHideMenuBar = shouldHideMenu;
     mainWindow.setMenuBarVisibility(!shouldHideMenu);
   }
+
+  ipcMain.on("open-desktop-picker-success", () => {
+    log.info("Main: DesktopPicker успешно вызван");
+    console.log("Main: DesktopPicker успешно вызван");
+  });
+
+  ipcMain.on("open-desktop-picker-sent-to-iframe", () => {
+    log.info("Main: DesktopPicker отправлен в iframe");
+    console.log("Main: DesktopPicker отправлен в iframe");
+  });
+
+  ipcMain.on("open-desktop-picker-failed", (event, error) => {
+    log.error("Main: Ошибка DesktopPicker:", error);
+    console.error("Main: Ошибка DesktopPicker:", error);
+  });
+
+  ipcMain.on("jitsi-initialized", () => {
+    log.info("Main: Jitsi API инициализирован 1");
+    console.log("Main: Jitsi API инициализирован 2");
+  });
+
+  ipcMain.on("jitsi-initialized-event", () => {
+    log.info("Main: Jitsi API инициализирован -event 3");
+    console.log("Main: Jitsi API инициализирован -event 4");
+  });
+
+  ipcMain.on("jitsi-initialization-failed", (event, error) => {
+    log.error("Main: Ошибка инициализации Jitsi:", error);
+    console.error("Main: Ошибка инициализации Jitsi:", error);
+  });
 
   const page = mainWindow.webContents;
 
@@ -250,7 +372,6 @@ function createMainWindow(): BrowserWindow {
   });
 
   page.once("did-frame-finish-load", () => {
-    // Запускаем проверку обновлений в фоновом режиме
     if (ConfigUtil.getConfigItem("autoUpdate", true)) {
       appUpdater().catch((error) => {
         log.error("Error during app update check:", error);
@@ -264,7 +385,6 @@ app.on("before-quit", () => {
   isQuitting = true;
 });
 
-// События автообновления
 autoUpdater.on("checking-for-update", () => {
   log.info("Проверка обновлений...");
 });

@@ -16,7 +16,7 @@ export default defineConfig({
           build: {
             sourcemap: true,
             rollupOptions: {
-              external: ["electron", /^electron\//, /^gatemaker\//],
+              external: ["electron", /^electron\//],
             },
             ssr: true,
           },
