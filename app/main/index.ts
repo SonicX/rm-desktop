@@ -276,21 +276,82 @@ async function createMainWindow(): Promise<BrowserWindow> {
     });
   });
 
-  ipcMain.handle("get-desktop-sources", async () => {
+  // ipcMain.handle("get-desktop-sources", async () => {
+  //   try {
+  //       log.info("Main: Запрос источников экрана");
+  //       const sources = await desktopCapturer.getSources({
+  //           types: ['screen', 'window'],
+  //           thumbnailSize: { width: 300, height: 300 } // Радикально уменьшаем размер
+  //       });
+  //       if (!sources || sources.length === 0) {
+  //           log.warn("Main: Источники экрана пусты");
+  //           throw new Error("Источники экрана не найдены");
+  //       }
+  //       log.info("Main: Источники экрана и окон:", sources.map(s => `${s.name} (${s.id})`));
+  //       const formattedSources = sources.map(source => {
+  //           const thumbnailData = source.thumbnail.toDataURL();
+  //           log.info(`Main: Thumbnail для ${source.name}, длина: ${thumbnailData.length}, первые 50 символов: ${thumbnailData.slice(0, 50)}`);
+  //           return {
+  //               id: source.id,
+  //               name: source.name,
+  //               thumbnail: { dataUrl: thumbnailData }
+  //           };
+  //       });
+  //       webContents.getAllWebContents().forEach(content => {
+  //           log.info(`Main: WebContents #${content.id} URL: ${content.getURL()}`);
+  //           log.info(`Main: Отправлен desktop-sources-response: ${formattedSources.map(s => s.name).join(', ')} to WebContents #${content.id}`);
+  //           content.send("desktop-sources-response", {
+  //               sources: formattedSources,
+  //               error: null
+  //           });
+  //       });
+  //       return formattedSources;
+  //   } catch (error) {
+  //       log.error("Main: Ошибка получения источников экрана:", error.message);
+  //       webContents.getAllWebContents().forEach(content => {
+  //           log.info(`Main: WebContents #${content.id} URL: ${content.getURL()}`);
+  //           content.send("desktop-sources-response", {
+  //               sources: null,
+  //               error: error.message
+  //           });
+  //       });
+  //       throw error;
+  //   }
+  // });
+
+  // Кэш для thumbnails
+  let thumbnailCache: { [key: string]: { dataUrl: string; timestamp: number } } = {};
+const CACHE_TIMEOUT = 5 * 1000; // 5 секунд
+const DEFAULT_THUMBNAIL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYGD4AQAA/QGOrDGjAAAAAElFTkSuQmCC";
+
+ipcMain.handle("get-desktop-sources", async () => {
     try {
         log.info("Main: Запрос источников экрана");
         const sources = await desktopCapturer.getSources({
             types: ['screen', 'window'],
-            thumbnailSize: { width: 50, height: 50 } // Радикально уменьшаем размер
+            thumbnailSize: { width: 300, height: 300 } // Сохраняем ваш размер
         });
         if (!sources || sources.length === 0) {
             log.warn("Main: Источники экрана пусты");
             throw new Error("Источники экрана не найдены");
         }
         log.info("Main: Источники экрана и окон:", sources.map(s => `${s.name} (${s.id})`));
-        const formattedSources = sources.map(source => {
-            const thumbnailData = source.thumbnail.toDataURL();
-            log.info(`Main: Thumbnail для ${source.name}, длина: ${thumbnailData.length}, первые 50 символов: ${thumbnailData.slice(0, 50)}`);
+        const currentTime = Date.now();
+        const formattedSources = sources.map((source, index) => {
+            let thumbnailData = thumbnailCache[source.id]?.dataUrl;
+            if (!thumbnailData || (currentTime - thumbnailCache[source.id].timestamp > CACHE_TIMEOUT)) {
+                const startTime = Date.now();
+                thumbnailData = source.thumbnail.toDataURL();
+                if (!thumbnailData || thumbnailData === "data:image/png;base64,") {
+                    log.warn(`Main: Пустой thumbnail для ${source.name} (index: ${index}, id: ${source.id})`);
+                    thumbnailData = DEFAULT_THUMBNAIL; // Используем заглушку
+                } else {
+                    thumbnailCache[source.id] = { dataUrl: thumbnailData, timestamp: currentTime };
+                    log.info(`Main: Сгенерирован thumbnail для ${source.name} (index: ${index}, id: ${source.id}), длина: ${thumbnailData.length}, время: ${Date.now() - startTime}ms, первые 50 символов: ${thumbnailData.slice(0, 50)}`);
+                }
+            } else {
+                log.info(`Main: Использован кэшированный thumbnail для ${source.name} (index: ${index}, id: ${source.id}), длина: ${thumbnailData.length}`);
+            }
             return {
                 id: source.id,
                 name: source.name,
