@@ -1,7 +1,7 @@
 {
   "name": "RMConnect",
   "productName": "Связь РМ",
-  "version": "5.20.2",
+  "version": "5.25.7",
   "main": "./dist-electron",
   "description": "Приложение Связь РМ",
   "license": "Apache-2.0",
@@ -29,16 +29,15 @@
     "test": "tsc && npm run lint-html && npm run lint-css && npm run lint-js && npm run prettier-non-js",
     "test-e2e": "vite build && tape \"tests/**/*.js\"",
     "pack": "vite build && electron-builder --dir",
-    "dist": "vite build && electron-builder",
-    "publish": "vite build && electron-builder",
-    "mas": "vite build && electron-builder --windows --config.win.target=nsis",
-    "build-only": "vite build"
+    "dist": "vite build && electron-builder --windows --config.win.target=nsis",
+    "publish": "vite build && electron-builder --publish always",
+    "mas": "vite build && electron-builder --windows --config.win.target=nsis"
   },
   "pre-commit": [
     "test"
   ],
   "build": {
-    "appId": "ru.rm.rm-electron",
+    "appId": "org.rm.rm-electron",
     "copyright": "©Цифровые технологии РМ",
     "publish": [
       {
@@ -68,7 +67,10 @@
       ],
       "darkModeSupport": true,
       "artifactName": "${productName}-${version}-${arch}.${ext}",
-      "icon": "build/icon.icns"
+      "icon": "build/icon.icns",
+      "notarize": {
+        "teamId": ""
+      }
     },
     "linux": {
       "category": "Chat;GNOME;GTK;Network;InstantMessaging",
@@ -111,7 +113,8 @@
         }
       ],
       "icon": "build/icon.ico",
-      "publisherName": "Цифровые технологии РМ"
+      "publisherName": "ООО Цифровые технологии Рм",
+      "sign": "scripts/sign.js"
     },
     "nsis": {
       "oneClick": false,

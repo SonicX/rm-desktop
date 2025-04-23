@@ -13,7 +13,6 @@
     },
     "resolveJsonModule": true,
     "strict": true,
-    "noImplicitOverride": true,
-    "types": ["vite/client"]
+    "noImplicitOverride": true
   }
 }

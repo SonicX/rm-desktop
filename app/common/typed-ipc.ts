@@ -31,6 +31,7 @@ export type MainCall = {
   "is-online": (url: string) => boolean;
   "poll-clipboard": (key: Uint8Array, sig: Uint8Array) => string | undefined;
   "save-server-icon": (iconURL: string) => string | null;
+  'fetch-user-agent': () => Promise<string>;
 };
 
 export type RendererMessage = {
