@@ -111,7 +111,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
     backgroundColor: '#333',
   });
 
-  win.webContents.openDevTools();
+  //win.webContents.openDevTools();
 
   remoteMain.enable(win.webContents);
 
@@ -235,7 +235,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
     }
   }
 
-  app.setAppUserModelId("ru.rm.rm-electron");
+  app.setAppUserModelId("org.rm.rm-electron");
   remoteMain.initialize();
 
   app.on("second-instance", () => {
