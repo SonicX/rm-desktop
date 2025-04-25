@@ -1,4 +1,4 @@
-import { clipboard } from "electron/common";
+import { clipboard, globalShortcut } from "electron/common";
 import {
   BrowserWindow,
   type IpcMainEvent,
@@ -46,13 +46,17 @@ autoUpdater.autoInstallOnAppQuit = true;
 // eslint-disable-next-line @typescript-eslint/naming-convention
 const { GDK_BACKEND } = process.env;
 
-// Initialize sentry for main process
+// Инициализация Sentry для основного процесса
 sentryInit();
 
 let mainWindowState: windowStateKeeper.State;
 let mainWindow: BrowserWindow;
 let badgeCount: number;
 let isQuitting = false;
+
+// Переменные для управления горячей клавишей микрофона
+let currentHotkey: string | null = null;
+let originalMuteState: boolean | null = null;
 
 const mainUrl = new URL("app/renderer/main.html", bundleUrl).href;
 
@@ -110,8 +114,6 @@ async function createMainWindow(): Promise<BrowserWindow> {
     show: false,
     backgroundColor: '#333',
   });
-
-  //win.webContents.openDevTools();
 
   remoteMain.enable(win.webContents);
 
@@ -209,7 +211,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
   });
 
   ipcMain.on("quit-app", () => {
-    log.info("Main: Received quit-app event, closing application...");
+    log.info("Main: Получено событие quit-app, закрытие приложения...");
     isQuitting = true;
     app.quit();
   });
@@ -224,9 +226,66 @@ async function createMainWindow(): Promise<BrowserWindow> {
     console.log("Main: Preload (IPC):", message);
   });
 
+  // Обработчик для установки горячей клавиши микрофона
+  ipcMain.on("set-mic-hotkey", (event, hotkey: string) => {
+    log.info(`Main: Установка горячей клавиши микрофона: ${hotkey}`);
+    // Очищаем предыдущую горячую клавишу, если она была
+    if (currentHotkey) {
+      globalShortcut.unregister(currentHotkey);
+      log.info(`Main: Удалена старая горячая клавиша: ${currentHotkey}`);
+    }
+
+    // Регистрируем новую горячую клавишу
+    currentHotkey = hotkey;
+    const success = globalShortcut.register(hotkey, () => {
+      if (!mainWindow) return;
+      const activeWebContents = webContents.getAllWebContents().find(content => {
+        // Предполагаем, что активный WebView имеет URL, содержащий connectrm-svz.ru
+        return content.getURL().includes("connectrm-svz.ru");
+      });
+
+      if (activeWebContents) {
+        if (originalMuteState === null) {
+          // Сохраняем текущее состояние микрофона
+          originalMuteState = activeWebContents.isAudioMuted();
+          // Переключаем состояние микрофона
+          const newMuteState = !originalMuteState;
+          activeWebContents.setAudioMuted(newMuteState);
+          log.info(`Main: Микрофон переключен в состояние: ${newMuteState}`);
+          // Отправляем событие в WebView
+          activeWebContents.send("mic-state-changed", { isMuted: newMuteState });
+        }
+      }
+    });
+
+    if (success) {
+      log.info(`Main: Горячая клавиша ${hotkey} успешно зарегистрирована`);
+    } else {
+      log.error(`Main: Не удалось зарегистрировать горячую клавишу ${hotkey}`);
+    }
+
+    // Регистрируем событие отпускания клавиши (через акселератор без модификаторов)
+    globalShortcut.register(hotkey.toLowerCase(), () => {
+      if (originalMuteState !== null && mainWindow) {
+        const activeWebContents = webContents.getAllWebContents().find(content => {
+          return content.getURL().includes("connectrm-svz.ru");
+        });
+
+        if (activeWebContents) {
+          // Восстанавливаем исходное состояние микрофона
+          activeWebContents.setAudioMuted(originalMuteState);
+          log.info(`Main: Микрофон восстановлен в состояние: ${originalMuteState}`);
+          // Отправляем событие в WebView
+          activeWebContents.send("mic-state-changed", { isMuted: originalMuteState });
+          originalMuteState = null;
+        }
+      }
+    });
+  });
+
   if (process.env.GDK_BACKEND !== GDK_BACKEND) {
     console.warn(
-      "Reverting GDK_BACKEND to work around https://github.com/electron/electron/issues/28436",
+      "Возвращаем GDK_BACKEND для обхода проблемы https://github.com/electron/electron/issues/28436",
     );
     if (GDK_BACKEND === undefined) {
       delete process.env.GDK_BACKEND;
@@ -253,94 +312,76 @@ async function createMainWindow(): Promise<BrowserWindow> {
   console.log("✅ Окно создано!-1");
   console.log("✅ Окно создано!-2");
 
-  ipcMain.on("open-desktop-picker", () => {
-    log.info("Main: Вызов DesktopPicker");
-    console.log("Main: Вызов DesktopPicker");
+  ipcMain.on("forward-message", (event, channel, ...args) => {
+    log.info(`Main: Получено forward-message с каналом: ${channel}`);
     webContents.getAllWebContents().forEach(content => {
-      content.send("forward-message", "trigger-open-desktop-picker");
+      content.send("forward-message", channel, ...args);
     });
   });
 
-  ipcMain.on("desktop-source-chosen", (event, sources) => {
-    log.info("Main: Источники выбраны:", sources);
-    console.log("Main: Источники выбраны:", sources);
-    mainWindow.webContents.send("desktop-source-chosen", sources);
-  });
+  // Кэш для thumbnails
+  let thumbnailCache: { [key: string]: { dataUrl: string; timestamp: number } } = {};
+  const CACHE_TIMEOUT = 5 * 1000; // 5 секунд
+  const DEFAULT_THUMBNAIL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYGD4AQAA/QGOrDGjAAAAAElFTkSuQmCC";
 
-  ipcMain.on("requestDesktopSources", () => {
-    log.info("Main: Получен запрос requestDesktopSources");
-    console.log("Main: Получен запрос requestDesktopSources");
-    webContents.getAllWebContents().forEach(content => {
-        log.info(`Main: Отправлен forward-message: request-desktop-sources to WebContents #${content.id}`);
-        content.send("forward-message", "request-desktop-sources");
-    });
-  });
-
-// Кэш для thumbnails
-let thumbnailCache: { [key: string]: { dataUrl: string; timestamp: number } } = {};
-const CACHE_TIMEOUT = 5 * 1000; // 5 секунд
-const DEFAULT_THUMBNAIL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYGD4AQAA/QGOrDGjAAAAAElFTkSuQmCC";
-
-ipcMain.handle("get-desktop-sources", async () => {
+  ipcMain.handle("get-desktop-sources", async () => {
     try {
-        log.info("Main: Запрос источников экрана");
-        const sources = await desktopCapturer.getSources({
-            types: ['screen', 'window'],
-            thumbnailSize: { width: 300, height: 300 } // Сохраняем ваш размер
-        });
-        if (!sources || sources.length === 0) {
-            log.warn("Main: Источники экрана пусты");
-            throw new Error("Источники экрана не найдены");
+      log.info("Main: Запрос источников экрана");
+      const sources = await desktopCapturer.getSources({
+        types: ['screen', 'window'],
+        thumbnailSize: { width: 300, height: 300 }
+      });
+      if (!sources || sources.length === 0) {
+        log.warn("Main: Источники экрана пусты");
+        throw new Error("Источники экрана не найдены");
+      }
+      log.info("Main: Источники экрана и окон:", sources.map(s => `${s.name} (${s.id})`));
+      const currentTime = Date.now();
+      const formattedSources = sources.map((source, index) => {
+        let thumbnailData = thumbnailCache[source.id]?.dataUrl;
+        if (!thumbnailData || (currentTime - thumbnailCache[source.id].timestamp > CACHE_TIMEOUT)) {
+          const startTime = Date.now();
+          thumbnailData = source.thumbnail.toDataURL();
+          if (!thumbnailData || thumbnailData === "data:image/png;base64,") {
+            log.warn(`Main: Пустой thumbnail для ${source.name} (index: ${index}, id: ${source.id})`);
+            thumbnailData = DEFAULT_THUMBNAIL;
+          } else {
+            thumbnailCache[source.id] = { dataUrl: thumbnailData, timestamp: currentTime };
+            log.info(`Main: Сгенерирован thumbnail для ${source.name} (index: ${index}, id: ${source.id}), длина: ${thumbnailData.length}, время: ${Date.now() - startTime}ms`);
+          }
+        } else {
+          log.info(`Main: Использован кэшированный thumbnail для ${source.name} (index: ${index}, id: ${source.id}), длина: ${thumbnailData.length}`);
         }
-        log.info("Main: Источники экрана и окон:", sources.map(s => `${s.name} (${s.id})`));
-        const currentTime = Date.now();
-        const formattedSources = sources.map((source, index) => {
-            let thumbnailData = thumbnailCache[source.id]?.dataUrl;
-            if (!thumbnailData || (currentTime - thumbnailCache[source.id].timestamp > CACHE_TIMEOUT)) {
-                const startTime = Date.now();
-                thumbnailData = source.thumbnail.toDataURL();
-                if (!thumbnailData || thumbnailData === "data:image/png;base64,") {
-                    log.warn(`Main: Пустой thumbnail для ${source.name} (index: ${index}, id: ${source.id})`);
-                    thumbnailData = DEFAULT_THUMBNAIL; // Используем заглушку
-                } else {
-                    thumbnailCache[source.id] = { dataUrl: thumbnailData, timestamp: currentTime };
-                    log.info(`Main: Сгенерирован thumbnail для ${source.name} (index: ${index}, id: ${source.id}), длина: ${thumbnailData.length}, время: ${Date.now() - startTime}ms, первые 50 символов: ${thumbnailData.slice(0, 50)}`);
-                }
-            } else {
-                log.info(`Main: Использован кэшированный thumbnail для ${source.name} (index: ${index}, id: ${source.id}), длина: ${thumbnailData.length}`);
-            }
-            return {
-                id: source.id,
-                name: source.name,
-                thumbnail: { dataUrl: thumbnailData }
-            };
+        return {
+          id: source.id,
+          name: source.name,
+          thumbnail: { dataUrl: thumbnailData }
+        };
+      });
+      webContents.getAllWebContents().forEach(content => {
+        log.info(`Main: Отправлен desktop-sources-response to WebContents #${content.id}`);
+        content.send("desktop-sources-response", {
+          sources: formattedSources,
+          error: null
         });
-        webContents.getAllWebContents().forEach(content => {
-            log.info(`Main: WebContents #${content.id} URL: ${content.getURL()}`);
-            log.info(`Main: Отправлен desktop-sources-response: ${formattedSources.map(s => s.name).join(', ')} to WebContents #${content.id}`);
-            content.send("desktop-sources-response", {
-                sources: formattedSources,
-                error: null
-            });
-        });
-        return formattedSources;
+      });
+      return formattedSources;
     } catch (error) {
-        log.error("Main: Ошибка получения источников экрана:", error.message);
-        webContents.getAllWebContents().forEach(content => {
-            log.info(`Main: WebContents #${content.id} URL: ${content.getURL()}`);
-            content.send("desktop-sources-response", {
-                sources: null,
-                error: error.message
-            });
+      log.error("Main: Ошибка получения источников экрана:", error.message);
+      webContents.getAllWebContents().forEach(content => {
+        content.send("desktop-sources-response", {
+          sources: null,
+          error: error.message
         });
-        throw error;
+      });
+      throw error;
     }
   });
 
   // Обработчик jitsi-log-event
   ipcMain.on('jitsi-log-event', (event, logData) => {
-      log.info(`Jitsi Log [${logData.level}]: ${logData.message}`);
-      console.log(`Jitsi Log [${logData.level}]: ${logData.message}`);
+    log.info(`Jitsi Log [${logData.level}]: ${logData.message}`);
+    console.log(`Jitsi Log [${logData.level}]: ${logData.message}`);
   });
 
   if (process.platform !== "darwin") {
@@ -348,36 +389,6 @@ ipcMain.handle("get-desktop-sources", async () => {
     mainWindow.autoHideMenuBar = shouldHideMenu;
     mainWindow.setMenuBarVisibility(!shouldHideMenu);
   }
-
-  ipcMain.on("open-desktop-picker-success", () => {
-    log.info("Main: DesktopPicker успешно вызван");
-    console.log("Main: DesktopPicker успешно вызван");
-  });
-
-  ipcMain.on("open-desktop-picker-sent-to-iframe", () => {
-    log.info("Main: DesktopPicker отправлен в iframe");
-    console.log("Main: DesktopPicker отправлен в iframe");
-  });
-
-  ipcMain.on("open-desktop-picker-failed", (event, error) => {
-    log.error("Main: Ошибка DesktopPicker:", error);
-    console.error("Main: Ошибка DesktopPicker:", error);
-  });
-
-  ipcMain.on("jitsi-initialized", () => {
-    log.info("Main: Jitsi API инициализирован 1");
-    console.log("Main: Jitsi API инициализирован 2");
-  });
-
-  ipcMain.on("jitsi-initialized-event", () => {
-    log.info("Main: Jitsi API инициализирован -event 3");
-    console.log("Main: Jitsi API инициализирован -event 4");
-  });
-
-  ipcMain.on("jitsi-initialization-failed", (event, error) => {
-    log.error("Main: Ошибка инициализации Jitsi:", error);
-    console.error("Main: Ошибка инициализации Jitsi:", error);
-  });
 
   const page = mainWindow.webContents;
 
@@ -392,7 +403,7 @@ ipcMain.handle("get-desktop-sources", async () => {
   page.once("did-frame-finish-load", () => {
     if (ConfigUtil.getConfigItem("autoUpdate", true)) {
       appUpdater().catch((error) => {
-        log.error("Error during app update check:", error);
+        log.error("Ошибка при проверке обновлений:", error);
       });
     }
   });
@@ -401,6 +412,11 @@ ipcMain.handle("get-desktop-sources", async () => {
 
 app.on("before-quit", () => {
   isQuitting = true;
+  // Очищаем горячую клавишу при выходе
+  if (currentHotkey) {
+    globalShortcut.unregister(currentHotkey);
+    log.info(`Main: Горячая клавиша ${currentHotkey} удалена при выходе`);
+  }
 });
 
 autoUpdater.on("checking-for-update", () => {

@@ -3,6 +3,7 @@ import type {MenuProperties, ServerConfig} from "./types.js";
 
 export type MainMessage = {
   "clear-app-settings": () => void;
+  "set-mic-hotkey": (hotkey: string) => void;
   "configure-spell-checker": () => void;
   "fetch-user-agent": () => string;
   "focus-app": () => void;
@@ -36,6 +37,7 @@ export type MainCall = {
 
 export type RendererMessage = {
   back: () => void;
+  "mic-state-changed": (data: { isMuted: boolean }) => void;
   "copy-rm-url": () => void;
   destroytray: () => void;
   "enter-fullscreen": () => void;

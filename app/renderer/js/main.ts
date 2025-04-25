@@ -24,7 +24,6 @@ import type {
   TabData,
   TabPage,
 } from "../../common/types.js";
-import defaultIcon from "../img/icon.png";
 
 import FunctionalTab from "./components/functional-tab.js";
 import ServerTab from "./components/server-tab.js";
@@ -56,6 +55,7 @@ const logger = new Logger({
 
 type ServerOrFunctionalTab = ServerTab | FunctionalTab;
 
+const defaultIcon = bundleUrl + "resources/mark_icon.png";
 const rootWebContents = remote.getCurrentWebContents();
 
 const dingSound = new Audio(
@@ -122,7 +122,7 @@ export class ServerManagerView {
 
     this.$fullscreenPopup = document.querySelector("#fullscreen-popup")!;
     this.$fullscreenEscapeKey = process.platform === "darwin" ? "^⌘F" : "F11";
-    this.$fullscreenPopup.textContent = `Press ${this.$fullscreenEscapeKey} to exit full screen`;
+    this.$fullscreenPopup.textContent = `Нажмите ${this.$fullscreenEscapeKey} для выхода из полноэкранного режима`;
 
     this.loading = new Set();
     this.activeTabIndex = -1;
@@ -262,54 +262,9 @@ export class ServerManagerView {
     } catch (error: unknown) {
       logger.error(error);
       logger.error(
-        `Could not add ${domain}. Please contact your system administrator.`
+        `Не удалось добавить ${domain}. Пожалуйста, свяжитесь с системным администратором.`
       );
       return false;
-    }
-  }
-
-  async initPresetOrgs(): Promise<void> {
-    const preAddedDomains = DomainUtil.getDomains();
-    this.presetOrgs = EnterpriseUtil.getConfigItem("presetOrganizations", []);
-    const domainPromises = [];
-    for (const url of this.presetOrgs) {
-      if (DomainUtil.duplicateDomain(url)) {
-        continue;
-      }
-      domainPromises.push(this.queueDomain(url));
-    }
-
-    const domainsAdded = await Promise.all(domainPromises);
-    if (domainsAdded.includes(true)) {
-      if (preAddedDomains.length > 0) {
-        const { response } = await dialog.showMessageBox({
-          type: "question",
-          buttons: [t.__("Yes"), t.__("Later")],
-          defaultId: 0,
-          message: t.__("New servers added. Reload app now?"),
-        });
-        if (response === 0) {
-          ipcRenderer.send("reload-full-app");
-        }
-      } else {
-        ipcRenderer.send("reload-full-app");
-      }
-    } else if (domainsAdded.length > 0) {
-      const failedDomains: string[] = [];
-      for (const org of this.presetOrgs) {
-        if (DomainUtil.duplicateDomain(org)) {
-          continue;
-        }
-        failedDomains.push(org);
-      }
-
-      const { title, content } = Messages.enterpriseOrgError(
-        domainsAdded.length,
-        failedDomains
-      );
-      dialog.showErrorBox(title, content);
-      if (DomainUtil.getDomains().length === 0) {
-      }
     }
   }
 
@@ -333,8 +288,8 @@ export class ServerManagerView {
         const iconUrl = await DomainUtil.saveServerIcon(server.icon);
         tab.setIcon(DomainUtil.iconAsUrl(iconUrl));
       } catch (error) {
-        console.log("Error loading server icon:", error);
-        tab.setIcon(DomainUtil.iconAsUrl("https://connectrm-svz.ru//user_avatars/2/realm/night_logo.png?version=2")); // Используем запасную иконку
+        console.log("Ошибка загрузки иконки сервера:", error);
+        tab.setIcon(DomainUtil.iconAsUrl("https://connectrm-svz.ru//user_avatars/2/realm/night_logo.png?version=2"));
       }
     }, 0);
   
@@ -564,7 +519,7 @@ export class ServerManagerView {
   async openSettings(navigationItem: NavigationItem = "General"): Promise<void> {
     await this.openFunctionalTab({
       page: "Settings",
-      label: t.__("Settings"),
+      label: t.__("Настройки"),
       materialIcon: "settings",
       makeView: async () => {
         this.preferenceView = await PreferenceView.create();
@@ -584,7 +539,7 @@ export class ServerManagerView {
     let aboutView: AboutView;
     await this.openFunctionalTab({
       page: "About",
-      label: t.__("About"),
+      label: t.__("О программе"),
       materialIcon: "sentiment_very_satisfied",
       async makeView() {
         aboutView = await AboutView.create();
@@ -723,7 +678,7 @@ export class ServerManagerView {
 
   toggleDndButton(alert: boolean): void {
     this.$dndTooltip.textContent =
-      (alert ? "Disable" : "Enable") + " Do Not Disturb";
+      (alert ? "Отключить" : "Включить") + " Не беспокоить";
     this.$dndButton.querySelector("i")!.textContent = alert
       ? "notifications_off"
       : "notifications";
@@ -742,7 +697,7 @@ export class ServerManagerView {
       event.preventDefault();
       const template = [
         {
-          label: t.__("Notification settings"),
+          label: t.__("Настройки уведомлений"),
           enabled: await this.isLoggedIn(index),
           click: async () => {
             await this.activateTab(index);
@@ -752,7 +707,7 @@ export class ServerManagerView {
           },
         },
         {
-          label: t.__("Copy RM URL"),
+          label: t.__("Копировать URL RM"),
           click() {
             clipboard.writeText(DomainUtil.getDomain(index).url);
           },
@@ -788,7 +743,7 @@ export class ServerManagerView {
     }
 
     ipcRenderer.on("quit-app", () => {
-      console.log("Renderer: Received quit-app event, forwarding to main process");
+      console.log("Renderer: Получено событие quit-app, перенаправление в основной процесс");
       ipcRenderer.send("quit-app");
     });
 
@@ -809,7 +764,7 @@ export class ServerManagerView {
     ipcRenderer.on("reload-proxy", async (event, showAlert: boolean) => {
       await this.loadProxy();
       if (showAlert) {
-        await dialog.showMessageBox({ message: t.__("Proxy settings saved."), buttons: [t.__("OK")] });
+        await dialog.showMessageBox({ message: t.__("Настройки прокси сохранены."), buttons: [t.__("OK")] });
         ipcRenderer.send("reload-full-app");
       }
     });
@@ -940,30 +895,29 @@ window.addEventListener("load", async () => {
           <div id="tabs-container"></div>
         </div>
         <div id="actions-container">
-        <!-- Добавляем кнопку для обновления приложения -->
           <div class="action-button hidden" id="update-action">
             <i class="material-icons md-48">system_update</i>
-            <span id="update-tooltip" style="display: none">${t.__("Update Available")}</span>
+            <span id="update-tooltip" style="display: none">${t.__("Доступно обновление")}</span>
           </div>
           <div class="action-button" id="dnd-action">
             <i class="material-icons md-48">notifications</i>
-            <span id="dnd-tooltip" style="display: none">${t.__("Do Not Disturb")}</span>
+            <span id="dnd-tooltip" style="display: none">${t.__("Не беспокоить")}</span>
           </div>
           <div class="action-button hidden" id="reload-action">
             <i class="material-icons md-48">refresh</i>
-            <span id="reload-tooltip" style="display: none">${t.__("Reload")}</span>
+            <span id="reload-tooltip" style="display: none">${t.__("Перезагрузить")}</span>
           </div>
           <div class="action-button disable" id="loading-action">
             <i class="refresh material-icons md-48">loop</i>
-            <span id="loading-tooltip" style="display: none">${t.__("Loading")}</span>
+            <span id="loading-tooltip" style="display: none">${t.__("Загрузка")}</span>
           </div>
           <div class="action-button disable" id="back-action">
             <i class="material-icons md-48">arrow_back</i>
-            <span id="back-tooltip" style="display: none">${t.__("Go Back")}</span>
+            <span id="back-tooltip" style="display: none">${t.__("Назад")}</span>
           </div>
           <div class="action-button" id="settings-action">
             <i class="material-icons md-48">settings</i>
-            <span id="setting-tooltip" style="display: none">${t.__("Settings")}</span>
+            <span id="setting-tooltip" style="display: none">${t.__("Настройки")}</span>
           </div>
         </div>
       </div>

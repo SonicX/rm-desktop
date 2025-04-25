@@ -12,8 +12,8 @@ import Logger from "../../../common/logger-util.js";
 import * as Messages from "../../../common/messages.js";
 import * as t from "../../../common/translation-util.js";
 import type {ServerConfig} from "../../../common/types.js";
-import defaultIcon from "../../img/icon.png";
-import {ipcRenderer} from "../typed-ipc-renderer.js";
+import { bundleUrl } from "../../../common/paths.js";
+import { ipcRenderer } from "../typed-ipc-renderer.js";
 
 const logger = new Logger({
   file: "domain-util.log",
@@ -22,6 +22,7 @@ const logger = new Logger({
 // For historical reasons, we store this string in domain.json to denote a
 // missing icon; it does not change with the actual icon location.
 export const defaultIconSentinel = "../renderer/img/icon.png";
+const defaultIcon = bundleUrl + "resources/mark_icon.png";
 
 const serverConfigSchema = z.object({
   url: z.string().url(),

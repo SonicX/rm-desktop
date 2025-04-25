@@ -1,18 +1,18 @@
 Debugger attached.
-[33mThe CJS build of Vite's Node API is deprecated. See https://vitejs.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
 
-  VITE v5.4.2  ready in 190 ms
+  VITE v5.4.18  ready in 237 ms
 
   ➜  Local:   http://localhost:5173/
   ➜  Network: use --host to expose
   ➜  press h + enter to show help
-vite v5.4.2 building SSR bundle for development...
+vite v5.4.18 building SSR bundle for development...
 
 watching for file changes...
-vite v5.4.2 building for development...
+vite v5.4.18 building for development...
 
 watching for file changes...
-vite v5.4.2 building for development...
+vite v5.4.18 building for development...
 
 watching for file changes...
 
@@ -27,46 +27,45 @@ transforming...
 ✓ 6 modules transformed.
 rendering chunks...
 computing gzip size...
-dist-electron/preload.js  31.98 kB │ gzip: 10.52 kB │ map: 18.12 kB
-built in 651ms.
-✓ 1161 modules transformed.
+dist-electron/preload.js  33.36 kB │ gzip: 11.02 kB │ map: 18.59 kB
+built in 676ms.
+✓ 407 modules transformed.
+✓ 1507 modules transformed.
 rendering chunks...
 computing gzip size...
-✓ 1663 modules transformed.
-dist-electron/renderer.js  875.38 kB │ gzip: 200.16 kB │ map: 1,974.71 kB
-built in 3942ms.
 rendering chunks...
-dist-electron/index-B7yEKRq7.js     36.49 kB │ map:    12.07 kB
-dist-electron/index.js           1,670.68 kB │ map: 3,757.64 kB
-built in 4223ms.
+dist-electron/renderer.js  790.56 kB │ gzip: 168.73 kB │ map: 1,684.01 kB
+built in 3351ms.
+dist-electron/index.js  1,597.34 kB │ map: 3,906.11 kB
+built in 3388ms.
 Debugger attached.
 🖼 Создаём окно...
 mainUrl: file:///Users/jtereschenko/Documents/IDE/zulip-desktop/dist-electron/app/renderer/main.html
-[73302:0423/162026.405750:ERROR:node_bindings.cc(378)] Most NODE_OPTIONs are not supported in packaged apps. See documentation for more details.
-[73302:0423/162026.405782:ERROR:node_bindings.cc(378)] Most NODE_OPTIONs are not supported in packaged apps. See documentation for more details.
-[73302:0423/162026.405786:ERROR:node_bindings.cc(378)] Most NODE_OPTIONs are not supported in packaged apps. See documentation for more details.
-[73302:0423/162026.405790:ERROR:node_bindings.cc(378)] Most NODE_OPTIONs are not supported in packaged apps. See documentation for more details.
-[73302:0423/162026.405794:ERROR:node_bindings.cc(378)] Most NODE_OPTIONs are not supported in packaged apps. See documentation for more details.
-[73303:0423/162026.679090:ERROR:system_services.cc(34)] SetApplicationIsDaemon: Error Domain=NSOSStatusErrorDomain Code=-50 "paramErr: error in user parameter list" (-50)
+[48306:0425/150034.076745:ERROR:node_bindings.cc(378)] Most NODE_OPTIONs are not supported in packaged apps. See documentation for more details.
+[48306:0425/150034.076767:ERROR:node_bindings.cc(378)] Most NODE_OPTIONs are not supported in packaged apps. See documentation for more details.
+[48306:0425/150034.076771:ERROR:node_bindings.cc(378)] Most NODE_OPTIONs are not supported in packaged apps. See documentation for more details.
+[48306:0425/150034.076775:ERROR:node_bindings.cc(378)] Most NODE_OPTIONs are not supported in packaged apps. See documentation for more details.
+[48306:0425/150034.076778:ERROR:node_bindings.cc(378)] Most NODE_OPTIONs are not supported in packaged apps. See documentation for more details.
+[48308:0425/150034.305735:ERROR:system_services.cc(34)] SetApplicationIsDaemon: Error Domain=NSOSStatusErrorDomain Code=-50 "paramErr: error in user parameter list" (-50)
 ✅ Окно создано!
 ✅ Окно создано!
 ✅ Окно создано!-1
 ✅ Окно создано!-2
-2025-04-23 16:20:27.103 Electron[73288:19844693] +[IMKClient subclass]: chose IMKClient_Modern
-2025-04-23 16:20:27.103 Electron[73288:19844693] +[IMKInputSession subclass]: chose IMKInputSession_Modern
-16:20:27.490 › Main: Preload (IPC): ✅ Preload: Начало выполнения
+2025-04-25 15:00:35.085 Electron[48296:544478] +[IMKClient subclass]: chose IMKClient_Modern
+2025-04-25 15:00:35.085 Electron[48296:544478] +[IMKInputSession subclass]: chose IMKInputSession_Modern
+15:00:36.402 › Main: Preload (IPC): ✅ Preload: Начало выполнения
 Main: Preload (IPC): ✅ Preload: Начало выполнения
-16:20:27.492 › Main: Preload (IPC): ✅ Preload: ipcRenderer.send: function, ipcRenderer.invoke: function
+15:00:36.406 › Main: Preload (IPC): ✅ Preload: ipcRenderer.send: function, ipcRenderer.invoke: function
 Main: Preload (IPC): ✅ Preload: ipcRenderer.send: function, ipcRenderer.invoke: function
-16:20:28.042 › Main: Preload (IPC): Bridge: Установка слушателя события: logout
+15:00:37.723 › Main: Preload (IPC): Bridge: Установка слушателя события: logout
 Main: Preload (IPC): Bridge: Установка слушателя события: logout
-16:20:28.048 › Main: Preload (IPC): Bridge: Установка слушателя события: show-keyboard-shortcuts
+15:00:37.724 › Main: Preload (IPC): Bridge: Установка слушателя события: show-keyboard-shortcuts
 Main: Preload (IPC): Bridge: Установка слушателя события: show-keyboard-shortcuts
-16:20:28.049 › Main: Preload (IPC): Bridge: Установка слушателя события: show-notification-settings
+15:00:37.725 › Main: Preload (IPC): Bridge: Установка слушателя события: show-notification-settings
 Main: Preload (IPC): Bridge: Установка слушателя события: show-notification-settings
-16:20:28.050 › Main: Preload (IPC): Bridge: Установка слушателя события: open-desktop-picker
+15:00:37.726 › Main: Preload (IPC): Bridge: Установка слушателя события: open-desktop-picker
 Main: Preload (IPC): Bridge: Установка слушателя события: open-desktop-picker
-16:20:28.051 › Main: Preload (IPC): Bridge: Установка слушателя события: send_notification_reply_message
+15:00:37.727 › Main: Preload (IPC): Bridge: Установка слушателя события: send_notification_reply_message
 Main: Preload (IPC): Bridge: Установка слушателя события: send_notification_reply_message
 Waiting for the debugger to disconnect...
 Waiting for the debugger to disconnect...
