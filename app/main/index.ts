@@ -228,59 +228,124 @@ async function createMainWindow(): Promise<BrowserWindow> {
 
   // Обработчик для установки горячей клавиши микрофона
   ipcMain.on("set-mic-hotkey", (event, hotkey: string) => {
-    log.info(`Main: Установка горячей клавиши микрофона: ${hotkey}`);
+    log.info(`Main: Установка горячей клавиши WalkieTalkie: ${hotkey}`);
     // Очищаем предыдущую горячую клавишу, если она была
     if (currentHotkey) {
       globalShortcut.unregister(currentHotkey);
       log.info(`Main: Удалена старая горячая клавиша: ${currentHotkey}`);
     }
-
+  
     // Регистрируем новую горячую клавишу
     currentHotkey = hotkey;
     const success = globalShortcut.register(hotkey, () => {
       if (!mainWindow) return;
       const activeWebContents = webContents.getAllWebContents().find(content => {
-        // Предполагаем, что активный WebView имеет URL, содержащий connectrm-svz.ru
         return content.getURL().includes("connectrm-svz.ru");
       });
-
+  
       if (activeWebContents) {
-        if (originalMuteState === null) {
-          // Сохраняем текущее состояние микрофона
-          originalMuteState = activeWebContents.isAudioMuted();
-          // Переключаем состояние микрофона
-          const newMuteState = !originalMuteState;
-          activeWebContents.setAudioMuted(newMuteState);
-          log.info(`Main: Микрофон переключен в состояние: ${newMuteState}`);
-          // Отправляем событие в WebView
-          activeWebContents.send("mic-state-changed", { isMuted: newMuteState });
-        }
+        // Отправляем команду включения микрофона
+        activeWebContents.send("toggle-walkie-talkie", true);
+        log.info(`Main: Отправлена команда toggle-walkie-talkie: true`);
       }
     });
-
+  
     if (success) {
       log.info(`Main: Горячая клавиша ${hotkey} успешно зарегистрирована`);
     } else {
       log.error(`Main: Не удалось зарегистрировать горячую клавишу ${hotkey}`);
     }
-
-    // Регистрируем событие отпускания клавиши (через акселератор без модификаторов)
+  
+    // Регистрируем событие отпускания клавиши
     globalShortcut.register(hotkey.toLowerCase(), () => {
-      if (originalMuteState !== null && mainWindow) {
-        const activeWebContents = webContents.getAllWebContents().find(content => {
-          return content.getURL().includes("connectrm-svz.ru");
-        });
-
-        if (activeWebContents) {
-          // Восстанавливаем исходное состояние микрофона
-          activeWebContents.setAudioMuted(originalMuteState);
-          log.info(`Main: Микрофон восстановлен в состояние: ${originalMuteState}`);
-          // Отправляем событие в WebView
-          activeWebContents.send("mic-state-changed", { isMuted: originalMuteState });
-          originalMuteState = null;
-        }
+      if (!mainWindow) return;
+      const activeWebContents = webContents.getAllWebContents().find(content => {
+        return content.getURL().includes("connectrm-svz.ru");
+      });
+  
+      if (activeWebContents) {
+        // Отправляем команду выключения микрофона
+        activeWebContents.send("toggle-walkie-talkie", false);
+        log.info(`Main: Отправлена команда toggle-walkie-talkie: false`);
       }
     });
+  });
+
+  ipcMain.handle("walkie-talkie-status", async (event, data: { enabled: boolean; key: string }) => {
+    log.info(`Main: Получен статус WalkieTalkie: enabled=${data.enabled}, key=${data.key}`);
+    
+    // Преобразуем ключ в формат акселератора
+    const keyMap: { [key: string]: string } = {
+      "Z": "KeyZ",
+      "X": "KeyX",
+      ">": "Period",
+      "/": "Slash",
+      "Space": "Space",
+      "B": "KeyB",
+      "N": "KeyN"
+    };
+    const acceleratorKey = keyMap[data.key] || data.key;
+  
+    if (data.enabled && data.key) {
+      // Обновляем горячую клавишу, если режим включен
+      if (currentHotkey !== acceleratorKey) {
+        if (currentHotkey) {
+          globalShortcut.unregister(currentHotkey);
+          log.info(`Main: Удалена старая горячая клавиша: ${currentHotkey}`);
+        }
+        currentHotkey = acceleratorKey;
+        const success = globalShortcut.register(acceleratorKey, () => {
+          if (!mainWindow) return;
+          const activeWebContents = webContents.getAllWebContents().find(content => {
+            return content.getURL().includes("connectrm-svz.ru");
+          });
+  
+          if (activeWebContents) {
+            activeWebContents.send("toggle-walkie-talkie", true);
+            log.info(`Main: Отправлена команда toggle-walkie-talkie: true`);
+          } else {
+            log.warn(`Main: Не найден activeWebContents для connectrm-svz.ru`);
+          }
+        });
+  
+        if (success) {
+          log.info(`Main: Горячая клавиша ${acceleratorKey} успешно зарегистрирована`);
+        } else {
+          log.error(`Main: Не удалось зарегистрировать горячую клавишу ${acceleratorKey}`);
+          dialog.showErrorBox(
+            "Ошибка",
+            `Не удалось зарегистрировать горячую клавишу ${data.key}. Возможно, она уже используется.`
+          );
+        }
+  
+        // Регистрируем событие отпускания клавиши
+        const successRelease = globalShortcut.register(acceleratorKey, () => {
+          if (!mainWindow) return;
+          const activeWebContents = webContents.getAllWebContents().find(content => {
+            return content.getURL().includes("connectrm-svz.ru");
+          });
+  
+          if (activeWebContents) {
+            activeWebContents.send("toggle-walkie-talkie", false);
+            log.info(`Main: Отправлена команда toggle-walkie-talkie: false`);
+          } else {
+            log.warn(`Main: Не найден activeWebContents для connectrm-svz.ru при отпускании`);
+          }
+        });
+  
+        if (!successRelease) {
+          log.error(`Main: Не удалось зарегистрировать горячую клавишу ${acceleratorKey} для отпускания`);
+        }
+      }
+    } else {
+      // Если режим выключен, очищаем горячую клавишу
+      if (currentHotkey) {
+        globalShortcut.unregister(currentHotkey);
+        log.info(`Main: Горячая клавиша ${currentHotkey} удалена, так как WalkieTalkie выключен`);
+        currentHotkey = null;
+      }
+    }
+    return { success: true };
   });
 
   if (process.env.GDK_BACKEND !== GDK_BACKEND) {
@@ -413,10 +478,8 @@ async function createMainWindow(): Promise<BrowserWindow> {
 app.on("before-quit", () => {
   isQuitting = true;
   // Очищаем горячую клавишу при выходе
-  if (currentHotkey) {
-    globalShortcut.unregister(currentHotkey);
-    log.info(`Main: Горячая клавиша ${currentHotkey} удалена при выходе`);
-  }
+  globalShortcut.unregisterAll();
+  log.info(`Main: Все горячие клавиши удалены при выходе`);
 });
 
 autoUpdater.on("checking-for-update", () => {
