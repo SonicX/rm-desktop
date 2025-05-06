@@ -6,7 +6,7 @@ import { ipcRenderer } from "./typed-ipc-renderer.js";
 ipcRenderer.send("preload-log", "✅ Preload: Начало выполнения");
 ipcRenderer.send("preload-log", `✅ Preload: ipcRenderer.send: ${typeof ipcRenderer.send}, ipcRenderer.invoke: ${typeof ipcRenderer.invoke}`);
 
-// Расширяем electron_bridge для обработки событий микрофона и WalkieTalkie
+// Расширяем electron_bridge для обработки событий микрофона
 contextBridge.exposeInMainWorld("electron_bridge", {
   ...electron_bridge,
   setMicHotkey: (hotkey: string) => {
@@ -16,14 +16,6 @@ contextBridge.exposeInMainWorld("electron_bridge", {
   onMicStateChanged: (callback: (data: { isMuted: boolean }) => void) => {
     ipcRenderer.send("preload-log", "Preload: Установка слушателя для mic-state-changed");
     bridgeEvents.on("mic-state-changed", callback);
-  },
-  onWalkieTalkieStatus: (callback: (data: { enabled: boolean; key: string }) => void) => {
-    ipcRenderer.send("preload-log", "Preload: Установка слушателя для walkie-talkie-status");
-    bridgeEvents.on("walkie-talkie-status", callback);
-  },
-  toggleWalkieTalkie: (value: boolean) => {
-    ipcRenderer.send("preload-log", `Preload: Отправка команды toggle-walkie-talkie: ${value}`);
-    electron_bridge.send_event("toggle-walkie-talkie", value);
   }
 });
 
@@ -75,9 +67,6 @@ ipcRenderer.on("forward-message", (event, channel) => {
   if (channel === "request-desktop-sources") {
     electron_bridge.send_event("requestDesktopSources");
   }
-  if (channel === "toggle-walkie-talkie") {
-    electron_bridge.send_event("toggle-walkie-talkie", true); // или значение из аргументов, если передаётся
-  }
 });
 
 ipcRenderer.on("desktop-sources-response", (event, response) => {
@@ -85,14 +74,10 @@ ipcRenderer.on("desktop-sources-response", (event, response) => {
   electron_bridge.send_event("desktop-sources-response", response);
 });
 
+// Обработчик события изменения состояния микрофона
 ipcRenderer.on("mic-state-changed", (event, data: { isMuted: boolean }) => {
   ipcRenderer.send("preload-log", `Preload: Получено событие mic-state-changed: isMuted=${data.isMuted}`);
   bridgeEvents.emit("mic-state-changed", data);
-});
-
-ipcRenderer.on("walkie-talkie-status", (event, data: { enabled: boolean; key: string }) => {
-  ipcRenderer.send("preload-log", `Preload: Получено событие walkie-talkie-status: enabled=${data.enabled}, key=${data.key}`);
-  bridgeEvents.emit("walkie-talkie-status", data);
 });
 
 window.addEventListener("load", () => {
