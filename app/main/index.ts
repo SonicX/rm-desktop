@@ -193,6 +193,9 @@ async function createMainWindow(): Promise<BrowserWindow> {
 
   const ses = session.fromPartition("persist:webviewsession");
   ses.setUserAgent(`ZulipElectron/${app.getVersion()} ${ses.getUserAgent()}`);
+  await ses.clearCache().catch((err) => {
+    console.error("Failed to clear cache:", err);
+  });
 
   ipcMain.handle("get-server-settings", async (event, domain: string) =>
     _getServerSettings(domain, ses),
