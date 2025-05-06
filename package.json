@@ -19,6 +19,7 @@
   },
   "scripts": {
     "start": "vite > log.txt 2>&1",
+    "build-only": "vite build",
     "watch-ts": "tsc -w",
     "reinstall": "rimraf node_modules && npm install",
     "postinstall": "electron-builder install-app-deps",

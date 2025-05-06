@@ -386,7 +386,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
 
   // Кэш для thumbnails
   let thumbnailCache: { [key: string]: { dataUrl: string; timestamp: number } } = {};
-  const CACHE_TIMEOUT = 5 * 1000; // 5 секунд
+  const CACHE_TIMEOUT = 0.1 * 1000; // 5 секунд
   const DEFAULT_THUMBNAIL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYGD4AQAA/QGOrDGjAAAAAElFTkSuQmCC";
 
   ipcMain.handle("get-desktop-sources", async () => {
