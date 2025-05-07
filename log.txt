@@ -1,7 +1,7 @@
 Debugger attached.
 [33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
 
-  VITE v5.4.18  ready in 237 ms
+  VITE v5.4.18  ready in 187 ms
 
   ➜  Local:   http://localhost:5173/
   ➜  Network: use --host to expose
@@ -27,45 +27,32 @@ transforming...
 ✓ 6 modules transformed.
 rendering chunks...
 computing gzip size...
-dist-electron/preload.js  33.36 kB │ gzip: 11.02 kB │ map: 18.59 kB
-built in 676ms.
+dist-electron/preload.js  33.41 kB │ gzip: 11.04 kB │ map: 18.61 kB
+built in 1230ms.
 ✓ 407 modules transformed.
 ✓ 1507 modules transformed.
 rendering chunks...
 computing gzip size...
 rendering chunks...
 dist-electron/renderer.js  790.56 kB │ gzip: 168.73 kB │ map: 1,684.01 kB
-built in 3351ms.
-dist-electron/index.js  1,597.34 kB │ map: 3,906.11 kB
-built in 3388ms.
+built in 5454ms.
+dist-electron/index.js  1,597.31 kB │ map: 3,906.06 kB
+built in 5503ms.
 Debugger attached.
 🖼 Создаём окно...
 mainUrl: file:///Users/jtereschenko/Documents/IDE/zulip-desktop/dist-electron/app/renderer/main.html
-[48306:0425/150034.076745:ERROR:node_bindings.cc(378)] Most NODE_OPTIONs are not supported in packaged apps. See documentation for more details.
-[48306:0425/150034.076767:ERROR:node_bindings.cc(378)] Most NODE_OPTIONs are not supported in packaged apps. See documentation for more details.
-[48306:0425/150034.076771:ERROR:node_bindings.cc(378)] Most NODE_OPTIONs are not supported in packaged apps. See documentation for more details.
-[48306:0425/150034.076775:ERROR:node_bindings.cc(378)] Most NODE_OPTIONs are not supported in packaged apps. See documentation for more details.
-[48306:0425/150034.076778:ERROR:node_bindings.cc(378)] Most NODE_OPTIONs are not supported in packaged apps. See documentation for more details.
-[48308:0425/150034.305735:ERROR:system_services.cc(34)] SetApplicationIsDaemon: Error Domain=NSOSStatusErrorDomain Code=-50 "paramErr: error in user parameter list" (-50)
+[29469:0507/105051.795827:ERROR:node_bindings.cc(378)] Most NODE_OPTIONs are not supported in packaged apps. See documentation for more details.
+[29469:0507/105051.795953:ERROR:node_bindings.cc(378)] Most NODE_OPTIONs are not supported in packaged apps. See documentation for more details.
+[29469:0507/105051.795976:ERROR:node_bindings.cc(378)] Most NODE_OPTIONs are not supported in packaged apps. See documentation for more details.
+[29469:0507/105051.795983:ERROR:node_bindings.cc(378)] Most NODE_OPTIONs are not supported in packaged apps. See documentation for more details.
+[29469:0507/105051.795988:ERROR:node_bindings.cc(378)] Most NODE_OPTIONs are not supported in packaged apps. See documentation for more details.
+[29470:0507/105052.021771:ERROR:system_services.cc(34)] SetApplicationIsDaemon: Error Domain=NSOSStatusErrorDomain Code=-50 "paramErr: error in user parameter list" (-50)
 ✅ Окно создано!
 ✅ Окно создано!
 ✅ Окно создано!-1
 ✅ Окно создано!-2
-2025-04-25 15:00:35.085 Electron[48296:544478] +[IMKClient subclass]: chose IMKClient_Modern
-2025-04-25 15:00:35.085 Electron[48296:544478] +[IMKInputSession subclass]: chose IMKInputSession_Modern
-15:00:36.402 › Main: Preload (IPC): ✅ Preload: Начало выполнения
-Main: Preload (IPC): ✅ Preload: Начало выполнения
-15:00:36.406 › Main: Preload (IPC): ✅ Preload: ipcRenderer.send: function, ipcRenderer.invoke: function
-Main: Preload (IPC): ✅ Preload: ipcRenderer.send: function, ipcRenderer.invoke: function
-15:00:37.723 › Main: Preload (IPC): Bridge: Установка слушателя события: logout
-Main: Preload (IPC): Bridge: Установка слушателя события: logout
-15:00:37.724 › Main: Preload (IPC): Bridge: Установка слушателя события: show-keyboard-shortcuts
-Main: Preload (IPC): Bridge: Установка слушателя события: show-keyboard-shortcuts
-15:00:37.725 › Main: Preload (IPC): Bridge: Установка слушателя события: show-notification-settings
-Main: Preload (IPC): Bridge: Установка слушателя события: show-notification-settings
-15:00:37.726 › Main: Preload (IPC): Bridge: Установка слушателя события: open-desktop-picker
-Main: Preload (IPC): Bridge: Установка слушателя события: open-desktop-picker
-15:00:37.727 › Main: Preload (IPC): Bridge: Установка слушателя события: send_notification_reply_message
-Main: Preload (IPC): Bridge: Установка слушателя события: send_notification_reply_message
+[29495:0507/105137.162338:ERROR:mojo_audio_output_ipc.cc(186)] MojoAudioOutputIPC failed to acquire factory
+10:52:14.589 › Main: Запрос источников экрана
+10:52:26.566 › Main: Запрос источников экрана
 Waiting for the debugger to disconnect...
 Waiting for the debugger to disconnect...

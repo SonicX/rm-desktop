@@ -11,11 +11,11 @@ contextBridge.exposeInMainWorld("electron_bridge", {
   ...electron_bridge,
   setMicHotkey: (hotkey: string) => {
     ipcRenderer.send("preload-log", `Preload: Установка горячей клавиши микрофона: ${hotkey}`);
-    ipcRenderer.send("set-mic-hotkey", hotkey);
+    ipcRenderer.send("walkie-talkie-status", hotkey);
   },
   onMicStateChanged: (callback: (data: { isMuted: boolean }) => void) => {
-    ipcRenderer.send("preload-log", "Preload: Установка слушателя для mic-state-changed");
-    bridgeEvents.on("mic-state-changed", callback);
+    ipcRenderer.send("preload-log", "Preload: Установка слушателя для toggle-walkie-talkie");
+    bridgeEvents.on("toggle-walkie-talkie", callback);
   }
 });
 
@@ -75,9 +75,9 @@ ipcRenderer.on("desktop-sources-response", (event, response) => {
 });
 
 // Обработчик события изменения состояния микрофона
-ipcRenderer.on("mic-state-changed", (event, data: { isMuted: boolean }) => {
-  ipcRenderer.send("preload-log", `Preload: Получено событие mic-state-changed: isMuted=${data.isMuted}`);
-  bridgeEvents.emit("mic-state-changed", data);
+ipcRenderer.on("toggle-walkie-talkie", (event, data: { isMuted: boolean }) => {
+  ipcRenderer.send("preload-log", `Preload: Получено событие toggle-walkie-talkie: isMuted=${data.isMuted}`);
+  bridgeEvents.emit("toggle-walkie-talkie", data);
 });
 
 window.addEventListener("load", () => {

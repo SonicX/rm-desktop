@@ -1,6 +1,7 @@
-import { clipboard, globalShortcut } from "electron/common";
+import { clipboard } from "electron/common";
 import {
   BrowserWindow,
+  globalShortcut,
   type IpcMainEvent,
   type WebContents,
   app,
@@ -224,13 +225,8 @@ async function createMainWindow(): Promise<BrowserWindow> {
     send(page, "destroytray");
   });
 
-  ipcMain.on("preload-log", (event, message) => {
-    log.info("Main: Preload (IPC):", message);
-    console.log("Main: Preload (IPC):", message);
-  });
-
   // Обработчик для установки горячей клавиши микрофона
-  ipcMain.on("set-mic-hotkey", (event, hotkey: string) => {
+  ipcMain.on("walkie-talkie-status", (event, hotkey: string) => {
     log.info(`Main: Установка горячей клавиши микрофона: ${hotkey}`);
     // Очищаем предыдущую горячую клавишу, если она была
     if (currentHotkey) {
@@ -240,7 +236,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
 
     // Регистрируем новую горячую клавишу
     currentHotkey = hotkey;
-    const success = globalShortcut.register(hotkey, () => {
+    globalShortcut.register(hotkey, () => {
       if (!mainWindow) return;
       const activeWebContents = webContents.getAllWebContents().find(content => {
         // Предполагаем, что активный WebView имеет URL, содержащий connectrm-svz.ru
@@ -256,12 +252,12 @@ async function createMainWindow(): Promise<BrowserWindow> {
           activeWebContents.setAudioMuted(newMuteState);
           log.info(`Main: Микрофон переключен в состояние: ${newMuteState}`);
           // Отправляем событие в WebView
-          activeWebContents.send("mic-state-changed", { isMuted: newMuteState });
+          activeWebContents.send("toggle-walkie-talkie", { isMuted: newMuteState });
         }
       }
     });
 
-    if (success) {
+    if (globalShortcut.isRegistered(hotkey)) {
       log.info(`Main: Горячая клавиша ${hotkey} успешно зарегистрирована`);
     } else {
       log.error(`Main: Не удалось зарегистрировать горячую клавишу ${hotkey}`);
@@ -279,7 +275,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
           activeWebContents.setAudioMuted(originalMuteState);
           log.info(`Main: Микрофон восстановлен в состояние: ${originalMuteState}`);
           // Отправляем событие в WebView
-          activeWebContents.send("mic-state-changed", { isMuted: originalMuteState });
+          activeWebContents.send("toggle-walkie-talkie", { isMuted: originalMuteState });
           originalMuteState = null;
         }
       }
@@ -324,7 +320,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
 
   // Кэш для thumbnails
   let thumbnailCache: { [key: string]: { dataUrl: string; timestamp: number } } = {};
-  const CACHE_TIMEOUT = 0.1 * 1000; // 5 секунд
+  const CACHE_TIMEOUT = 0.1 * 1000; // 1 секунд
   const DEFAULT_THUMBNAIL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYGD4AQAA/QGOrDGjAAAAAElFTkSuQmCC";
 
   ipcMain.handle("get-desktop-sources", async () => {

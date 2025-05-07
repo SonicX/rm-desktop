@@ -1,9 +1,19 @@
 import type {DndSettings} from "./dnd-util.js";
 import type {MenuProperties, ServerConfig} from "./types.js";
+export interface DesktopSource {
+  id: string;
+  name: string;
+  thumbnail: { dataUrl: string };
+}
+export interface JitsiLogData {
+  level: string;
+  message: string;
+}
 
 export type MainMessage = {
+  "preload-log": (message: string) => void;
   "clear-app-settings": () => void;
-  "set-mic-hotkey": (hotkey: string) => void;
+  "walkie-talkie-status": (hotkey: string) => void;
   "configure-spell-checker": () => void;
   "fetch-user-agent": () => string;
   "focus-app": () => void;
@@ -19,6 +29,7 @@ export type MainMessage = {
   "toggle-app": () => void;
   "toggle-badge-option": (newValue: boolean) => void;
   "toggle-menubar": (showMenubar: boolean) => void;
+  "jitsi-log-event": (logData: JitsiLogData) => void;
   toggleAutoLauncher: (AutoLaunchValue: boolean) => void;
   "unread-count": (unreadCount: number) => void;
   "update-badge": (messageCount: number) => void;
@@ -33,11 +44,12 @@ export type MainCall = {
   "poll-clipboard": (key: Uint8Array, sig: Uint8Array) => string | undefined;
   "save-server-icon": (iconURL: string) => string | null;
   'fetch-user-agent': () => Promise<string>;
+  "get-desktop-sources": () => Promise<DesktopSource[]>;
 };
 
 export type RendererMessage = {
   back: () => void;
-  "mic-state-changed": (data: { isMuted: boolean }) => void;
+  "toggle-walkie-talkie": (data: { isMuted: boolean }) => void;
   "copy-rm-url": () => void;
   destroytray: () => void;
   "enter-fullscreen": () => void;
