@@ -1,5 +1,6 @@
 import type {DndSettings} from "./dnd-util.js";
 import type {MenuProperties, ServerConfig} from "./types.js";
+
 export interface DesktopSource {
   id: string;
   name: string;
@@ -9,11 +10,21 @@ export interface JitsiLogData {
   level: string;
   message: string;
 }
+export interface DesktopSourcesResponse {
+  sources: DesktopSource[] | null;
+  error: string | null;
+  name: string | null;
+}
+export interface WalkieTalkieStatus {
+  enabled: boolean;
+  key: string;
+}
 
 export type MainMessage = {
   "preload-log": (message: string) => void;
   "clear-app-settings": () => void;
-  "walkie-talkie-status": (hotkey: string) => void;
+  "toggle-walkie-talkie": (data: { isMuted: boolean }) => void;
+  "walkie-talkie-status": (data: { enabled: boolean; key: string }) => void;
   "configure-spell-checker": () => void;
   "fetch-user-agent": () => string;
   "focus-app": () => void;
@@ -49,7 +60,12 @@ export type MainCall = {
 
 export type RendererMessage = {
   back: () => void;
-  "toggle-walkie-talkie": (data: { isMuted: boolean }) => void;
+  "walkie-talkie-status": (status: WalkieTalkieStatus) => void;
+  "desktop-sources-response": (response: DesktopSourcesResponse) => void;
+  "trigger-open-desktop-picker": () => void;
+  "requestDesktopSources": () => void;
+  "forward-message": (channel: string) => void;
+  "toggle-walkie-talkie": (isMuted: boolean ) => void;
   "copy-rm-url": () => void;
   destroytray: () => void;
   "enter-fullscreen": () => void;

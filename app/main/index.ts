@@ -24,8 +24,8 @@ import windowStateKeeper from "electron-window-state";
 import * as ConfigUtil from "../common/config-util.js";
 import { bundlePath, bundleUrl, publicPath } from "../common/paths.js";
 import * as t from "../common/translation-util.js";
-import type { RendererMessage } from "../common/typed-ipc.js";
 import type { MenuProperties } from "../common/types.js";
+import type { RendererMessage, DesktopSource, JitsiLogData, WalkieTalkieStatus } from "../common/typed-ipc.js";
 
 import { appUpdater, shouldQuitForUpdate } from "./autoupdater.js";
 import * as BadgeSettings from "./badge-settings.js";
@@ -164,6 +164,14 @@ async function createMainWindow(): Promise<BrowserWindow> {
     send(win.webContents, "enter-fullscreen");
   });
 
+  win.webContents.on('did-create-webview', (event: Electron.Event, webview: WebContents) => {
+    log.info(`Main: Создан WebView с ID: ${webview.id}, URL: ${webview.getURL()}`);
+    webview.on('console-message', (_event: Electron.Event, level: number, message: string, line: number, sourceId: string) => {
+        log.info(`WebView Console [${level}]: ${message} (line: ${line}, source: ${sourceId})`);
+        console.log(`WebView Console [${level}]: ${message} (line: ${line}, source: ${sourceId})`);
+    });
+  });
+
   win.on("leave-full-screen", () => {
     send(win.webContents, "leave-fullscreen");
   });
@@ -226,59 +234,96 @@ async function createMainWindow(): Promise<BrowserWindow> {
   });
 
   // Обработчик для установки горячей клавиши микрофона
-  ipcMain.on("walkie-talkie-status", (event, hotkey: string) => {
-    log.info(`Main: Установка горячей клавиши микрофона: ${hotkey}`);
-    // Очищаем предыдущую горячую клавишу, если она была
+  ipcMain.on("walkie-talkie-status", (event, status: unknown) => {
+    log.info(`Main: Получено событие walkie-talkie-status: ${JSON.stringify(status)}`);
+    if (typeof status !== "object" || status === null || !("enabled" in status) || !("key" in status)) {
+        log.error(`Main: Некорректный формат данных для walkie-talkie-status: ${JSON.stringify(status)}`);
+        return;
+    }
+
+    const { enabled, key: rawKey } = status as WalkieTalkieStatus;
+    if (typeof enabled !== "boolean" || typeof rawKey !== "string") {
+        log.error(`Main: Некорректные типы в walkie-talkie-status: enabled=${typeof enabled}, key=${typeof rawKey}`);
+        return;
+    }
+
     if (currentHotkey) {
       globalShortcut.unregister(currentHotkey);
       log.info(`Main: Удалена старая горячая клавиша: ${currentHotkey}`);
     }
 
-    // Регистрируем новую горячую клавишу
-    currentHotkey = hotkey;
-    globalShortcut.register(hotkey, () => {
-      if (!mainWindow) return;
-      const activeWebContents = webContents.getAllWebContents().find(content => {
-        // Предполагаем, что активный WebView имеет URL, содержащий connectrm-svz.ru
-        return content.getURL().includes("connectrm-svz.ru");
-      });
+    // Преобразуем ключ в строчную букву
+    const key = rawKey.toLowerCase();
+    log.info(`Main: Преобразован ключ из ${rawKey} в ${key}`);
 
-      if (activeWebContents) {
-        if (originalMuteState === null) {
-          // Сохраняем текущее состояние микрофона
-          originalMuteState = activeWebContents.isAudioMuted();
-          // Переключаем состояние микрофона
-          const newMuteState = !originalMuteState;
-          activeWebContents.setAudioMuted(newMuteState);
-          log.info(`Main: Микрофон переключен в состояние: ${newMuteState}`);
-          // Отправляем событие в WebView
-          activeWebContents.send("toggle-walkie-talkie", { isMuted: newMuteState });
-        }
-      }
-    });
-
-    if (globalShortcut.isRegistered(hotkey)) {
-      log.info(`Main: Горячая клавиша ${hotkey} успешно зарегистрирована`);
-    } else {
-      log.error(`Main: Не удалось зарегистрировать горячую клавишу ${hotkey}`);
+    const validAccelerators = /^[a-z0-9]+$/;
+    const validCombo = /^((Ctrl|Alt|Shift|Command|Meta)\+)+[a-z0-9]+$/;
+    if (!validAccelerators.test(key) && !validCombo.test(key)) {
+        log.error(`Main: Некорректный формат горячей клавиши: ${key}`);
+        return;
     }
 
-    // Регистрируем событие отпускания клавиши (через акселератор без модификаторов)
-    globalShortcut.register(hotkey.toLowerCase(), () => {
-      if (originalMuteState !== null && mainWindow) {
-        const activeWebContents = webContents.getAllWebContents().find(content => {
-          return content.getURL().includes("connectrm-svz.ru");
+    log.info(`Main: Установка горячей клавиши микрофона: ${key}`);
+    currentHotkey = key;
+    globalShortcut.register(key, () => {
+        log.info(`Main: Нажата горячая клавиша: ${key}`);
+        if (!mainWindow) {
+            log.warn("Main: mainWindow отсутствует");
+            return;
+        }
+        const allWebContents = webContents.getAllWebContents();
+        log.info(`Main: Найдено WebContents: ${allWebContents.length}`);
+        const activeWebContents = allWebContents.find(content => {
+            const url = content.getURL();
+            log.info(`Main: Проверка WebContents URL: ${url}, ID: ${content.id}`);
+            return url.includes("connectrm-svz.ru") || url.includes("joinrm-svz.ru");
         });
 
-        if (activeWebContents) {
-          // Восстанавливаем исходное состояние микрофона
-          activeWebContents.setAudioMuted(originalMuteState);
-          log.info(`Main: Микрофон восстановлен в состояние: ${originalMuteState}`);
-          // Отправляем событие в WebView
-          activeWebContents.send("toggle-walkie-talkie", { isMuted: originalMuteState });
-          originalMuteState = null;
+        if (!activeWebContents) {
+            log.warn("Main: Не найден WebContents с URL connectrm-svz.ru или joinrm-svz.ru");
+            log.info(`Main: Список всех WebContents URL: ${allWebContents.map(c => c.getURL()).join(", ")}`);
+            return;
         }
-      }
+
+        log.info(`Main: Выбран WebContents ID: ${activeWebContents.id}, URL: ${activeWebContents.getURL()}`);
+        originalMuteState = activeWebContents.isAudioMuted();
+        const newMuteState = !originalMuteState;
+        activeWebContents.setAudioMuted(newMuteState);
+        log.info(`Main: Микрофон переключен в состояние: ${newMuteState}`);
+        activeWebContents.send("toggle-walkie-talkie", newMuteState);
+        log.info(`Main: Отправлено событие toggle-walkie-talkie с isMuted: ${newMuteState}`);
+    });
+
+    if (globalShortcut.isRegistered(key)) {
+        log.info(`Main: Горячая клавиша ${key} успешно зарегистрирована`);
+    } else {
+        log.error(`Main: Не удалось зарегистрировать горячую клавишу ${key}`);
+    }
+
+    // Регистрация отпускания клавиши
+    globalShortcut.register(key, () => {
+        log.info(`Main: Отпущена горячая клавиша: ${key}`);
+        if (originalMuteState !== null && mainWindow) {
+            const allWebContents = webContents.getAllWebContents();
+            const activeWebContents = allWebContents.find(content => {
+                const url = content.getURL();
+                log.info(`Main: Проверка WebContents URL (отпускание): ${url}, ID: ${content.id}`);
+                return url.includes("connectrm-svz.ru") || url.includes("joinrm-svz.ru");
+            });
+
+            if (!activeWebContents) {
+                log.warn("Main: Не найден WebContents с URL connectrm-svz.ru или joinrm-svz.ru (отпускание)");
+                return;
+            }
+
+            activeWebContents.setAudioMuted(originalMuteState);
+            log.info(`Main: Микрофон восстановлен в состояние: ${originalMuteState}`);
+            activeWebContents.send("toggle-walkie-talkie", originalMuteState);
+            log.info(`Main: Отправлено событие toggle-walkie-talkie с isMuted: ${originalMuteState}`);
+            originalMuteState = null;
+        } else {
+            log.info(`Main: Пропущено восстановление микрофона, originalMuteState: ${originalMuteState}`);
+        }
     });
   });
 
@@ -366,11 +411,12 @@ async function createMainWindow(): Promise<BrowserWindow> {
       });
       return formattedSources;
     } catch (error) {
-      log.error("Main: Ошибка получения источников экрана:", error.message);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      log.error("Main: Ошибка получения источников экрана:", errorMessage);
       webContents.getAllWebContents().forEach(content => {
         content.send("desktop-sources-response", {
           sources: null,
-          error: error.message
+          error: errorMessage
         });
       });
       throw error;

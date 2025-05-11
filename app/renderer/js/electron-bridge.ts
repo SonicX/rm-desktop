@@ -5,6 +5,7 @@ import {
   ClipboardDecrypterImplementation,
 } from "./clipboard-decrypter.js";
 import { type NotificationData, newNotification } from "./notification/index.js";
+import { WalkieTalkieStatus } from "../../common/typed-ipc.js";
 
 type ListenerType = (...arguments_: any[]) => void;
 
@@ -31,7 +32,19 @@ export const bridgeEvents = new EventEmitter();
 
 const electron_bridge: ElectronBridge = {
   send_event: (eventName: string | symbol, ...arguments_: unknown[]): boolean => {
-    ipcRenderer.send("preload-log", `Bridge: Отправлено событие: ${eventName} ${JSON.stringify(arguments_)}`);
+    const name = String(eventName)
+    ipcRenderer.send("preload-log", `Bridge: Отправлено событие: ${name} ${JSON.stringify(arguments_)}`);
+    // Перенаправляем walkie-talkie-status в основной процесс
+    if (String(eventName) === "walkie-talkie-status") {
+      // Проверяем, что аргумент соответствует WalkieTalkieStatus
+      const [status] = arguments_;
+      if (typeof status !== "object" || status === null || !("enabled" in status) || !("key" in status)) {
+        ipcRenderer.send("preload-log", `Bridge: Некорректный формат walkie-talkie-status: ${JSON.stringify(status)}`);
+        return false;
+      }
+      ipcRenderer.send("walkie-talkie-status", status as WalkieTalkieStatus);
+      return true;
+    }
     return bridgeEvents.emit(eventName, ...arguments_);
   },
 

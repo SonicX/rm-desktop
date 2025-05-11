@@ -1,7 +1,7 @@
 Debugger attached.
 [33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
 
-  VITE v5.4.18  ready in 187 ms
+  VITE v5.4.18  ready in 189 ms
 
   ➜  Local:   http://localhost:5173/
   ➜  Network: use --host to expose
@@ -27,32 +27,27 @@ transforming...
 ✓ 6 modules transformed.
 rendering chunks...
 computing gzip size...
-dist-electron/preload.js  33.41 kB │ gzip: 11.04 kB │ map: 18.61 kB
-built in 1230ms.
+dist-electron/preload.js  38.34 kB │ gzip: 12.37 kB │ map: 21.11 kB
+built in 941ms.
 ✓ 407 modules transformed.
 ✓ 1507 modules transformed.
 rendering chunks...
 computing gzip size...
 rendering chunks...
+dist-electron/index.js  1,600.07 kB │ map: 3,910.26 kB
+built in 5385ms.
 dist-electron/renderer.js  790.56 kB │ gzip: 168.73 kB │ map: 1,684.01 kB
-built in 5454ms.
-dist-electron/index.js  1,597.31 kB │ map: 3,906.06 kB
-built in 5503ms.
+built in 5416ms.
 Debugger attached.
 🖼 Создаём окно...
 mainUrl: file:///Users/jtereschenko/Documents/IDE/zulip-desktop/dist-electron/app/renderer/main.html
-[29469:0507/105051.795827:ERROR:node_bindings.cc(378)] Most NODE_OPTIONs are not supported in packaged apps. See documentation for more details.
-[29469:0507/105051.795953:ERROR:node_bindings.cc(378)] Most NODE_OPTIONs are not supported in packaged apps. See documentation for more details.
-[29469:0507/105051.795976:ERROR:node_bindings.cc(378)] Most NODE_OPTIONs are not supported in packaged apps. See documentation for more details.
-[29469:0507/105051.795983:ERROR:node_bindings.cc(378)] Most NODE_OPTIONs are not supported in packaged apps. See documentation for more details.
-[29469:0507/105051.795988:ERROR:node_bindings.cc(378)] Most NODE_OPTIONs are not supported in packaged apps. See documentation for more details.
-[29470:0507/105052.021771:ERROR:system_services.cc(34)] SetApplicationIsDaemon: Error Domain=NSOSStatusErrorDomain Code=-50 "paramErr: error in user parameter list" (-50)
+[73142:0511/185213.100833:ERROR:node_bindings.cc(378)] Most NODE_OPTIONs are not supported in packaged apps. See documentation for more details.
+[73142:0511/185213.100862:ERROR:node_bindings.cc(378)] Most NODE_OPTIONs are not supported in packaged apps. See documentation for more details.
+[73142:0511/185213.100866:ERROR:node_bindings.cc(378)] Most NODE_OPTIONs are not supported in packaged apps. See documentation for more details.
+[73142:0511/185213.100870:ERROR:node_bindings.cc(378)] Most NODE_OPTIONs are not supported in packaged apps. See documentation for more details.
+[73142:0511/185213.100873:ERROR:node_bindings.cc(378)] Most NODE_OPTIONs are not supported in packaged apps. See documentation for more details.
+[73144:0511/185213.308347:ERROR:system_services.cc(34)] SetApplicationIsDaemon: Error Domain=NSOSStatusErrorDomain Code=-50 "paramErr: error in user parameter list" (-50)
 ✅ Окно создано!
 ✅ Окно создано!
 ✅ Окно создано!-1
 ✅ Окно создано!-2
-[29495:0507/105137.162338:ERROR:mojo_audio_output_ipc.cc(186)] MojoAudioOutputIPC failed to acquire factory
-10:52:14.589 › Main: Запрос источников экрана
-10:52:26.566 › Main: Запрос источников экрана
-Waiting for the debugger to disconnect...
-Waiting for the debugger to disconnect...
