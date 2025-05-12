@@ -10,7 +10,6 @@ import {type Html, html} from "../../../common/html.js";
 import * as t from "../../../common/translation-util.js";
 import type {RendererMessage} from "../../../common/typed-ipc.js";
 import type {TabRole} from "../../../common/types.js";
-import preloadCss from "../../css/preload.css?raw";
 import {ipcRenderer} from "../typed-ipc-renderer.js";
 import * as SystemUtil from "../utils/system-util.js";
 
@@ -321,7 +320,7 @@ export default class WebView {
     this.focus();
     this.properties.onTitleChange();
     // Injecting preload css in webview to override some css rules
-    (async () => this.getWebContents().insertCSS(preloadCss))();
+    (async () => this.getWebContents().insertCSS(".portico-wrap > .header {display: none;} .portico-container > .footer {display: none;}"))();
 
     // Get customCSS again from config util to avoid warning user again
     const customCss = ConfigUtil.getConfigItem("customCSS", null);

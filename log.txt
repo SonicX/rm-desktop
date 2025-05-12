@@ -1,7 +1,7 @@
 Debugger attached.
 [33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
 
-  VITE v5.4.18  ready in 189 ms
+  VITE v5.4.18  ready in 251 ms
 
   ➜  Local:   http://localhost:5173/
   ➜  Network: use --host to expose
@@ -28,26 +28,34 @@ transforming...
 rendering chunks...
 computing gzip size...
 dist-electron/preload.js  38.34 kB │ gzip: 12.37 kB │ map: 21.11 kB
-built in 941ms.
-✓ 407 modules transformed.
+built in 1403ms.
+✓ 406 modules transformed.
 ✓ 1507 modules transformed.
 rendering chunks...
 computing gzip size...
 rendering chunks...
-dist-electron/index.js  1,600.07 kB │ map: 3,910.26 kB
-built in 5385ms.
-dist-electron/renderer.js  790.56 kB │ gzip: 168.73 kB │ map: 1,684.01 kB
-built in 5416ms.
+dist-electron/index.js  1,599.78 kB │ map: 3,909.40 kB
+built in 6193ms.
+dist-electron/renderer.js  790.41 kB │ gzip: 168.66 kB │ map: 1,683.71 kB
+built in 6434ms.
 Debugger attached.
 🖼 Создаём окно...
 mainUrl: file:///Users/jtereschenko/Documents/IDE/zulip-desktop/dist-electron/app/renderer/main.html
-[73142:0511/185213.100833:ERROR:node_bindings.cc(378)] Most NODE_OPTIONs are not supported in packaged apps. See documentation for more details.
-[73142:0511/185213.100862:ERROR:node_bindings.cc(378)] Most NODE_OPTIONs are not supported in packaged apps. See documentation for more details.
-[73142:0511/185213.100866:ERROR:node_bindings.cc(378)] Most NODE_OPTIONs are not supported in packaged apps. See documentation for more details.
-[73142:0511/185213.100870:ERROR:node_bindings.cc(378)] Most NODE_OPTIONs are not supported in packaged apps. See documentation for more details.
-[73142:0511/185213.100873:ERROR:node_bindings.cc(378)] Most NODE_OPTIONs are not supported in packaged apps. See documentation for more details.
-[73144:0511/185213.308347:ERROR:system_services.cc(34)] SetApplicationIsDaemon: Error Domain=NSOSStatusErrorDomain Code=-50 "paramErr: error in user parameter list" (-50)
+[53690:0512/135139.852809:ERROR:node_bindings.cc(378)] Most NODE_OPTIONs are not supported in packaged apps. See documentation for more details.
+[53690:0512/135139.852841:ERROR:node_bindings.cc(378)] Most NODE_OPTIONs are not supported in packaged apps. See documentation for more details.
+[53690:0512/135139.852847:ERROR:node_bindings.cc(378)] Most NODE_OPTIONs are not supported in packaged apps. See documentation for more details.
+[53690:0512/135139.852852:ERROR:node_bindings.cc(378)] Most NODE_OPTIONs are not supported in packaged apps. See documentation for more details.
+[53690:0512/135139.852894:ERROR:node_bindings.cc(378)] Most NODE_OPTIONs are not supported in packaged apps. See documentation for more details.
+[53691:0512/135139.865366:ERROR:node_bindings.cc(378)] Most NODE_OPTIONs are not supported in packaged apps. See documentation for more details.
+[53691:0512/135139.865396:ERROR:node_bindings.cc(378)] Most NODE_OPTIONs are not supported in packaged apps. See documentation for more details.
+[53691:0512/135139.865402:ERROR:node_bindings.cc(378)] Most NODE_OPTIONs are not supported in packaged apps. See documentation for more details.
+[53691:0512/135139.865407:ERROR:node_bindings.cc(378)] Most NODE_OPTIONs are not supported in packaged apps. See documentation for more details.
+[53691:0512/135139.865411:ERROR:node_bindings.cc(378)] Most NODE_OPTIONs are not supported in packaged apps. See documentation for more details.
+[53698:0512/135140.104520:ERROR:system_services.cc(34)] SetApplicationIsDaemon: Error Domain=NSOSStatusErrorDomain Code=-50 "paramErr: error in user parameter list" (-50)
+[53683:0512/135140.232952:ERROR:CONSOLE(1)] "Request Autofill.enable failed. {"code":-32601,"message":"'Autofill.enable' wasn't found"}", source: devtools://devtools/bundled/core/protocol_client/protocol_client.js (1)
+[53683:0512/135140.233001:ERROR:CONSOLE(1)] "Request Autofill.setAddresses failed. {"code":-32601,"message":"'Autofill.setAddresses' wasn't found"}", source: devtools://devtools/bundled/core/protocol_client/protocol_client.js (1)
 ✅ Окно создано!
 ✅ Окно создано!
 ✅ Окно создано!-1
 ✅ Окно создано!-2
+13:51:40.675 › Main: WebView будет создан с preload: /Users/jtereschenko/Documents/IDE/zulip-desktop/dist-electron/preload.js, URL: https://joinrm-svz.ru/

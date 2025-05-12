@@ -116,6 +116,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
     backgroundColor: '#333',
   });
 
+  win.webContents.openDevTools();
   remoteMain.enable(win.webContents);
 
   win.webContents.on('preload-error', (event, preloadPath, error) => {
@@ -164,12 +165,8 @@ async function createMainWindow(): Promise<BrowserWindow> {
     send(win.webContents, "enter-fullscreen");
   });
 
-  win.webContents.on('did-create-webview', (event: Electron.Event, webview: WebContents) => {
-    log.info(`Main: Создан WebView с ID: ${webview.id}, URL: ${webview.getURL()}`);
-    webview.on('console-message', (_event: Electron.Event, level: number, message: string, line: number, sourceId: string) => {
-        log.info(`WebView Console [${level}]: ${message} (line: ${line}, source: ${sourceId})`);
-        console.log(`WebView Console [${level}]: ${message} (line: ${line}, source: ${sourceId})`);
-    });
+  win.webContents.on('will-attach-webview', (event: Electron.Event, webPreferences: Electron.WebPreferences, params: any) => {
+    log.info(`Main: WebView будет создан с preload: ${webPreferences.preload}, URL: ${params.src}`);
   });
 
   win.on("leave-full-screen", () => {
