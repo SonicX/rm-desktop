@@ -38,6 +38,8 @@ import { ipcMain, send } from "./typed-ipc-main.js";
 
 // Настройка логирования
 log.transports.file.level = "info";
+log.transports.console.level = "info"; // Включить консольный вывод
+log.transports.console.format = "[{h}:{i}:{s}] {text}"; // Формат логов
 autoUpdater.logger = log;
 
 // Настройка автообновления
@@ -228,6 +230,11 @@ async function createMainWindow(): Promise<BrowserWindow> {
   ipcMain.on("reload-full-app", () => {
     mainWindow.reload();
     send(page, "destroytray");
+  });
+
+  ipcMain.on("preload-log", (event, message: string) => {
+    log.info(`Preload Log: ${message}`);
+    console.log(`Preload Log: ${message}`);
   });
 
   // Обработчик для установки горячей клавиши микрофона
