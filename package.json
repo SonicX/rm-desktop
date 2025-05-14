@@ -48,6 +48,15 @@
         "releaseType": "release"
       }
     ],
+    "extraFiles": [
+      {
+        "from": "node_modules/node-global-key-listener/bin/MacKeyServer",
+        "to": "bin/MacKeyServer"
+      }
+    ],
+    "asar": {
+      "unpack": "**/*.node"
+    },
     "mac": {
       "category": "public.app-category.productivity",
       "target": [
@@ -134,6 +143,10 @@
     "Desktop app",
     "InstantMessaging"
   ],
+  "dependencies": {
+    "node-global-key-listener": "^0.3.0",
+    "uuid": "^10.0.0"
+  },
   "devDependencies": {
     "@electron/remote": "^2.0.8",
     "@sentry/core": "^8.26.0",

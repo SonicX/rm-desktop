@@ -885,6 +885,7 @@ export class ServerManagerView {
 }
 
 window.addEventListener("load", async () => {
+  const appVersion = app.getVersion();
   document.body.innerHTML = html`
     <div id="content">
       <div class="popup">
@@ -895,10 +896,6 @@ window.addEventListener("load", async () => {
           <div id="tabs-container"></div>
         </div>
         <div id="actions-container">
-          <div class="action-button hidden" id="update-action">
-            <i class="material-icons md-48">system_update</i>
-            <span id="update-tooltip" style="display: none">${t.__("Доступно обновление")}</span>
-          </div>
           <div class="action-button" id="dnd-action">
             <i class="material-icons md-48">notifications</i>
             <span id="dnd-tooltip" style="display: none">${t.__("Не беспокоить")}</span>
@@ -919,6 +916,7 @@ window.addEventListener("load", async () => {
             <i class="material-icons md-48">settings</i>
             <span id="setting-tooltip" style="display: none">${t.__("Настройки")}</span>
           </div>
+          <div class="version-label">${appVersion}</div>
         </div>
       </div>
       <div id="main-container">

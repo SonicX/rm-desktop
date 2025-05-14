@@ -23,7 +23,6 @@ export interface WalkieTalkieStatus {
 export type MainMessage = {
   "preload-log": (message: string) => void;
   "clear-app-settings": () => void;
-  "toggle-walkie-talkie": (data: { isMuted: boolean }) => void;
   "walkie-talkie-status": (data: { enabled: boolean; key: string }) => void;
   "configure-spell-checker": () => void;
   "fetch-user-agent": () => string;

@@ -18,6 +18,9 @@ import process from "node:process";
 import { autoUpdater } from "electron-updater";
 import log from "electron-log";
 
+
+import { GlobalKeyboardListener, IGlobalKeyDownMap, IGlobalKeyEvent } from 'node-global-key-listener';
+
 import * as remoteMain from "@electron/remote/main";
 import windowStateKeeper from "electron-window-state";
 
@@ -61,7 +64,83 @@ let isQuitting = false;
 let currentHotkey: string | null = null;
 let originalMuteState: boolean | null = null;
 
+type KeyName = 
+  | 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | 'H' | 'I' | 'J' | 'K' | 'L' | 'M'
+  | 'N' | 'O' | 'P' | 'Q' | 'R' | 'S' | 'T' | 'U' | 'V' | 'W' | 'X' | 'Y' | 'Z'
+  | '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | 'DOT' | 'FORWARD SLASH'
+  | 'SPACE';
+
+const vKeyToName: { [key: number]: KeyName } = {
+  // Латинские буквы (A–Z, соответствуют a–z)
+  11: 'B',
+  45: 'N',
+  7: 'X',
+  6: 'Z',
+  // Дополнительные клавиши
+  49: 'SPACE', // Пробел
+  47: 'DOT',
+  44: 'FORWARD SLASH'
+};
+
+class CustomKeyboardListener extends GlobalKeyboardListener {
+  public startListener(): Promise<void> {
+    return this.start(); // Вызываем защищённый метод start
+  }
+
+  public stopListener(): void {
+    this.stop(); // Вызываем защищённый метод stop
+  }
+}
+
+function normalizeKey(key: string): string {
+  // Преобразование кириллических букв в латинские эквиваленты
+  const cyrillicToLatin: { [key: string]: string } = {
+    'а': 'a', // Ф
+    'б': 'b', // И
+    'в': 'v', // Ц
+    'г': 'g', // У
+    'д': 'd', // В
+    'е': 'e', // У
+    'ё': 'e', // Ё (можно сопоставить с E)
+    'ж': 'zh', // Ж (нет прямого эквивалента, используем zh)
+    'з': 'z', // Я
+    'и': 'i', // Ш
+    'й': 'j', // Й
+    'к': 'k', // Л
+    'л': 'l', // Д
+    'м': 'm', // Ь
+    'н': 'n', // Т
+    'о': 'o', // Щ
+    'п': 'p', // З
+    'р': 'r', // К
+    'с': 's', // Ы
+    'т': 't', // Е
+    'у': 'u', // Г
+    'ф': 'f', // А
+    'х': 'h', // Р
+    'ц': 'c', // С
+    'ч': 'ch', // Ч (нет прямого эквивалента, используем ch)
+    'ш': 'sh', // Ш (нет прямого эквивалента, используем sh)
+    'щ': 'sch', // Щ (нет прямого эквивалента, используем sch)
+    'ъ': 'hard_sign', // Ъ (нет прямого эквивалента)
+    'ы': 'y', // Ы
+    'ь': 'soft_sign', // Ь (нет прямого эквивалента)
+    'э': 'e', // Э
+    'ю': 'yu', // Ю (нет прямого эквивалента, используем yu)
+    'я': 'ya', // Я (нет прямого эквивалента, используем ya)
+  };
+
+  let normalized = key.toLowerCase().replace("command", "meta");
+  for (const [cyr, lat] of Object.entries(cyrillicToLatin)) {
+    normalized = normalized.replace(cyr, lat);
+  }
+  return normalized;
+}
+
 const mainUrl = new URL("app/renderer/main.html", bundleUrl).href;
+
+// Создаём маппинг keycode → имя клавиши
+const keyboard = new CustomKeyboardListener();
 
 const permissionCallbacks = new Map<number, (grant: boolean) => void>();
 let nextPermissionCallbackId = 0;
@@ -118,7 +197,6 @@ async function createMainWindow(): Promise<BrowserWindow> {
     backgroundColor: '#333',
   });
 
-  win.webContents.openDevTools();
   remoteMain.enable(win.webContents);
 
   win.webContents.on('preload-error', (event, preloadPath, error) => {
@@ -241,93 +319,104 @@ async function createMainWindow(): Promise<BrowserWindow> {
   ipcMain.on("walkie-talkie-status", (event, status: unknown) => {
     log.info(`Main: Получено событие walkie-talkie-status: ${JSON.stringify(status)}`);
     if (typeof status !== "object" || status === null || !("enabled" in status) || !("key" in status)) {
-        log.error(`Main: Некорректный формат данных для walkie-talkie-status: ${JSON.stringify(status)}`);
-        return;
+      log.error(`Main: Некорректный формат данных для walkie-talkie-status: ${JSON.stringify(status)}`);
+      return;
     }
-
+  
     const { enabled, key: rawKey } = status as WalkieTalkieStatus;
     if (typeof enabled !== "boolean" || typeof rawKey !== "string") {
-        log.error(`Main: Некорректные типы в walkie-talkie-status: enabled=${typeof enabled}, key=${typeof rawKey}`);
-        return;
+      log.error(`Main: Некорректные типы в walkie-talkie-status: enabled=${typeof enabled}, key=${typeof rawKey}`);
+      return;
     }
-
+  
+    // Игнорируем пустые или некорректные ключи
+    if (!rawKey || rawKey.trim() === '') {
+      log.warn(`Main: Пустой или некорректный ключ: ${rawKey}`);
+      return;
+    }
+  
     if (currentHotkey) {
-      globalShortcut.unregister(currentHotkey);
-      log.info(`Main: Удалена старая горячая клавиша: ${currentHotkey}`);
+      keyboard.stopListener();
+      log.info(`Main: Остановлен node-global-key-listener для предыдущей клавиши: ${currentHotkey}`);
     }
-
-    // Преобразуем ключ в строчную букву
-    const key = rawKey.toLowerCase();
+  
+    const key = normalizeKey(rawKey);
     log.info(`Main: Преобразован ключ из ${rawKey} в ${key}`);
-
+  
     const validAccelerators = /^[a-z0-9]+$/;
-    const validCombo = /^((Ctrl|Alt|Shift|Command|Meta)\+)+[a-z0-9]+$/;
+    const validCombo = /^((ctrl|alt|shift|meta)\+)+[a-z0-9]+$/i;
     if (!validAccelerators.test(key) && !validCombo.test(key)) {
-        log.error(`Main: Некорректный формат горячей клавиши: ${key}`);
-        return;
+      log.error(`Main: Некорректный формат горячей клавиши: ${key}`);
+      return;
     }
-
-    log.info(`Main: Установка горячей клавиши микрофона: ${key}`);
+  
     currentHotkey = key;
-    globalShortcut.register(key, () => {
-        log.info(`Main: Нажата горячая клавиша: ${key}`);
-        if (!mainWindow) {
-            log.warn("Main: mainWindow отсутствует");
-            return;
-        }
-        const allWebContents = webContents.getAllWebContents();
-        log.info(`Main: Найдено WebContents: ${allWebContents.length}`);
-        const activeWebContents = allWebContents.find(content => {
-            const url = content.getURL();
-            log.info(`Main: Проверка WebContents URL: ${url}, ID: ${content.id}`);
-            return url.includes("connectrm-svz.ru") || url.includes("joinrm-svz.ru");
-        });
-
-        if (!activeWebContents) {
-            log.warn("Main: Не найден WebContents с URL connectrm-svz.ru или joinrm-svz.ru");
-            log.info(`Main: Список всех WebContents URL: ${allWebContents.map(c => c.getURL()).join(", ")}`);
-            return;
-        }
-
-        log.info(`Main: Выбран WebContents ID: ${activeWebContents.id}, URL: ${activeWebContents.getURL()}`);
-        originalMuteState = activeWebContents.isAudioMuted();
-        const newMuteState = !originalMuteState;
-        activeWebContents.setAudioMuted(newMuteState);
-        log.info(`Main: Микрофон переключен в состояние: ${newMuteState}`);
-        activeWebContents.send("toggle-walkie-talkie", newMuteState);
-        log.info(`Main: Отправлено событие toggle-walkie-talkie с isMuted: ${newMuteState}`);
+    log.info(`Main: Установка горячей клавиши микрофона: ${key}`);
+  
+    keyboard.startListener().then(() => {
+      log.info(`Main: node-global-key-listener запущен для клавиши: ${key}`);
+    }).catch(err => {
+      log.error(`Main: Ошибка запуска node-global-key-listener: ${err}`);
     });
-
-    if (globalShortcut.isRegistered(key)) {
-        log.info(`Main: Горячая клавиша ${key} успешно зарегистрирована`);
-    } else {
-        log.error(`Main: Не удалось зарегистрировать горячую клавишу ${key}`);
-    }
-
-    // Регистрация отпускания клавиши
-    globalShortcut.register(key, () => {
-        log.info(`Main: Отпущена горячая клавиша: ${key}`);
-        if (originalMuteState !== null && mainWindow) {
-            const allWebContents = webContents.getAllWebContents();
-            const activeWebContents = allWebContents.find(content => {
-                const url = content.getURL();
-                log.info(`Main: Проверка WebContents URL (отпускание): ${url}, ID: ${content.id}`);
-                return url.includes("connectrm-svz.ru") || url.includes("joinrm-svz.ru");
-            });
-
-            if (!activeWebContents) {
-                log.warn("Main: Не найден WebContents с URL connectrm-svz.ru или joinrm-svz.ru (отпускание)");
-                return;
-            }
-
-            activeWebContents.setAudioMuted(originalMuteState);
-            log.info(`Main: Микрофон восстановлен в состояние: ${originalMuteState}`);
-            activeWebContents.send("toggle-walkie-talkie", originalMuteState);
-            log.info(`Main: Отправлено событие toggle-walkie-talkie с isMuted: ${originalMuteState}`);
-            originalMuteState = null;
-        } else {
-            log.info(`Main: Пропущено восстановление микрофона, originalMuteState: ${originalMuteState}`);
+  
+    keyboard.addListener((e: IGlobalKeyEvent, down: IGlobalKeyDownMap) => {
+      const parts = key.split('+').map(p => p.toLowerCase());
+      const mainKey = parts.pop()!;
+      const expectedCtrl = parts.includes('ctrl');
+      const expectedAlt = parts.includes('alt');
+      const expectedShift = parts.includes('shift');
+      const expectedMeta = parts.includes('meta');
+      
+      log.info(`Main: символ: ${e.name}`);
+      log.info(`Main: код: ${e.vKey}`);
+      const pressedKeyName = vKeyToName[e.vKey] || '';
+  
+      // Проверяем, является ли pressedKeyName допустимым ключом
+      if (!(pressedKeyName in down)) {
+        return;
+      }
+  
+      // Преобразуем mainKey в верхний регистр для соответствия IGlobalKeyDownMap
+      const normalizedMainKey = mainKey.toUpperCase() as KeyName;
+  
+      if (pressedKeyName !== normalizedMainKey) {
+        return;
+      }
+      log.info(`Main: проверка: ${down[pressedKeyName]}`);
+      if (down[pressedKeyName]) {
+        log.info(`Main: Нажата горячая клавиша: ${key}`);
+  
+        const allWebContents = webContents.getAllWebContents();
+        const activeWebContents = allWebContents.find((content) => {
+          const url = content.getURL();
+          log.info(`Main: Проверка WebContents URL: ${url}, ID: ${content.id}`);
+          return url.includes("connectrm-svz.ru") || url.includes("joinrm-svz.ru");
+        });
+  
+        if (!activeWebContents) {
+          log.warn("Main: Не найден WebContents с URL connectrm-svz.ru или joinrm-svz.ru");
+          return;
         }
+  
+        log.info(`Main: Выбран WebContents ID: ${activeWebContents.id}, URL: ${activeWebContents.getURL()}`);
+        log.info(`Main: Микрофон переключен в состояние: ${true}`);
+        activeWebContents.send("toggle-walkie-talkie", true);
+      } else {
+        log.info(`Main: Отпущена горячая клавиша: ${key}`);
+        const allWebContents = webContents.getAllWebContents();
+          const activeWebContents = allWebContents.find((content) => {
+            const url = content.getURL();
+            log.info(`Main: Проверка WebContents URL (отпускание): ${url}, ID: ${content.id}`);
+            return url.includes("connectrm-svz.ru") || url.includes("joinrm-svz.ru");
+          });
+  
+          if (!activeWebContents) {
+            log.warn("Main: Не найден WebContents с URL connectrm-svz.ru или joinrm-svz.ru (отпускание)");
+            return;
+          }
+          log.info(`Main: Микрофон восстановлен в состояние: ${false}`);
+          activeWebContents.send("toggle-walkie-talkie", false);
+      }
     });
   });
 
@@ -463,7 +552,7 @@ app.on("before-quit", () => {
   isQuitting = true;
   // Очищаем горячую клавишу при выходе
   if (currentHotkey) {
-    globalShortcut.unregister(currentHotkey);
+    keyboard.stopListener();
     log.info(`Main: Горячая клавиша ${currentHotkey} удалена при выходе`);
   }
 });
