@@ -362,10 +362,6 @@ async function createMainWindow(): Promise<BrowserWindow> {
     keyboard.addListener((e: IGlobalKeyEvent, down: IGlobalKeyDownMap) => {
       const parts = key.split('+').map(p => p.toLowerCase());
       const mainKey = parts.pop()!;
-      const expectedCtrl = parts.includes('ctrl');
-      const expectedAlt = parts.includes('alt');
-      const expectedShift = parts.includes('shift');
-      const expectedMeta = parts.includes('meta');
       
       log.info(`Main: символ: ${e.name}`);
       log.info(`Main: код: ${e.vKey}`);

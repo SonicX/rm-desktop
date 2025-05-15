@@ -887,6 +887,12 @@ export class ServerManagerView {
 window.addEventListener("load", async () => {
   const appVersion = app.getVersion();
   document.body.innerHTML = html`
+    <style>
+      .version-label {
+        color: white;
+        margin-left: 7px;
+      }
+    </style>
     <div id="content">
       <div class="popup">
         <span class="popuptext hidden" id="fullscreen-popup"></span>
