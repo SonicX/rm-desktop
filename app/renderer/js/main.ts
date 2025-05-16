@@ -890,6 +890,7 @@ window.addEventListener("load", async () => {
     <style>
       .version-label {
         color: white;
+        opacity: 0.25;
         margin-left: 7px;
       }
     </style>

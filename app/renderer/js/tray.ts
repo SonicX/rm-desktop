@@ -124,7 +124,7 @@ function sendAction<Channel extends keyof RendererMessage>(
 const createTray = function (): void {
   const contextMenu = Menu.buildFromTemplate([
     {
-      label: "RM",
+      label: "Связь РМ",
       click() {
         ipcRenderer.send("focus-app");
       },
@@ -133,10 +133,11 @@ const createTray = function (): void {
       type: "separator",
     },
     {
-      label: "Quit",
+      label: "Закрыть",
       click() {
         console.log("Tray: Sending quit-app event to main process");
         BrowserWindow.getAllWindows()[0].webContents.send("quit-app");
+        ipcRenderer.send("quit-app")
       },
     },
   ]);
