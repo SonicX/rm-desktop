@@ -52,6 +52,10 @@
       {
         "from": "node_modules/node-global-key-listener/bin/MacKeyServer",
         "to": "bin/MacKeyServer"
+      },
+      {
+        "from": "node_modules/node-global-key-listener/bin/WinKeyServer",
+        "to": "bin/WinKeyServer"
       }
     ],
     "asar": {
