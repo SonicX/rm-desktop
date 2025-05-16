@@ -50,17 +50,13 @@
     ],
     "extraFiles": [
       {
-        "from": "node_modules/node-global-key-listener/bin/MacKeyServer",
-        "to": "bin/MacKeyServer"
-      },
-      {
-        "from": "node_modules/node-global-key-listener/bin/WinKeyServer",
-        "to": "bin/WinKeyServer"
+        "from": "node_modules/node-global-key-listener/bin/WinKeyServer.exe",
+        "to": "bin/WinKeyServer.exe"
       }
     ],
-    "asar": {
-      "unpack": "**/*.node"
-    },
+    "asarUnpack": [
+      "bin/**"
+    ],
     "mac": {
       "category": "public.app-category.productivity",
       "target": [
@@ -127,8 +123,7 @@
         }
       ],
       "icon": "build/icon.ico",
-      "publisherName": "ООО Цифровые технологии Рм",
-      "sign": "scripts/sign.js"
+      "publisherName": "ООО Цифровые технологии Рм"
     },
     "nsis": {
       "oneClick": false,
@@ -170,7 +165,6 @@
     "electron": "^32.3.0",
     "electron-builder": "^24.6.4",
     "electron-log": "^5.3.3",
-    "electron-rebuild": "^3.2.9",
     "electron-updater": "^6.3.4",
     "electron-window-state": "^5.0.3",
     "escape-goat": "^4.0.0",

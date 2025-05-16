@@ -72,14 +72,14 @@ type KeyName =
 
 const vKeyToName: { [key: number]: KeyName } = {
   // Латинские буквы (A–Z, соответствуют a–z)
-  11: 'B',
-  45: 'N',
-  7: 'X',
-  6: 'Z',
+  66: 'B',
+  78: 'N',
+  88: 'X',
+  90: 'Z',
   // Дополнительные клавиши
-  49: 'SPACE', // Пробел
-  47: 'DOT',
-  44: 'FORWARD SLASH'
+  32: 'SPACE', // Пробел
+  190: 'DOT',
+  191: 'FORWARD SLASH'
 };
 
 class CustomKeyboardListener extends GlobalKeyboardListener {
