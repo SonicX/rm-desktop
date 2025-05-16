@@ -40,10 +40,14 @@ import { setAutoLaunch } from "./startup.js";
 import { ipcMain, send } from "./typed-ipc-main.js";
 
 // Настройка логирования
-log.transports.file.level = "info";
-log.transports.console.level = "info"; // Включить консольный вывод
-log.transports.console.format = "[{h}:{i}:{s}] {text}"; // Формат логов
-autoUpdater.logger = log;
+if (process.env.NODE_ENV === "development") {
+  log.transports.file.level = "info";
+  log.transports.console.level = "info"; // Включить консольный вывод
+  log.transports.console.format = "[{h}:{i}:{s}] {text}"; // Формат логов
+  autoUpdater.logger = log;
+} else {
+  log.transports.console.level = false
+}
 
 // Настройка автообновления
 autoUpdater.autoDownload = true;

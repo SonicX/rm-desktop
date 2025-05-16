@@ -51,11 +51,11 @@
     "extraFiles": [
       {
         "from": "node_modules/node-global-key-listener/bin/WinKeyServer.exe",
-        "to": "bin/WinKeyServer.exe"
+        "to": "resources/bin/WinKeyServer.exe"
       }
     ],
     "asarUnpack": [
-      "bin/**"
+      "resources/bin/**"
     ],
     "mac": {
       "category": "public.app-category.productivity",
