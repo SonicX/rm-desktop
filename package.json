@@ -123,7 +123,8 @@
         }
       ],
       "icon": "build/icon.ico",
-      "publisherName": "ООО Цифровые технологии Рм"
+      "publisherName": "ООО Цифровые технологии Рм",
+      "sign": "scripts/sign.js"
     },
     "nsis": {
       "oneClick": false,

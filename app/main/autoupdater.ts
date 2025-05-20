@@ -49,15 +49,25 @@ export async function appUpdater(updateFromMenu = true): Promise<void> {
       for (const event of eventsListenerRemove) {
         autoUpdater.removeAllListeners(event);
       }
-
-      await dialog.showMessageBox({
-        message: t.__("Новая версия \"Связь РМ\" {{{version}}}.", {
-          version: info.version,
-        }),
-        detail: t.__(
-          "Обновление будет выполнено в фоне. Мы уведомим вас об завершении.",
-        ),
-      });
+      
+      var index = await dialog.showMessageBox({
+                  message: t.__("Новая версия \"Связь РМ\" {{{version}}}.", {
+                    version: info.version,
+                  }),
+                  buttons: ["Закрыть", "Подробнее"],
+                  type: "info",
+                  detail: t.__(
+                    "Обновление будет выполнено в фоне. Мы уведомим вас об завершении.\n" +
+                    "Обновили:\n" +
+                    "- Расширенные возможности захвата экрана\n" +
+                    "- Режим рации: связь без ограничений\n" +
+                    "- Улучшения на основе ваших отзывов\n" +
+                    "- Гибкая настройка звука"
+                  )
+                });
+          if (index.response == 1) {
+            require("electron").shell.openExternal("https://rusmanul.com/new_update_20_05_2025")
+          }
     }
   });
 
