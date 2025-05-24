@@ -1,7 +1,7 @@
 Debugger attached.
 [33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
 
-  [32m[1mVITE[22m v5.4.19[39m  [2mready in [0m[1m824[22m[2m[0m ms[22m
+  [32m[1mVITE[22m v5.4.19[39m  [2mready in [0m[1m410[22m[2m[0m ms[22m
 
   [32m➜[39m  [1mLocal[22m:   [36mhttp://localhost:[1m5173[22m/[39m
 [2m  [32m➜[39m  [1mNetwork[22m[2m: use [22m[1m--host[22m[2m to expose[22m
@@ -28,16 +28,16 @@ transforming...
 rendering chunks...
 computing gzip size...
 [2mdist-electron/[22m[36mpreload.js  [39m[1m[2m38.34 kB[22m[1m[22m[2m │ gzip: 12.63 kB[22m[2m │ map: 21.11 kB[22m
-[36mbuilt in 1134ms.[39m
+[36mbuilt in 1185ms.[39m
 [32m✓[39m 406 modules transformed.
 rendering chunks...
 computing gzip size...
-[2mdist-electron/[22m[36mrenderer.js  [39m[1m[33m791.37 kB[39m[22m[2m │ gzip: 169.44 kB[22m[2m │ map: 1,685.55 kB[22m
-[36mbuilt in 4270ms.[39m
+[2mdist-electron/[22m[36mrenderer.js  [39m[1m[33m790.72 kB[39m[22m[2m │ gzip: 169.06 kB[22m[2m │ map: 1,684.20 kB[22m
+[36mbuilt in 4460ms.[39m
 [32m✓[39m 1551 modules transformed.
 rendering chunks...
-[2mdist-electron/[22m[36mindex.js  [39m[1m[33m1,681.35 kB[39m[22m[2m │ map: 4,146.57 kB[22m
-[36mbuilt in 8482ms.[39m
+[2mdist-electron/[22m[36mindex.js  [39m[1m[33m1,680.89 kB[39m[22m[2m │ map: 4,145.90 kB[22m
+[36mbuilt in 10512ms.[39m
 
 Debugger attached.
 🖼 Создаём окно...
@@ -46,28 +46,33 @@ mainUrl: file://C:\Users\User\Documents\IDE\zulip-desktop\zulip-desktop\dist-ele
 ✅ Окно создано!
 ✅ Окно создано!-1
 ✅ Окно создано!-2
-[20:55:31] Main: WebView будет создан с preload: C:\Users\User\Documents\IDE\zulip-desktop\zulip-desktop\dist-electron\preload.js, URL: https://connectrm-svz.ru/
-[20:55:32] Preload Log: ✅ Preload: Начало выполнения
+09:15:39.502 > Skip checkForUpdates because application is not packed and dev update config is not forced
+[09:15:39] Main: WebView будет создан с preload: C:\Users\User\Documents\IDE\zulip-desktop\zulip-desktop\dist-electron\preload.js, URL: https://connectrm-svz.ru/
+[09:15:40] Preload Log: ✅ Preload: Начало выполнения
 Preload Log: ✅ Preload: Начало выполнения
-[20:55:32] Preload Log: ✅ Preload: Загружен для URL: https://connectrm-svz.ru/
+[09:15:40] Preload Log: ✅ Preload: Загружен для URL: https://connectrm-svz.ru/
 Preload Log: ✅ Preload: Загружен для URL: https://connectrm-svz.ru/
-[20:55:32] Preload Log: ✅ Preload: ipcRenderer.send: function, ipcRenderer.invoke: function
+[09:15:40] Preload Log: ✅ Preload: ipcRenderer.send: function, ipcRenderer.invoke: function
 Preload Log: ✅ Preload: ipcRenderer.send: function, ipcRenderer.invoke: function
-[20:55:32] Preload Log: ✅ Preload: Регистрация обработчика toggle-walkie-talkie
+[09:15:40] Preload Log: ✅ Preload: Регистрация обработчика toggle-walkie-talkie
 Preload Log: ✅ Preload: Регистрация обработчика toggle-walkie-talkie
-[20:55:33] Preload Log: Bridge: Установка слушателя события: logout
+[09:15:41] Preload Log: Bridge: Установка слушателя события: logout
 Preload Log: Bridge: Установка слушателя события: logout
-[20:55:33] Preload Log: Bridge: Установка слушателя события: show-keyboard-shortcuts
+[09:15:41] Preload Log: Bridge: Установка слушателя события: show-keyboard-shortcuts
 Preload Log: Bridge: Установка слушателя события: show-keyboard-shortcuts
-[20:55:33] Preload Log: Bridge: Установка слушателя события: show-notification-settings
+[09:15:41] Preload Log: Bridge: Установка слушателя события: show-notification-settings
 Preload Log: Bridge: Установка слушателя события: show-notification-settings
-[20:55:33] Preload Log: Bridge: Установка слушателя события: open-desktop-picker
+[09:15:41] Preload Log: Bridge: Установка слушателя события: open-desktop-picker
 Preload Log: Bridge: Установка слушателя события: open-desktop-picker
-[20:55:33] Preload Log: Bridge: Установка слушателя события: requestDesktopSources
+[09:15:41] Preload Log: Bridge: Установка слушателя события: requestDesktopSources
 Preload Log: Bridge: Установка слушателя события: requestDesktopSources
-[20:55:33] Preload Log: Bridge: Установка слушателя события: walkie-talkie-status
+[09:15:41] Preload Log: Bridge: Установка слушателя события: walkie-talkie-status
 Preload Log: Bridge: Установка слушателя события: walkie-talkie-status
-[20:55:33] Preload Log: Bridge: Установка слушателя события: toggle-walkie-talkie
+[09:15:41] Preload Log: Bridge: Установка слушателя события: toggle-walkie-talkie
 Preload Log: Bridge: Установка слушателя события: toggle-walkie-talkie
-[20:55:33] Preload Log: Bridge: Установка слушателя события: send_notification_reply_message
+[09:15:41] Preload Log: Bridge: Установка слушателя события: send_notification_reply_message
 Preload Log: Bridge: Установка слушателя события: send_notification_reply_message
+[09:16:02] Main: Получено событие quit-app, закрытие приложения...
+Waiting for the debugger to disconnect...
+�訡��: �� 㤠���� ���� ����� "19244".
+Waiting for the debugger to disconnect...

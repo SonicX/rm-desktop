@@ -272,6 +272,7 @@ export class ServerManagerView {
       url: "https://connectrm-svz.ru",
       alias: "Цифровые технологии РМ",
       icon: "https://disk.yandex.ru/i/m2aj56OOhsJfyw",
+      zulipVersion: app.getVersion()
     } as ServerConfig;
   
     DomainUtil.removeDomains();

@@ -4,6 +4,7 @@ import process from "node:process";
 
 import log from "electron-log/main";
 import {
+  UpdateCheckResult,
   type UpdateDownloadedEvent,
   type UpdateInfo,
   autoUpdater,
@@ -20,15 +21,12 @@ export function shouldQuitForUpdate(): boolean {
   return quitting;
 }
 
-export async function appUpdater(updateFromMenu = true): Promise<void> {
-  if (!app.isPackaged) {
-    return;
-  }
+export async function appUpdater(updateFromMenu = true): Promise<UpdateCheckResult | null> {
 
   if (process.platform === "linux" && !process.env.APPIMAGE) {
     const ses = session.fromPartition("persist:webviewsession");
     await linuxUpdateNotification(ses);
-    return;
+    return null;
   }
 
   let updateAvailable = false;
@@ -42,6 +40,10 @@ export async function appUpdater(updateFromMenu = true): Promise<void> {
   autoUpdater.allowPrerelease = isBetaUpdate;
 
   const eventsListenerRemove = ["update-available"] as const;
+  autoUpdater.on("checking-for-update", () => {
+    console.log("Checking for updates...");
+  });
+
   autoUpdater.on("update-available", async (info: UpdateInfo) => {
     if (updateFromMenu) {
       updateAvailable = true;
@@ -112,5 +114,5 @@ export async function appUpdater(updateFromMenu = true): Promise<void> {
     }
   });
 
-  await autoUpdater.checkForUpdates();
+  return await autoUpdater.checkForUpdates();
 }
