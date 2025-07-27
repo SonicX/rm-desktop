@@ -4,6 +4,35 @@ import * as NetworkError from "./pages/network.js";
 import { ipcRenderer } from "./typed-ipc-renderer.js";
 import { WalkieTalkieStatus } from "../../common/typed-ipc.js";
 
+// Load native addon - try different paths
+let screenCapture: any;
+const possiblePaths = [
+  '../native-addon/build/Release/screen_capture.node',
+  '../../native-addon/build/Release/screen_capture.node',
+  '../../../native-addon/build/Release/screen_capture.node',
+  './native-addon/build/Release/screen_capture.node'
+];
+
+for (const addonPath of possiblePaths) {
+  try {
+    ipcRenderer.send("preload-log", `Attempting to load addon from: ${addonPath}`);
+    screenCapture = require(addonPath);
+    ipcRenderer.send("preload-log", "✅ Native screen capture addon loaded successfully");
+    
+    // Test the addon
+    const testResult = screenCapture.testMethod();
+    ipcRenderer.send("preload-log", `✅ Native addon test: ${testResult}`);
+    break; // Success, exit the loop
+  } catch (error: any) {
+    ipcRenderer.send("preload-log", `❌ Failed with path ${addonPath}: ${error.message}`);
+  }
+}
+
+if (!screenCapture) {
+  ipcRenderer.send("preload-log", "❌ Failed to load native addon from any path");
+  console.error('Failed to load native screen capture addon');
+}
+
 ipcRenderer.send("preload-log", "✅ Preload: Начало выполнения");
 ipcRenderer.send("preload-log", `✅ Preload: Загружен для URL: ${window.location.href}`);
 ipcRenderer.send("preload-log", `✅ Preload: ipcRenderer.send: ${typeof ipcRenderer.send}, ipcRenderer.invoke: ${typeof ipcRenderer.invoke}`);
@@ -31,6 +60,63 @@ contextBridge.exposeInMainWorld("electron_bridge", {
         ipcRenderer.send("preload-log", `Preload: Зарегистрирован слушатель toggle-walkie-talkie, текущих слушателей: ${bridgeEvents.listenerCount("toggle-walkie-talkie")}`);
     }
 });
+
+// Expose screen capture API if addon loaded successfully
+if (screenCapture) {
+  contextBridge.exposeInMainWorld('screenCapture', {
+    startCapture: async (options: {
+      sourceId: string;
+      width: number;
+      height: number;
+      frameRate: number;
+    }) => {
+      ipcRenderer.send("preload-log", `Starting capture with options: ${JSON.stringify(options)}`);
+      try {
+        const result = await screenCapture.startCapture(options);
+        ipcRenderer.send("preload-log", `Capture started: ${result}`);
+        return result;
+      } catch (error: any) {
+        ipcRenderer.send("preload-log", `Capture start error: ${error.message}`);
+        throw error;
+      }
+    },
+    
+    stopCapture: async () => {
+      ipcRenderer.send("preload-log", "Stopping capture");
+      try {
+        await screenCapture.stopCapture();
+        ipcRenderer.send("preload-log", "Capture stopped successfully");
+      } catch (error: any) {
+        ipcRenderer.send("preload-log", `Capture stop error: ${error.message}`);
+        throw error;
+      }
+    },
+    
+    getFrameStats: () => {
+      try {
+        const stats = screenCapture.getFrameStats();
+        ipcRenderer.send("preload-log", `Frame stats: ${JSON.stringify(stats)}`);
+        return stats;
+      } catch (error: any) {
+        ipcRenderer.send("preload-log", `Get frame stats error: ${error.message}`);
+        return { videoFrames: 0, audioFrames: 0, isActive: false };
+      }
+    },
+    
+    testMethod: () => {
+      try {
+        return screenCapture.testMethod();
+      } catch (error: any) {
+        ipcRenderer.send("preload-log", `Test method error: ${error.message}`);
+        return "Error calling test method";
+      }
+    }
+  });
+  
+  ipcRenderer.send("preload-log", "✅ Screen capture API exposed to renderer");
+} else {
+  ipcRenderer.send("preload-log", "⚠️ Screen capture API not exposed - addon not loaded");
+}
 
 // Остальной код preload.ts остаётся без изменений
 contextBridge.exposeInMainWorld("ipcRenderer", {
@@ -84,7 +170,7 @@ ipcRenderer.on("forward-message", (event, channel) => {
 });
 
 ipcRenderer.on("desktop-sources-response", (event, response) => {
-    const sourcesNames = response.sources ? response.sources.map(s => s.name).join(', ') : '[]';
+    const sourcesNames = response.sources ? response.sources.map((s: any) => s.name).join(', ') : '[]';
     const errorMessage = response.error || 'none';
     ipcRenderer.send("preload-log", `✅ Preload: Получен ответ desktop-sources-response: sources=[${sourcesNames}], error=${errorMessage}`);
     electron_bridge.send_event("desktop-sources-response", response);

@@ -933,5 +933,135 @@ window.addEventListener("load", async () => {
   `.html;
 
   const serverManagerView = new ServerManagerView();
+  
+  // Find this line in main.ts (around the end of the file):
   await serverManagerView.init();
+
+  // ADD THIS CODE AFTER IT:
+
+  // Create screen capture test button
+  const createScreenCaptureTestButton = () => {
+    // Check if native addon is available
+    if (typeof window.screenCapture === 'undefined') {
+      console.error('Screen capture addon not available');
+      return;
+    }
+
+    const button = document.createElement('button');
+    button.id = 'screen-capture-test-btn';
+    button.style.cssText = `
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      z-index: 10000;
+      background: #2196F3;
+      color: white;
+      border: none;
+      border-radius: 50%;
+      width: 60px;
+      height: 60px;
+      font-size: 24px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      transition: all 0.3s ease;
+    `;
+    
+    button.innerHTML = '<i class="material-icons">videocam</i>';
+    
+    let isCapturing = false;
+    
+    button.onclick = async () => {
+      if (!isCapturing) {
+        try {
+          console.log('Starting screen capture test...');
+          
+          // Test the addon first
+          const testResult = window.screenCapture.testMethod();
+          console.log('Addon test:', testResult);
+          
+          // Start capture with default screen
+          const result = await window.screenCapture.startCapture({
+            sourceId: 'screen:0:0',
+            width: 1920,
+            height: 1080,
+            frameRate: 30
+          });
+          
+          console.log('Capture started:', result);
+          
+          isCapturing = true;
+          button.style.background = '#f44336';
+          button.innerHTML = '<i class="material-icons">stop</i>';
+          
+          // Show frame counter
+          const counter = document.createElement('div');
+          counter.id = 'frame-counter';
+          counter.style.cssText = `
+            position: fixed;
+            bottom: 90px;
+            right: 20px;
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            z-index: 10000;
+          `;
+          document.body.appendChild(counter);
+          
+          // Update frame count
+          const updateInterval = setInterval(() => {
+            const stats = window.screenCapture.getFrameStats();
+            counter.textContent = `Frames: ${stats.videoFrames}`;
+          }, 100);
+          
+          // Store interval ID
+          button.dataset.interval = String(updateInterval);
+          
+        } catch (error) {
+          console.error('Failed to start capture:', error);
+          alert(`Failed to start capture: ${error.message}`);
+        }
+      } else {
+        try {
+          // Stop capture
+          await window.screenCapture.stopCapture();
+          console.log('Capture stopped');
+          
+          isCapturing = false;
+          button.style.background = '#2196F3';
+          button.innerHTML = '<i class="material-icons">videocam</i>';
+          
+          // Clear interval
+          if (button.dataset.interval) {
+            clearInterval(Number(button.dataset.interval));
+          }
+          
+          // Remove counter
+          const counter = document.getElementById('frame-counter');
+          if (counter) {
+            counter.remove();
+          }
+          
+        } catch (error) {
+          console.error('Failed to stop capture:', error);
+          alert(`Failed to stop capture: ${error.message}`);
+        }
+      }
+    };
+    
+    document.body.appendChild(button);
+    console.log('Screen capture test button added');
+  };
+
+  
+
+  // Wait a bit for everything to load, then add the button
+  setTimeout(() => {
+    createScreenCaptureTestButton();
+  }, 2000);
+
 });
