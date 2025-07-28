@@ -7,10 +7,9 @@ import { WalkieTalkieStatus } from "../../common/typed-ipc.js";
 // Load native addon - try different paths
 let screenCapture: any;
 const possiblePaths = [
-  '../native-addon/build/Release/screen_capture.node',
-  '../../native-addon/build/Release/screen_capture.node',
-  '../../../native-addon/build/Release/screen_capture.node',
-  './native-addon/build/Release/screen_capture.node'
+  // Since preload.js is in dist-electron/, and screen_capture.node is in the same directory
+  './screen_capture.node',
+  __dirname + '/screen_capture.node',
 ];
 
 for (const addonPath of possiblePaths) {

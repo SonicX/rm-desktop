@@ -394,16 +394,16 @@ export class ServerManagerView {
     });
 
     // Добавляем обработчик для кнопки обновления
-    this.$updateButton.addEventListener("click", () => {
-      ipcRenderer.send("restart_app");
-    });
+    // this.$updateButton.addEventListener("click", () => {
+    //   ipcRenderer.send("restart_app");
+    // });
 
     this.sidebarHoverEvent(this.$loadingIndicator, this.$loadingTooltip);
     this.sidebarHoverEvent(this.$settingsButton, this.$settingsTooltip);
     this.sidebarHoverEvent(this.$reloadButton, this.$reloadTooltip);
     this.sidebarHoverEvent(this.$backButton, this.$backTooltip);
     this.sidebarHoverEvent(this.$dndButton, this.$dndTooltip);
-    this.sidebarHoverEvent(this.$updateButton, this.$updateTooltip);
+    // this.sidebarHoverEvent(this.$updateButton, this.$updateTooltip);
   }
 
   initDndButton(): void {
@@ -933,47 +933,84 @@ window.addEventListener("load", async () => {
   `.html;
 
   const serverManagerView = new ServerManagerView();
-  
-  // Find this line in main.ts (around the end of the file):
   await serverManagerView.init();
 
-  // ADD THIS CODE AFTER IT:
-
-  // Create screen capture test button
   const createScreenCaptureTestButton = () => {
-    // Check if native addon is available
-    if (typeof window.screenCapture === 'undefined') {
-      console.error('Screen capture addon not available');
-      return;
+    console.log('Creating screen capture test button...');
+    
+    // First, let's check if the button already exists
+    const existingButton = document.getElementById('screen-capture-test-btn');
+    if (existingButton) {
+      console.log('Button already exists, removing it');
+      existingButton.remove();
     }
-
-    const button = document.createElement('button');
-    button.id = 'screen-capture-test-btn';
+    
+    const button = document.createElement("button");
+    button.id = "screen-capture-test-btn";
     button.style.cssText = `
-      position: fixed;
-      bottom: 20px;
-      right: 20px;
-      z-index: 10000;
-      background: #2196F3;
-      color: white;
-      border: none;
-      border-radius: 50%;
-      width: 60px;
-      height: 60px;
-      font-size: 24px;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-      transition: all 0.3s ease;
+      position: fixed !important;
+      bottom: 20px !important;
+      right: 20px !important;
+      z-index: 999999 !important;
+      background: #2196F3 !important;
+      color: white !important;
+      border: none !important;
+      border-radius: 50% !important;
+      width: 60px !important;
+      height: 60px !important;
+      font-size: 24px !important;
+      cursor: pointer !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.5) !important;
+      transition: all 0.3s ease !important;
+      opacity: 1 !important;
+      visibility: visible !important;
     `;
     
-    button.innerHTML = '<i class="material-icons">videocam</i>';
+    button.innerHTML = '<i class="material-icons" style="color: white !important;">videocam</i>';
+    
+    // Add hover effect
+    button.addEventListener('mouseenter', () => {
+      button.style.transform = 'scale(1.1)';
+    });
+    
+    button.addEventListener('mouseleave', () => {
+      button.style.transform = 'scale(1)';
+    });
     
     let isCapturing = false;
     
     button.onclick = async () => {
+      console.log('Test button clicked, screenCapture available:', typeof window.screenCapture !== 'undefined');
+      
+      if (typeof window.screenCapture === 'undefined') {
+        // Show a more visible alert
+        const alertDiv = document.createElement('div');
+        alertDiv.style.cssText = `
+          position: fixed;
+          top: 50%;
+          left: 50%;
+          transform: translate(-50%, -50%);
+          background: #f44336;
+          color: white;
+          padding: 20px;
+          border-radius: 8px;
+          z-index: 999999;
+          font-size: 16px;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+        `;
+        alertDiv.textContent = 'Native addon not loaded. Check the console logs.';
+        document.body.appendChild(alertDiv);
+        
+        setTimeout(() => {
+          alertDiv.remove();
+        }, 3000);
+        
+        return;
+      }
+      
       if (!isCapturing) {
         try {
           console.log('Starting screen capture test...');
@@ -993,22 +1030,22 @@ window.addEventListener("load", async () => {
           console.log('Capture started:', result);
           
           isCapturing = true;
-          button.style.background = '#f44336';
-          button.innerHTML = '<i class="material-icons">stop</i>';
+          button.style.background = '#f44336 !important';
+          button.innerHTML = '<i class="material-icons" style="color: white !important;">stop</i>';
           
           // Show frame counter
           const counter = document.createElement('div');
           counter.id = 'frame-counter';
           counter.style.cssText = `
-            position: fixed;
-            bottom: 90px;
-            right: 20px;
-            background: rgba(0,0,0,0.8);
-            color: white;
-            padding: 8px 12px;
-            border-radius: 4px;
-            font-size: 12px;
-            z-index: 10000;
+            position: fixed !important;
+            bottom: 90px !important;
+            right: 20px !important;
+            background: rgba(0,0,0,0.8) !important;
+            color: white !important;
+            padding: 8px 12px !important;
+            border-radius: 4px !important;
+            font-size: 12px !important;
+            z-index: 999999 !important;
           `;
           document.body.appendChild(counter);
           
@@ -1021,7 +1058,7 @@ window.addEventListener("load", async () => {
           // Store interval ID
           button.dataset.interval = String(updateInterval);
           
-        } catch (error) {
+        } catch (error: any) {
           console.error('Failed to start capture:', error);
           alert(`Failed to start capture: ${error.message}`);
         }
@@ -1032,8 +1069,8 @@ window.addEventListener("load", async () => {
           console.log('Capture stopped');
           
           isCapturing = false;
-          button.style.background = '#2196F3';
-          button.innerHTML = '<i class="material-icons">videocam</i>';
+          button.style.background = '#2196F3 !important';
+          button.innerHTML = '<i class="material-icons" style="color: white !important;">videocam</i>';
           
           // Clear interval
           if (button.dataset.interval) {
@@ -1046,22 +1083,71 @@ window.addEventListener("load", async () => {
             counter.remove();
           }
           
-        } catch (error) {
+        } catch (error: any) {
           console.error('Failed to stop capture:', error);
           alert(`Failed to stop capture: ${error.message}`);
         }
       }
     };
     
+    // Try appending to different parent elements
     document.body.appendChild(button);
-    console.log('Screen capture test button added');
+    
+    // Debug: Check if button is in DOM
+    console.log('Button added to DOM:', document.getElementById('screen-capture-test-btn') !== null);
+    console.log('Button parent:', button.parentElement);
+    console.log('Button computed style display:', window.getComputedStyle(button).display);
+    console.log('Button computed style visibility:', window.getComputedStyle(button).visibility);
+    console.log('Button bounding rect:', button.getBoundingClientRect());
+    
+    // Also create a debug button at the top to ensure visibility
+    const debugButton = document.createElement("button");
+    debugButton.style.cssText = `
+      position: fixed !important;
+      top: 10px !important;
+      left: 50% !important;
+      transform: translateX(-50%) !important;
+      z-index: 999999 !important;
+      background: #ff5722 !important;
+      color: white !important;
+      border: none !important;
+      padding: 10px 20px !important;
+      border-radius: 4px !important;
+      font-size: 14px !important;
+      cursor: pointer !important;
+    `;
+    debugButton.textContent = 'Test Native Addon';
+    debugButton.onclick = () => {
+      console.log('Debug button clicked');
+      console.log('window.screenCapture:', window.screenCapture);
+      if (window.screenCapture) {
+        try {
+          const result = window.screenCapture.testMethod();
+          alert(`Addon test result: ${result}`);
+        } catch (error) {
+          alert(`Addon test error: ${error.message}`);
+        }
+      } else {
+        alert('Native addon not loaded!');
+      }
+    };
+    document.body.appendChild(debugButton);
   };
-
   
-
-  // Wait a bit for everything to load, then add the button
+  // Wait a bit for everything to load, then try multiple times
   setTimeout(() => {
     createScreenCaptureTestButton();
-  }, 2000);
-
+  }, 1000);
+  
+  // Try again after 3 seconds in case DOM wasn't ready
+  setTimeout(() => {
+    console.log('Checking if button exists after 3 seconds...');
+    const btn = document.getElementById('screen-capture-test-btn');
+    if (!btn) {
+      console.log('Button not found, creating again...');
+      createScreenCaptureTestButton();
+    } else {
+      console.log('Button found in DOM');
+    }
+  }, 3000);
 });

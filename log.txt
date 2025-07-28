@@ -1,6 +1,6 @@
 [33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
 
-  VITE v5.4.19  ready in 330 ms
+  VITE v5.4.19  ready in 342 ms
 
   ➜  Local:   http://localhost:5173/
   ➜  Network: use --host to expose
@@ -26,71 +26,25 @@ transforming...
 ✓ 6 modules transformed.
 rendering chunks...
 computing gzip size...
-dist-electron/preload.js  47.05 kB │ gzip: 14.92 kB │ map: 25.62 kB
-built in 1804ms.
+dist-electron/preload.js  46.87 kB │ gzip: 14.90 kB │ map: 25.54 kB
+built in 1988ms.
 ✓ 406 modules transformed.
 ✓ 1551 modules transformed.
 rendering chunks...
 computing gzip size...
 rendering chunks...
 dist-electron/index.js  1,680.89 kB │ map: 4,145.90 kB
-built in 9414ms.
-dist-electron/renderer.js  793.93 kB │ gzip: 169.92 kB │ map: 1,689.66 kB
-built in 9512ms.
+built in 9520ms.
+dist-electron/renderer.js  797.16 kB │ gzip: 170.49 kB │ map: 1,694.63 kB
+built in 9627ms.
 🖼 Создаём окно...
 mainUrl: file:///Users/sg12/zulip-desktop/dist-electron/app/renderer/main.html
-[81926:0727/155501.517791:ERROR:system_services.cc(34)] SetApplicationIsDaemon: Error Domain=NSOSStatusErrorDomain Code=-50 "paramErr: error in user parameter list" (-50)
+[16885:0728/154321.809414:ERROR:system_services.cc(34)] SetApplicationIsDaemon: Error Domain=NSOSStatusErrorDomain Code=-50 "paramErr: error in user parameter list" (-50)
 ✅ Окно создано!
 ✅ Окно создано!
 ✅ Окно создано!-1
 ✅ Окно создано!-2
-15:55:01.872 › Skip checkForUpdates because application is not packed and dev update config is not forced
-[15:55:01] Main: WebView будет создан с preload: /Users/sg12/zulip-desktop/dist-electron/preload.js, URL: https://connectrm-svz.ru/
-[15:55:03] Preload Log: Attempting to load addon from: ../native-addon/build/Release/screen_capture.node
-Preload Log: Attempting to load addon from: ../native-addon/build/Release/screen_capture.node
-[15:55:03] Preload Log: ❌ Failed with path ../native-addon/build/Release/screen_capture.node: module not found: ../native-addon/build/Release/screen_capture.node
-Preload Log: ❌ Failed with path ../native-addon/build/Release/screen_capture.node: module not found: ../native-addon/build/Release/screen_capture.node
-[15:55:03] Preload Log: Attempting to load addon from: ../../native-addon/build/Release/screen_capture.node
-Preload Log: Attempting to load addon from: ../../native-addon/build/Release/screen_capture.node
-[15:55:03] Preload Log: ❌ Failed with path ../../native-addon/build/Release/screen_capture.node: module not found: ../../native-addon/build/Release/screen_capture.node
-Preload Log: ❌ Failed with path ../../native-addon/build/Release/screen_capture.node: module not found: ../../native-addon/build/Release/screen_capture.node
-[15:55:03] Preload Log: Attempting to load addon from: ../../../native-addon/build/Release/screen_capture.node
-Preload Log: Attempting to load addon from: ../../../native-addon/build/Release/screen_capture.node
-[15:55:03] Preload Log: ❌ Failed with path ../../../native-addon/build/Release/screen_capture.node: module not found: ../../../native-addon/build/Release/screen_capture.node
-Preload Log: ❌ Failed with path ../../../native-addon/build/Release/screen_capture.node: module not found: ../../../native-addon/build/Release/screen_capture.node
-[15:55:03] Preload Log: Attempting to load addon from: ./native-addon/build/Release/screen_capture.node
-Preload Log: Attempting to load addon from: ./native-addon/build/Release/screen_capture.node
-[15:55:03] Preload Log: ❌ Failed with path ./native-addon/build/Release/screen_capture.node: module not found: ./native-addon/build/Release/screen_capture.node
-Preload Log: ❌ Failed with path ./native-addon/build/Release/screen_capture.node: module not found: ./native-addon/build/Release/screen_capture.node
-[15:55:03] Preload Log: ❌ Failed to load native addon from any path
-Preload Log: ❌ Failed to load native addon from any path
-[15:55:03] Preload Log: ✅ Preload: Начало выполнения
-Preload Log: ✅ Preload: Начало выполнения
-[15:55:03] Preload Log: ✅ Preload: Загружен для URL: https://connectrm-svz.ru/
-Preload Log: ✅ Preload: Загружен для URL: https://connectrm-svz.ru/
-[15:55:03] Preload Log: ✅ Preload: ipcRenderer.send: function, ipcRenderer.invoke: function
-Preload Log: ✅ Preload: ipcRenderer.send: function, ipcRenderer.invoke: function
-[15:55:03] Preload Log: ✅ Preload: Регистрация обработчика toggle-walkie-talkie
-Preload Log: ✅ Preload: Регистрация обработчика toggle-walkie-talkie
-[15:55:03] Preload Log: ⚠️ Screen capture API not exposed - addon not loaded
-Preload Log: ⚠️ Screen capture API not exposed - addon not loaded
-[15:55:09] Preload Log: Bridge: Отправлено событие: total_unread_count [1]
-Preload Log: Bridge: Отправлено событие: total_unread_count [1]
-[15:55:09] Preload Log: Bridge: Установка слушателя события: logout
-Preload Log: Bridge: Установка слушателя события: logout
-[15:55:09] Preload Log: Bridge: Установка слушателя события: show-keyboard-shortcuts
-Preload Log: Bridge: Установка слушателя события: show-keyboard-shortcuts
-[15:55:09] Preload Log: Bridge: Установка слушателя события: show-notification-settings
-Preload Log: Bridge: Установка слушателя события: show-notification-settings
-[15:55:09] Preload Log: Bridge: Установка слушателя события: open-desktop-picker
-Preload Log: Bridge: Установка слушателя события: open-desktop-picker
-[15:55:09] Preload Log: Bridge: Установка слушателя события: requestDesktopSources
-Preload Log: Bridge: Установка слушателя события: requestDesktopSources
-[15:55:09] Preload Log: Bridge: Установка слушателя события: walkie-talkie-status
-Preload Log: Bridge: Установка слушателя события: walkie-talkie-status
-[15:55:09] Preload Log: Bridge: Установка слушателя события: toggle-walkie-talkie
-Preload Log: Bridge: Установка слушателя события: toggle-walkie-talkie
-[15:55:09] Preload Log: Bridge: Установка слушателя события: send_notification_reply_message
-Preload Log: Bridge: Установка слушателя события: send_notification_reply_message
-[81918:0727/155517.328485:ERROR:CONSOLE(1)] "Request Autofill.enable failed. {"code":-32601,"message":"'Autofill.enable' wasn't found"}", source: devtools://devtools/bundled/core/protocol_client/protocol_client.js (1)
-[81918:0727/155517.328696:ERROR:CONSOLE(1)] "Request Autofill.setAddresses failed. {"code":-32601,"message":"'Autofill.setAddresses' wasn't found"}", source: devtools://devtools/bundled/core/protocol_client/protocol_client.js (1)
+15:43:22.241 › Skip checkForUpdates because application is not packed and dev update config is not forced
+[15:43:22] Main: WebView будет создан с preload: /Users/sg12/zulip-desktop/dist-electron/preload.js, URL: https://connectrm-svz.ru/
+[16873:0728/154335.614212:ERROR:CONSOLE(1)] "Request Autofill.enable failed. {"code":-32601,"message":"'Autofill.enable' wasn't found"}", source: devtools://devtools/bundled/core/protocol_client/protocol_client.js (1)
+[16873:0728/154335.614318:ERROR:CONSOLE(1)] "Request Autofill.setAddresses failed. {"code":-32601,"message":"'Autofill.setAddresses' wasn't found"}", source: devtools://devtools/bundled/core/protocol_client/protocol_client.js (1)
