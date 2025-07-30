@@ -39,6 +39,40 @@ import { sentryInit } from "./sentry.js";
 import { setAutoLaunch } from "./startup.js";
 import { ipcMain, send } from "./typed-ipc-main.js";
 
+
+
+
+
+// В index.ts добавьте в начало файла:
+import * as fs from 'fs';
+
+
+// Создаем поток для записи логов
+const preloadLogStream = fs.createWriteStream(
+  path.join(process.cwd(), 'preload-debug.log'),
+  { flags: 'a' } // append mode
+);
+
+// Затем обновите обработчик:
+ipcMain.on("preload-log", (event, message: string) => {
+  const timestamp = new Date().toISOString();
+  const logMessage = `[${timestamp}] ${message}\n`;
+  
+  // Пишем в файл напрямую
+  preloadLogStream.write(logMessage);
+  
+  // Также выводим в консоль
+  console.log(`Preload Log: ${message}`);
+  
+  // И в electron-log
+  log.info(`Preload Log: ${message}`);
+});
+
+
+
+
+
+
 // Настройка логирования
 if (process.env.NODE_ENV === "development") {
   log.transports.file.level = "info";
@@ -265,6 +299,24 @@ async function createMainWindow(): Promise<BrowserWindow> {
 
   win.setTitle("Цифровые технологии РМ");
 
+
+
+  win.webContents.on('will-attach-webview', (event: Electron.Event, webPreferences: Electron.WebPreferences, params: any) => {
+    log.info(`Main: WebView будет создан с preload: ${webPreferences.preload}, URL: ${params.src}`);
+    
+    // IMPORTANT: Set the correct preload script for webviews
+    const preloadPath = path.join(bundlePath, "preload.js");
+    webPreferences.preload = preloadPath;
+    webPreferences.nodeIntegration = false;
+    webPreferences.contextIsolation = true;
+    
+    log.info(`Main: Webview preload path set to: ${preloadPath}`);
+    log.info(`Main: File exists: ${require('fs').existsSync(preloadPath)}`);
+  });
+
+
+
+
   mainWindowState.manage(win);
   return win;
 }
@@ -280,6 +332,50 @@ async function createMainWindow(): Promise<BrowserWindow> {
   app.disableHardwareAcceleration();
 
   await app.whenReady();
+
+
+
+  // Updated addon loading code for index.ts
+  // Replace the existing screenCaptureAddon loading section (around lines 317-330)
+
+  let screenCaptureAddon: any;
+  try {
+    // Try multiple possible paths for the addon
+    const possiblePaths = [
+      path.join(__dirname, 'native-addon.node'),
+      path.join(__dirname, '..', 'dist-electron', 'native-addon.node'),
+      path.join(process.cwd(), 'dist-electron', 'native-addon.node'),
+      '/Users/sg12/zulip-desktop/dist-electron/native-addon.node' // Absolute path as fallback
+    ];
+    
+    let addonPath: string | null = null;
+    for (const testPath of possiblePaths) {
+      if (require('fs').existsSync(testPath)) {
+        addonPath = testPath;
+        break;
+      }
+    }
+    
+    if (!addonPath) {
+      throw new Error(`Native addon not found. Searched paths: ${possiblePaths.join(', ')}`);
+    }
+    
+    log.info(`Attempting to load native addon from: ${addonPath}`);
+    screenCaptureAddon = require(addonPath);
+    log.info(`✅ Native addon loaded successfully from: ${addonPath}`);
+    
+    // Test the addon
+    const testResult = screenCaptureAddon.testMethod();
+    log.info(`✅ Native addon test result: ${testResult}`);
+  } catch (error) {
+    log.error(`❌ Failed to load native addon: ${error}`);
+    log.error(`❌ Current __dirname: ${__dirname}`);
+    log.error(`❌ Current process.cwd(): ${process.cwd()}`);
+  }
+
+
+
+
 
   const ses = session.fromPartition("persist:webviewsession");
   ses.setUserAgent(`ZulipElectron/${app.getVersion()} ${ses.getUserAgent()}`);
@@ -298,6 +394,339 @@ async function createMainWindow(): Promise<BrowserWindow> {
   ipcMain.handle("is-online", async (event, url: string) =>
     _isOnline(url, ses),
   );
+
+
+
+
+  // Add these IPC handlers after your existing handlers in index.ts
+  // Add this around line 400, after your other ipcMain.handle calls
+
+  // Add IPC handlers for the native addon
+  // Make sure these IPC handlers are in your index.ts
+  // Add them right after the screenCaptureAddon loading code (around line 350)
+
+  // Add IPC handlers for the native addon
+  // Update your IPC handlers in index.ts to include frame forwarding
+
+  // Add IPC handlers for the native addon (replace existing ones)
+  if (screenCaptureAddon) {
+    log.info("✅ Adding enhanced screen capture IPC handlers with frame forwarding...");
+    
+    // Set up frame forwarding when the addon loads
+    screenCaptureAddon.forwardVideoFrame((frameData: any) => {
+      log.info(`📹 Video frame forwarded: ${frameData.width}x${frameData.height}, frame #${frameData.frameNumber}`);
+      
+      // Send frame to all renderer processes
+      const windows = BrowserWindow.getAllWindows();
+      windows.forEach(window => {
+        window.webContents.send('screen-capture-video-frame', frameData);
+      });
+    });
+    
+    screenCaptureAddon.forwardAudioFrame((audioData: any) => {
+      log.info(`🔊 Audio frame forwarded: ${audioData.sampleRate}Hz, ${audioData.channels}CH, frame #${audioData.frameNumber}`);
+      
+      // Send audio frame to all renderer processes
+      const windows = BrowserWindow.getAllWindows();
+      windows.forEach(window => {
+        window.webContents.send('screen-capture-audio-frame', audioData);
+      });
+    });
+    
+    ipcMain.handle("screen-capture-test", () => {
+      try {
+        log.info("🧪 Testing screen capture addon via IPC...");
+        const result = screenCaptureAddon.testMethod();
+        log.info(`✅ Screen capture test successful: ${result}`);
+        return { success: true, result };
+      } catch (error: any) {
+        log.error(`❌ Failed to test addon: ${error.message}`);
+        return { success: false, error: error.message };
+      }
+    });
+
+    // Replace your screen-capture-start handler with this version that has detailed step-by-step logging
+
+    ipcMain.handle("screen-capture-start", async (event, options: {
+      sourceId: string;
+      width: number;
+      height: number;
+      frameRate: number;
+    }) => {
+      try {
+        log.info(`🎬 Starting screen capture with options:`, {
+          sourceId: options.sourceId,
+          width: options.width,
+          height: options.height,
+          frameRate: options.frameRate
+        });
+        
+        if (!screenCaptureAddon) {
+          throw new Error("Screen capture addon not available");
+        }
+        
+        // Check available methods
+        if (typeof screenCaptureAddon.forwardVideoFrame !== 'function') {
+          log.warn("⚠️ forwardVideoFrame not available - frame forwarding disabled");
+        } else {
+          log.info("✅ Frame forwarding functions available");
+        }
+        
+        // Parse source info
+        const sourceType = options.sourceId.startsWith('screen:') ? 'display' : 
+                          options.sourceId.startsWith('window:') ? 'window' : 'window';
+        const sourceId = options.sourceId.split(':')[1] || options.sourceId.split(':')[2] || options.sourceId;
+        
+        log.info(`🎯 Setting capture source: type=${sourceType}, id=${sourceId}`);
+        
+        // Step 1: Set capture source with detailed logging
+        try {
+          log.info("📋 Step 1: Calling setCaptureSource...");
+          
+          const sourceResult = await screenCaptureAddon.setCaptureSource({
+            type: sourceType,
+            id: sourceId
+          });
+          
+          log.info(`✅ Step 1 complete: setCaptureSource result: ${JSON.stringify(sourceResult)}`);
+        } catch (sourceError: any) {
+          log.error(`❌ Step 1 failed - setCaptureSource error: ${sourceError.message}`);
+          log.error(`❌ Source error stack: ${sourceError.stack}`);
+          throw new Error(`Failed to set capture source: ${sourceError.message}`);
+        }
+        
+        // Step 2: Start capture with detailed logging
+        try {
+          log.info("🚀 Step 2: Calling startCapture...");
+          
+          const startResult = await screenCaptureAddon.startCapture();
+          
+          log.info(`✅ Step 2 complete: startCapture result: ${JSON.stringify(startResult)}`);
+        } catch (startError: any) {
+          log.error(`❌ Step 2 failed - startCapture error: ${startError.message}`);
+          log.error(`❌ Start error stack: ${startError.stack}`);
+          throw new Error(`Failed to start capture: ${startError.message}`);
+        }
+        
+        // Step 3: Set up frame forwarding (only if capture started successfully)
+        try {
+          log.info("📹 Step 3: Setting up frame forwarding...");
+          
+          if (typeof screenCaptureAddon.forwardVideoFrame === 'function') {
+            screenCaptureAddon.forwardVideoFrame((frameData: any) => {
+              // Reduce logging frequency to avoid spam
+              if (frameData.frameNumber % 30 === 0) { // Log every 30th frame
+                log.info(`📹 Video frame: ${frameData.width}x${frameData.height}, #${frameData.frameNumber}`);
+              }
+              
+              const windows = BrowserWindow.getAllWindows();
+              windows.forEach(window => {
+                try {
+                  window.webContents.send('screen-capture-video-frame', frameData);
+                } catch (sendError) {
+                  log.error(`Failed to send video frame: ${sendError}`);
+                }
+              });
+            });
+            log.info("✅ Video frame forwarding set up");
+          }
+          
+          if (typeof screenCaptureAddon.forwardAudioFrame === 'function') {
+            screenCaptureAddon.forwardAudioFrame((audioData: any) => {
+              // Reduce logging frequency
+              if (audioData.frameNumber % 100 === 0) { // Log every 100th frame
+                log.info(`🔊 Audio frame: ${audioData.sampleRate}Hz, #${audioData.frameNumber}`);
+              }
+              
+              const windows = BrowserWindow.getAllWindows();
+              windows.forEach(window => {
+                try {
+                  window.webContents.send('screen-capture-audio-frame', audioData);
+                } catch (sendError) {
+                  log.error(`Failed to send audio frame: ${sendError}`);
+                }
+              });
+            });
+            log.info("✅ Audio frame forwarding set up");
+          }
+          
+          log.info("✅ Step 3 complete: Frame forwarding configured");
+        } catch (forwardingError: any) {
+          log.error(`❌ Step 3 failed - frame forwarding error: ${forwardingError.message}`);
+          // Don't throw here - capture might still work without forwarding
+        }
+        
+        log.info("🎉 Screen capture started successfully!");
+        return { success: true, result: "Capture started with detailed logging" };
+        
+      } catch (error: any) {
+        log.error(`❌ Screen capture start failed at top level: ${error.message}`);
+        log.error(`❌ Top level error stack: ${error.stack}`);
+        return { success: false, error: error.message };
+      }
+    });
+
+    ipcMain.handle("screen-capture-start-with-picker", async () => {
+      try {
+        log.info("🎯 Starting capture with Swift native picker...");
+        
+        if (!screenCaptureAddon) {
+          throw new Error("Screen capture addon not available");
+        }
+        
+        // Don't set source - let Swift handle it with its picker
+        log.info("🚀 Calling startCapture (Swift will show picker)...");
+        
+        const result = await screenCaptureAddon.startCapture();
+        
+        log.info(`✅ Screen capture started with picker: ${JSON.stringify(result)}`);
+        
+        // Set up frame forwarding
+        if (typeof screenCaptureAddon.forwardVideoFrame === 'function') {
+          screenCaptureAddon.forwardVideoFrame((frameData: any) => {
+            if (frameData.frameNumber % 30 === 0) {
+              log.info(`📹 Video frame: ${frameData.width}x${frameData.height}`);
+            }
+            
+            const windows = BrowserWindow.getAllWindows();
+            windows.forEach(window => {
+              window.webContents.send('screen-capture-video-frame', frameData);
+            });
+          });
+        }
+        
+        if (typeof screenCaptureAddon.forwardAudioFrame === 'function') {
+          screenCaptureAddon.forwardAudioFrame((audioData: any) => {
+            if (audioData.frameNumber % 100 === 0) {
+              log.info(`🔊 Audio frame: ${audioData.sampleRate}Hz`);
+            }
+            
+            const windows = BrowserWindow.getAllWindows();
+            windows.forEach(window => {
+              window.webContents.send('screen-capture-audio-frame', audioData);
+            });
+          });
+        }
+        
+        return { success: true, result: result.message || result };
+        
+      } catch (error: any) {
+        log.error(`❌ Screen capture with picker failed: ${error.message}`);
+        return { success: false, error: error.message };
+      }
+    });
+
+    ipcMain.handle("screen-capture-stop", async () => {
+      try {
+        log.info("🛑 Stopping screen capture...");
+        const result = await screenCaptureAddon.stopCapture();
+        log.info("✅ Screen capture stopped successfully");
+        return { success: true, result: result.message || result };
+      } catch (error: any) {
+        log.error(`❌ Failed to stop capture: ${error.message}`);
+        return { success: false, error: error.message };
+      }
+    });
+
+    ipcMain.handle("screen-capture-stats", () => {
+      try {
+        log.info("📊 Getting screen capture statistics...");
+        const stats = screenCaptureAddon.getFrameStats();
+        log.info(`📈 Current stats:`, {
+          videoFrames: stats.videoFrames,
+          audioFrames: stats.audioFrames,
+          isActive: stats.isActive
+        });
+        return { success: true, stats };
+      } catch (error: any) {
+        log.error(`❌ Failed to get frame stats: ${error.message}`);
+        return { success: false, error: error.message };
+      }
+    });
+    
+    log.info("✅ Enhanced screen capture IPC handlers with frame forwarding registered");
+  } else {
+    log.error("❌ screenCaptureAddon not available, skipping IPC handlers");
+  }
+
+
+
+
+
+
+
+  ipcMain.handle("inject-webview-test", async () => {
+    try {
+      // Find the webview
+      const windows = BrowserWindow.getAllWindows();
+      const mainWindow = windows[0]; // Assuming first window is main
+      
+      if (mainWindow && mainWindow.webContents) {
+        // Inject test code into the webview
+        const testCode = `
+          console.log('🔍 Testing screenCapture in webview context...');
+          console.log('window.screenCapture:', typeof window.screenCapture);
+          console.log('window.electron_bridge:', typeof window.electron_bridge);
+          
+          if (window.screenCapture) {
+            console.log('✅ screenCapture methods:', Object.keys(window.screenCapture));
+            
+            // Create a test button in the webview
+            const testBtn = document.createElement('button');
+            testBtn.id = 'webview-test-btn';
+            testBtn.innerHTML = '📹 Test Screen Capture (Webview)';
+            testBtn.style.cssText = \`
+              position: fixed;
+              top: 10px;
+              right: 10px;
+              z-index: 9999;
+              padding: 10px 15px;
+              background: #28a745;
+              color: white;
+              border: none;
+              border-radius: 5px;
+              cursor: pointer;
+              font-size: 14px;
+              box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            \`;
+            
+            testBtn.onclick = async () => {
+              try {
+                console.log('🧪 Testing screenCapture.testMethod...');
+                const result = await window.screenCapture.testMethod();
+                console.log('✅ Test result:', result);
+                alert('✅ Screen capture works! Result: ' + result);
+              } catch (error) {
+                console.error('❌ Test failed:', error);
+                alert('❌ Test failed: ' + error.message);
+              }
+            };
+            
+            document.body.appendChild(testBtn);
+            console.log('✅ Test button added to webview');
+          } else {
+            console.log('❌ screenCapture not available in webview');
+            alert('❌ screenCapture not available in webview context');
+          }
+        `;
+        
+        await mainWindow.webContents.executeJavaScript(testCode);
+        log.info("✅ Test code injected into webview");
+        return { success: true };
+      } else {
+        throw new Error("No main window found");
+      }
+    } catch (error: any) {
+      log.error(`❌ Failed to inject webview test: ${error.message}`);
+      return { success: false, error: error.message };
+    }
+  });
+
+
+
+
+
+
 
   ipcMain.on("focus-app", () => {
     mainWindow.show();

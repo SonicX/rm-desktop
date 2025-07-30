@@ -1,0 +1,30 @@
+{
+  "name": "screen-capture-webrtc-native",
+  "version": "1.0.0",
+  "description": "Native macOS screen capture with WebRTC for Electron",
+  "main": "index.js",
+  "scripts": {
+    "build": "./scripts/build-for-electron.sh",
+    "rebuild": "electron-rebuild",
+    "test": "node examples/test_addon_only.js",
+    "install": "npm run build"
+  },
+  "dependencies": {
+    "node-addon-api": "^7.0.0"
+  },
+  "devDependencies": {
+    "electron-rebuild": "^3.2.9"
+  },
+  "files": [
+    "src/",
+    "scripts/",
+    "examples/",
+    "binding.gyp",
+    "index.js"
+  ],
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "os": ["darwin"],
+  "cpu": ["x64", "arm64"]
+}

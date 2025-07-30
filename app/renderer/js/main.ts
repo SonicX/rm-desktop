@@ -884,6 +884,9 @@ export class ServerManagerView {
   }
 }
 
+// Replace your entire window.addEventListener("load", ...) section with this clean version
+// This removes all the problematic window checks and focuses on the working remote API
+
 window.addEventListener("load", async () => {
   const appVersion = app.getVersion();
   document.body.innerHTML = html`
@@ -935,219 +938,592 @@ window.addEventListener("load", async () => {
   const serverManagerView = new ServerManagerView();
   await serverManagerView.init();
 
-  const createScreenCaptureTestButton = () => {
-    console.log('Creating screen capture test button...');
+  // Only create the remote API test - this is the one that works
+  // Replace your createRemoteTest function with this version that uses your existing ipcRenderer
+
+  function createRemoteTest() {
+    console.log('🔍 Creating screen capture test button...');
     
-    // First, let's check if the button already exists
-    const existingButton = document.getElementById('screen-capture-test-btn');
-    if (existingButton) {
-      console.log('Button already exists, removing it');
-      existingButton.remove();
-    }
-    
-    const button = document.createElement("button");
-    button.id = "screen-capture-test-btn";
-    button.style.cssText = `
-      position: fixed !important;
-      bottom: 20px !important;
-      right: 20px !important;
-      z-index: 999999 !important;
-      background: #2196F3 !important;
-      color: white !important;
-      border: none !important;
-      border-radius: 50% !important;
-      width: 60px !important;
-      height: 60px !important;
-      font-size: 24px !important;
-      cursor: pointer !important;
-      display: flex !important;
-      align-items: center !important;
-      justify-content: center !important;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.5) !important;
-      transition: all 0.3s ease !important;
-      opacity: 1 !important;
-      visibility: visible !important;
+    const testButton = document.createElement('button');
+    testButton.id = 'screen-capture-test';
+    testButton.innerHTML = '📹 Test Screen Capture Addon';
+    testButton.style.cssText = `
+      position: fixed;
+      top: 60px;
+      right: 20px;
+      z-index: 10000;
+      padding: 12px 18px;
+      background: #28a745;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: bold;
+      box-shadow: 0 3px 6px rgba(0,0,0,0.2);
     `;
     
-    button.innerHTML = '<i class="material-icons" style="color: white !important;">videocam</i>';
-    
-    // Add hover effect
-    button.addEventListener('mouseenter', () => {
-      button.style.transform = 'scale(1.1)';
+    testButton.addEventListener('click', async () => {
+      console.log('📹 Test button clicked!');
+      testButton.innerHTML = '⏳ Testing...';
+      testButton.disabled = true;
+      
+      try {
+        // Use your existing typed ipcRenderer that's already imported
+        console.log('✅ Using existing typed ipcRenderer');
+        console.log('ipcRenderer type:', typeof ipcRenderer);
+        console.log('ipcRenderer.invoke type:', typeof ipcRenderer.invoke);
+        
+        // Test the screen capture addon directly
+        const result = await ipcRenderer.invoke('screen-capture-test');
+        console.log('✅ Test result:', result);
+        
+        if (result && result.success) {
+          testButton.innerHTML = '✅ Addon Works!';
+          testButton.style.background = '#28a745';
+          
+          // Show success message
+          alert(`✅ Screen Capture Addon Works!\n\nResult: ${result.result}`);
+          
+        } else {
+          testButton.innerHTML = '❌ Test Failed';
+          testButton.style.background = '#dc3545';
+          alert(`❌ Test failed: ${result ? result.error : 'Unknown error'}`);
+        }
+        
+      } catch (error) {
+        console.error('❌ Error in test:', error);
+        testButton.innerHTML = '❌ Error';
+        testButton.style.background = '#dc3545';
+        alert(`❌ Error: ${error.message}`);
+      }
+      
+      // Reset button after 5 seconds
+      setTimeout(() => {
+        testButton.innerHTML = '📹 Test Screen Capture Addon';
+        testButton.style.background = '#28a745';
+        testButton.disabled = false;
+      }, 5000);
     });
     
-    button.addEventListener('mouseleave', () => {
-      button.style.transform = 'scale(1)';
+    document.body.appendChild(testButton);
+    console.log('✅ Screen capture test button added');
+  }
+
+  // Also create a webview test using your existing system
+  function createWebviewTest() {
+    const testButton = document.createElement('button');
+    testButton.id = 'webview-test';
+    testButton.innerHTML = '📧 Test Webview Context';
+    testButton.style.cssText = `
+      position: fixed;
+      top: 110px;
+      right: 20px;
+      z-index: 10000;
+      padding: 12px 18px;
+      background: #fd7e14;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: bold;
+      box-shadow: 0 3px 6px rgba(0,0,0,0.2);
+    `;
+    
+    testButton.addEventListener('click', async () => {
+      console.log('📧 Webview test clicked!');
+      testButton.innerHTML = '⏳ Sending...';
+      testButton.disabled = true;
+      
+      try {
+        // Send forward-message to trigger test in webview
+        // This uses your existing system like the desktop picker
+        ipcRenderer.send('forward-message', 'test-screen-capture-in-webview');
+        console.log('✅ Message sent to webview context');
+        
+        testButton.innerHTML = '✅ Message Sent';
+        testButton.style.background = '#28a745';
+        
+      } catch (error) {
+        console.error('❌ Error sending message:', error);
+        testButton.innerHTML = '❌ Error';
+        testButton.style.background = '#dc3545';
+      }
+      
+      // Reset button after 3 seconds
+      setTimeout(() => {
+        testButton.innerHTML = '📧 Test Webview Context';
+        testButton.style.background = '#fd7e14';
+        testButton.disabled = false;
+      }, 3000);
     });
     
+    document.body.appendChild(testButton);
+    console.log('✅ Webview test button added');
+  }
+
+  // Create both test buttons
+  createRemoteTest();
+  createWebviewTest();
+
+
+
+  // Add this to your main.ts to test the complete screen capture pipeline
+
+  function createScreenCapturePipelineTest() {
+    console.log('🔍 Creating screen capture pipeline test...');
+    
+    // Create a container for all test controls
+    const testContainer = document.createElement('div');
+    testContainer.id = 'screen-capture-test-container';
+    testContainer.style.cssText = `
+      position: fixed;
+      top: 60px;
+      right: 20px;
+      z-index: 10000;
+      background: rgba(0, 0, 0, 0.8);
+      color: white;
+      padding: 15px;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      min-width: 300px;
+      font-family: system-ui, -apple-system, sans-serif;
+    `;
+    
+    // Title
+    const title = document.createElement('h3');
+    title.innerHTML = '📹 Screen Capture Test';
+    title.style.cssText = 'margin: 0 0 15px 0; font-size: 16px;';
+    testContainer.appendChild(title);
+    
+    // Status display
+    const statusDiv = document.createElement('div');
+    statusDiv.id = 'capture-status';
+    statusDiv.innerHTML = '🔴 Not capturing';
+    statusDiv.style.cssText = 'margin-bottom: 15px; font-size: 14px; font-weight: bold;';
+    testContainer.appendChild(statusDiv);
+    
+    // Frame counter
+    const frameCounter = document.createElement('div');
+    frameCounter.id = 'frame-counter';
+    frameCounter.innerHTML = 'Frames: 0';
+    frameCounter.style.cssText = 'margin-bottom: 15px; font-size: 12px; color: #ccc;';
+    testContainer.appendChild(frameCounter);
+    
+    // Source selector
+    const sourceLabel = document.createElement('label');
+    sourceLabel.innerHTML = 'Screen Source:';
+    sourceLabel.style.cssText = 'display: block; margin-bottom: 5px; font-size: 12px;';
+    testContainer.appendChild(sourceLabel);
+    
+    const sourceSelect = document.createElement('select');
+    sourceSelect.id = 'source-select';
+    sourceSelect.style.cssText = `
+      width: 100%;
+      padding: 5px;
+      margin-bottom: 15px;
+      border: 1px solid #555;
+      background: #333;
+      color: white;
+      border-radius: 4px;
+    `;
+    sourceSelect.innerHTML = '<option value="">Loading sources...</option>';
+    testContainer.appendChild(sourceSelect);
+    
+    // Control buttons
+    const buttonsDiv = document.createElement('div');
+    buttonsDiv.style.cssText = 'display: flex; gap: 10px; flex-wrap: wrap;';
+    
+    // Get Sources button
+    const getSourcesBtn = document.createElement('button');
+    getSourcesBtn.innerHTML = '🔍 Get Sources';
+    getSourcesBtn.style.cssText = `
+      padding: 8px 12px;
+      background: #007bff;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+    `;
+    buttonsDiv.appendChild(getSourcesBtn);
+    
+    // Start Capture button
+    const startBtn = document.createElement('button');
+    startBtn.innerHTML = '▶️ Start';
+    startBtn.style.cssText = `
+      padding: 8px 12px;
+      background: #28a745;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+    `;
+    startBtn.disabled = true;
+    buttonsDiv.appendChild(startBtn);
+    
+    // Stop Capture button
+    const stopBtn = document.createElement('button');
+    stopBtn.innerHTML = '⏹️ Stop';
+    stopBtn.style.cssText = `
+      padding: 8px 12px;
+      background: #dc3545;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+    `;
+    stopBtn.disabled = true;
+    buttonsDiv.appendChild(stopBtn);
+    
+    // Get Stats button
+    const statsBtn = document.createElement('button');
+    statsBtn.innerHTML = '📊 Stats';
+    statsBtn.style.cssText = `
+      padding: 8px 12px;
+      background: #6c757d;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+    `;
+    buttonsDiv.appendChild(statsBtn);
+    
+    testContainer.appendChild(buttonsDiv);
+    
+    // Variables to track state
     let isCapturing = false;
+    let frameCount = 0;
+    let frameInterval = null;
     
-    button.onclick = async () => {
-      console.log('Test button clicked, screenCapture available:', typeof window.screenCapture !== 'undefined');
-      
-      if (typeof window.screenCapture === 'undefined') {
-        // Show a more visible alert
-        const alertDiv = document.createElement('div');
-        alertDiv.style.cssText = `
-          position: fixed;
-          top: 50%;
-          left: 50%;
-          transform: translate(-50%, -50%);
-          background: #f44336;
-          color: white;
-          padding: 20px;
-          border-radius: 8px;
-          z-index: 999999;
-          font-size: 16px;
-          box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-        `;
-        alertDiv.textContent = 'Native addon not loaded. Check the console logs.';
-        document.body.appendChild(alertDiv);
-        
-        setTimeout(() => {
-          alertDiv.remove();
-        }, 3000);
-        
-        return;
-      }
-      
-      if (!isCapturing) {
-        try {
-          console.log('Starting screen capture test...');
-          
-          // Test the addon first
-          const testResult = window.screenCapture.testMethod();
-          console.log('Addon test:', testResult);
-          
-          // Start capture with default screen
-          const result = await window.screenCapture.startCapture({
-            sourceId: 'screen:0:0',
-            width: 1920,
-            height: 1080,
-            frameRate: 30
-          });
-          
-          console.log('Capture started:', result);
-          
-          isCapturing = true;
-          button.style.background = '#f44336 !important';
-          button.innerHTML = '<i class="material-icons" style="color: white !important;">stop</i>';
-          
-          // Show frame counter
-          const counter = document.createElement('div');
-          counter.id = 'frame-counter';
-          counter.style.cssText = `
-            position: fixed !important;
-            bottom: 90px !important;
-            right: 20px !important;
-            background: rgba(0,0,0,0.8) !important;
-            color: white !important;
-            padding: 8px 12px !important;
-            border-radius: 4px !important;
-            font-size: 12px !important;
-            z-index: 999999 !important;
-          `;
-          document.body.appendChild(counter);
-          
-          // Update frame count
-          const updateInterval = setInterval(() => {
-            const stats = window.screenCapture.getFrameStats();
-            counter.textContent = `Frames: ${stats.videoFrames}`;
-          }, 100);
-          
-          // Store interval ID
-          button.dataset.interval = String(updateInterval);
-          
-        } catch (error: any) {
-          console.error('Failed to start capture:', error);
-          alert(`Failed to start capture: ${error.message}`);
-        }
-      } else {
-        try {
-          // Stop capture
-          await window.screenCapture.stopCapture();
-          console.log('Capture stopped');
-          
-          isCapturing = false;
-          button.style.background = '#2196F3 !important';
-          button.innerHTML = '<i class="material-icons" style="color: white !important;">videocam</i>';
-          
-          // Clear interval
-          if (button.dataset.interval) {
-            clearInterval(Number(button.dataset.interval));
-          }
-          
-          // Remove counter
-          const counter = document.getElementById('frame-counter');
-          if (counter) {
-            counter.remove();
-          }
-          
-        } catch (error: any) {
-          console.error('Failed to stop capture:', error);
-          alert(`Failed to stop capture: ${error.message}`);
-        }
-      }
-    };
-    
-    // Try appending to different parent elements
-    document.body.appendChild(button);
-    
-    // Debug: Check if button is in DOM
-    console.log('Button added to DOM:', document.getElementById('screen-capture-test-btn') !== null);
-    console.log('Button parent:', button.parentElement);
-    console.log('Button computed style display:', window.getComputedStyle(button).display);
-    console.log('Button computed style visibility:', window.getComputedStyle(button).visibility);
-    console.log('Button bounding rect:', button.getBoundingClientRect());
-    
-    // Also create a debug button at the top to ensure visibility
-    const debugButton = document.createElement("button");
-    debugButton.style.cssText = `
-      position: fixed !important;
-      top: 10px !important;
-      left: 50% !important;
-      transform: translateX(-50%) !important;
-      z-index: 999999 !important;
-      background: #ff5722 !important;
-      color: white !important;
-      border: none !important;
-      padding: 10px 20px !important;
-      border-radius: 4px !important;
-      font-size: 14px !important;
-      cursor: pointer !important;
-    `;
-    debugButton.textContent = 'Test Native Addon';
-    debugButton.onclick = () => {
-      console.log('Debug button clicked');
-      console.log('window.screenCapture:', window.screenCapture);
-      if (window.screenCapture) {
-        try {
-          const result = window.screenCapture.testMethod();
-          alert(`Addon test result: ${result}`);
-        } catch (error) {
-          alert(`Addon test error: ${error.message}`);
-        }
-      } else {
-        alert('Native addon not loaded!');
-      }
-    };
-    document.body.appendChild(debugButton);
-  };
-  
-  // Wait a bit for everything to load, then try multiple times
-  setTimeout(() => {
-    createScreenCaptureTestButton();
-  }, 1000);
-  
-  // Try again after 3 seconds in case DOM wasn't ready
-  setTimeout(() => {
-    console.log('Checking if button exists after 3 seconds...');
-    const btn = document.getElementById('screen-capture-test-btn');
-    if (!btn) {
-      console.log('Button not found, creating again...');
-      createScreenCaptureTestButton();
-    } else {
-      console.log('Button found in DOM');
+    // Update status function
+    function updateStatus(status, color = '#fff') {
+      statusDiv.innerHTML = status;
+      statusDiv.style.color = color;
     }
-  }, 3000);
+    
+    // Update frame counter
+    function updateFrameCounter() {
+      frameCounter.innerHTML = `Frames: ${frameCount}`;
+    }
+    
+    // Get Sources button handler
+    getSourcesBtn.addEventListener('click', async () => {
+      console.log('🔍 Getting screen sources...');
+      getSourcesBtn.innerHTML = '⏳ Loading...';
+      getSourcesBtn.disabled = true;
+      
+      try {
+        // Use Electron's desktopCapturer to get sources
+        const { desktopCapturer } = require('@electron/remote');
+        const sources = await desktopCapturer.getSources({
+          types: ['window', 'screen'],
+          thumbnailSize: { width: 300, height: 300 }
+        });
+        
+        console.log('✅ Found sources:', sources.length);
+        
+        // Populate the select dropdown
+        sourceSelect.innerHTML = '<option value="">Select a source...</option>';
+        sources.forEach((source, index) => {
+          const option = document.createElement('option');
+          option.value = source.id;
+          option.textContent = `${source.name} (${source.id.startsWith('screen:') ? 'Screen' : 'Window'})`;
+          sourceSelect.appendChild(option);
+        });
+        
+        startBtn.disabled = false;
+        updateStatus('📋 Sources loaded - select one to start', '#28a745');
+        
+      } catch (error) {
+        console.error('❌ Error getting sources:', error);
+        updateStatus('❌ Failed to get sources', '#dc3545');
+      }
+      
+      getSourcesBtn.innerHTML = '🔍 Get Sources';
+      getSourcesBtn.disabled = false;
+    });
+    
+    // Start Capture button handler
+    // Replace your start button handler in the pipeline test with this corrected version
+
+    // Start Capture button handler - FIXED VERSION
+    startBtn.addEventListener('click', async () => {
+      console.log('▶️ Starting capture with native picker...');
+      startBtn.innerHTML = '⏳ Starting...';
+      startBtn.disabled = true;
+      
+      try {
+        // Don't pass a sourceId - let Swift show its picker
+        const result = await ipcRenderer.invoke('screen-capture-start-with-picker');
+        
+        console.log('✅ Start capture result:', result);
+        
+        if (result && result.success) {
+          isCapturing = true;
+          frameCount = 0;
+          
+          updateStatus('🟢 Capturing...', '#28a745');
+          startBtn.disabled = true;
+          stopBtn.disabled = false;
+          getSourcesBtn.disabled = true;
+          sourceSelect.disabled = true;
+        } else {
+          throw new Error(result ? result.error : 'Unknown error');
+        }
+        
+      } catch (error) {
+        console.error('❌ Error starting capture:', error);
+        updateStatus('❌ Failed to start capture', '#dc3545');
+        alert('❌ Failed to start capture: ' + error.message);
+      }
+      
+      startBtn.innerHTML = '▶️ Start';
+      if (!isCapturing) {
+        startBtn.disabled = false;
+      }
+    });
+
+    // Also fix the stop button handler
+    stopBtn.addEventListener('click', async () => {
+      console.log('⏹️ Stopping capture...');
+      stopBtn.innerHTML = '⏳ Stopping...';
+      stopBtn.disabled = true;
+      
+      try {
+        // Use the existing ipcRenderer
+        const result = await ipcRenderer.invoke('screen-capture-stop');
+        console.log('✅ Stop capture result:', result);
+        
+        if (result && result.success) {
+          isCapturing = false;
+          
+          if (frameInterval) {
+            clearInterval(frameInterval);
+            frameInterval = null;
+          }
+          
+          updateStatus('🔴 Stopped', '#dc3545');
+          startBtn.disabled = false;
+          getSourcesBtn.disabled = false;
+          sourceSelect.disabled = false;
+          
+        } else {
+          throw new Error(result ? result.error : 'Unknown error');
+        }
+        
+      } catch (error) {
+        console.error('❌ Error stopping capture:', error);
+        updateStatus('❌ Failed to stop capture', '#dc3545');
+        alert('❌ Failed to stop capture: ' + error.message);
+      }
+      
+      stopBtn.innerHTML = '⏹️ Stop';
+      stopBtn.disabled = true;
+    });
+
+    // And fix the stats button handler
+    statsBtn.addEventListener('click', async () => {
+      console.log('📊 Getting capture stats...');
+      statsBtn.innerHTML = '⏳ Loading...';
+      statsBtn.disabled = true;
+      
+      try {
+        // Use the existing ipcRenderer
+        const result = await ipcRenderer.invoke('screen-capture-stats');
+        console.log('✅ Stats result:', result);
+        
+        if (result && result.success) {
+          const stats = result.stats;
+          alert(`📊 Capture Statistics:
+          
+    📹 Video Frames: ${stats.videoFrames || 0}
+    🔊 Audio Frames: ${stats.audioFrames || 0}
+    ⚡ Active: ${stats.isActive ? 'Yes' : 'No'}`);
+        } else {
+          throw new Error(result ? result.error : 'Unknown error');
+        }
+        
+      } catch (error) {
+        console.error('❌ Error getting stats:', error);
+        alert('❌ Failed to get stats: ' + error.message);
+      }
+      
+      statsBtn.innerHTML = '📊 Stats';
+      statsBtn.disabled = false;
+    });
+    
+    document.body.appendChild(testContainer);
+    console.log('✅ Screen capture pipeline test UI created');
+    
+    // Auto-load sources on startup
+    setTimeout(() => {
+      getSourcesBtn.click();
+    }, 1000);
+  }
+
+  // Create the pipeline test UI
+  createScreenCapturePipelineTest();
+
+  // Update your setupFrameReceiver function in main.ts
+
+  function setupFrameReceiver() {
+    console.log('🎬 Setting up enhanced frame receiver...');
+    
+    // Create frame log display
+    const frameLogDiv = document.createElement('div');
+    frameLogDiv.id = 'frame-log';
+    frameLogDiv.style.cssText = `
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      z-index: 10000;
+      background: rgba(0, 0, 0, 0.9);
+      color: #00ff00;
+      padding: 10px;
+      border-radius: 6px;
+      font-family: 'Courier New', monospace;
+      font-size: 11px;
+      max-height: 300px;
+      overflow-y: auto;
+      width: 450px;
+      border: 1px solid #333;
+    `;
+    
+    const logTitle = document.createElement('div');
+    logTitle.innerHTML = '📹 Live Frame Stream';
+    logTitle.style.cssText = 'color: white; font-weight: bold; margin-bottom: 8px; border-bottom: 1px solid #333; padding-bottom: 5px; text-align: center;';
+    frameLogDiv.appendChild(logTitle);
+    
+    // Statistics display
+    const statsDiv = document.createElement('div');
+    statsDiv.id = 'frame-stats';
+    statsDiv.style.cssText = 'color: #ffd700; font-size: 10px; margin-bottom: 8px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px;';
+    frameLogDiv.appendChild(statsDiv);
+    
+    const logContent = document.createElement('div');
+    logContent.id = 'frame-log-content';
+    logContent.style.cssText = 'max-height: 200px; overflow-y: auto;';
+    frameLogDiv.appendChild(logContent);
+    
+    document.body.appendChild(frameLogDiv);
+    
+    // Frame statistics
+    let totalVideoFrames = 0;
+    let totalAudioFrames = 0;
+    let lastFrameTime = 0;
+    let videoFrameRate = 0;
+    let audioFrameRate = 0;
+    let videoFrameCounter = 0;
+    let audioFrameCounter = 0;
+    let lastVideoSize = 0;
+    let lastAudioChannels = 0;
+    let lastAudioSampleRate = 0;
+    
+    // Calculate frame rates every second
+    setInterval(() => {
+      videoFrameRate = videoFrameCounter;
+      audioFrameRate = audioFrameCounter;
+      videoFrameCounter = 0;
+      audioFrameCounter = 0;
+      
+      // Update statistics display
+      statsDiv.innerHTML = `
+        <div>📹 Video: ${totalVideoFrames} frames (${videoFrameRate} FPS)</div>
+        <div>🔊 Audio: ${totalAudioFrames} frames (${audioFrameRate} FPS)</div>
+        <div>📏 Resolution: ${lastVideoSize > 0 ? lastVideoSize : 'N/A'}</div>
+        <div>🎵 Audio: ${lastAudioSampleRate}Hz, ${lastAudioChannels}CH</div>
+      `;
+    }, 1000);
+    
+    function addLogEntry(message, color = '#00ff00') {
+      const timestamp = new Date().toLocaleTimeString().split(' ')[0]; // Remove AM/PM
+      const entry = document.createElement('div');
+      entry.style.color = color;
+      entry.style.fontSize = '10px';
+      entry.style.marginBottom = '2px';
+      entry.innerHTML = `[${timestamp}] ${message}`;
+      
+      logContent.appendChild(entry);
+      
+      // Keep only last 15 entries for better performance
+      while (logContent.children.length > 15) {
+        logContent.removeChild(logContent.firstChild);
+      }
+      
+      // Auto scroll to bottom
+      logContent.scrollTop = logContent.scrollHeight;
+    }
+    
+    // Listen for video frame data from main process
+    ipcRenderer.on('screen-capture-video-frame', (event, frameData) => {
+      totalVideoFrames++;
+      videoFrameCounter++;
+      
+      const now = Date.now();
+      const timeSinceLastFrame = lastFrameTime ? now - lastFrameTime : 0;
+      lastFrameTime = now;
+      
+      lastVideoSize = `${frameData.width}x${frameData.height}`;
+      
+      // Log every 5th video frame to avoid spam
+      if (totalVideoFrames % 5 === 0) {
+        const logMessage = `📹 V-Frame #${frameData.frameNumber}: ${frameData.width}x${frameData.height}, Δ${timeSinceLastFrame}ms`;
+        addLogEntry(logMessage, '#00ff00');
+      }
+      
+      console.log('📹 Video frame received:', {
+        frameNumber: frameData.frameNumber,
+        width: frameData.width,
+        height: frameData.height,
+        timestamp: frameData.timestamp,
+        timeSinceLastFrame: timeSinceLastFrame
+      });
+    });
+    
+    // Listen for audio frame data from main process
+    ipcRenderer.on('screen-capture-audio-frame', (event, audioData) => {
+      totalAudioFrames++;
+      audioFrameCounter++;
+      
+      lastAudioChannels = audioData.channels || 0;
+      lastAudioSampleRate = audioData.sampleRate || 0;
+      
+      // Log every 10th audio frame to avoid spam
+      if (totalAudioFrames % 10 === 0) {
+        const logMessage = `🔊 A-Frame #${audioData.frameNumber}: ${audioData.sampleRate}Hz, ${audioData.channels}CH`;
+        addLogEntry(logMessage, '#ffaa00');
+      }
+      
+      console.log('🔊 Audio frame received:', {
+        frameNumber: audioData.frameNumber,
+        sampleRate: audioData.sampleRate,
+        channels: audioData.channels,
+        timestamp: audioData.timestamp
+      });
+    });
+    
+    // Listen for capture events
+    ipcRenderer.on('screen-capture-started', () => {
+      addLogEntry('🟢 Screen capture started', '#00ff00');
+      totalVideoFrames = 0;
+      totalAudioFrames = 0;
+      videoFrameCounter = 0;
+      audioFrameCounter = 0;
+    });
+    
+    ipcRenderer.on('screen-capture-stopped', () => {
+      addLogEntry('🔴 Screen capture stopped', '#ff6666');
+    });
+    
+    console.log('✅ Enhanced frame receiver setup complete');
+  }
+
+  // Set up frame receiver
+  setupFrameReceiver();
+
 });

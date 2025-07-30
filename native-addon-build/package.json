@@ -1,0 +1,14 @@
+{
+  "name": "screen-capture-native",
+  "version": "1.0.0",
+  "gypfile": true,
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "install": "node-gyp rebuild"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": ""
+}

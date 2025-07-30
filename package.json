@@ -19,7 +19,11 @@
   },
   "scripts": {
     "start": "vite > log.txt 2>&1",
-    "build-only": "vite build",
+    "start-debug": "ELECTRON_ENABLE_LOGGING=1 vite 2>&1 | tee log.txt",
+    "start-win": "set ELECTRON_ENABLE_LOGGING=1 && vite 2>&1 | tee log.txt",
+    "build-only-old": "vite build",
+    "build-only": "vite build && npm run copy-addon",
+    "copy-addon": "cp /Users/sg12/zulip-desktop/native-addon/build/Release/screen_capture.node dist-electron/screen_capture.node",
     "watch-ts": "tsc -w",
     "reinstall": "rimraf node_modules && npm install",
     "postinstall": "electron-builder install-app-deps",

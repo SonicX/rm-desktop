@@ -4,34 +4,6 @@ import * as NetworkError from "./pages/network.js";
 import { ipcRenderer } from "./typed-ipc-renderer.js";
 import { WalkieTalkieStatus } from "../../common/typed-ipc.js";
 
-// Load native addon - try different paths
-let screenCapture: any;
-const possiblePaths = [
-  // Since preload.js is in dist-electron/, and screen_capture.node is in the same directory
-  './screen_capture.node',
-  __dirname + '/screen_capture.node',
-];
-
-for (const addonPath of possiblePaths) {
-  try {
-    ipcRenderer.send("preload-log", `Attempting to load addon from: ${addonPath}`);
-    screenCapture = require(addonPath);
-    ipcRenderer.send("preload-log", "✅ Native screen capture addon loaded successfully");
-    
-    // Test the addon
-    const testResult = screenCapture.testMethod();
-    ipcRenderer.send("preload-log", `✅ Native addon test: ${testResult}`);
-    break; // Success, exit the loop
-  } catch (error: any) {
-    ipcRenderer.send("preload-log", `❌ Failed with path ${addonPath}: ${error.message}`);
-  }
-}
-
-if (!screenCapture) {
-  ipcRenderer.send("preload-log", "❌ Failed to load native addon from any path");
-  console.error('Failed to load native screen capture addon');
-}
-
 ipcRenderer.send("preload-log", "✅ Preload: Начало выполнения");
 ipcRenderer.send("preload-log", `✅ Preload: Загружен для URL: ${window.location.href}`);
 ipcRenderer.send("preload-log", `✅ Preload: ipcRenderer.send: ${typeof ipcRenderer.send}, ipcRenderer.invoke: ${typeof ipcRenderer.invoke}`);
@@ -60,62 +32,80 @@ contextBridge.exposeInMainWorld("electron_bridge", {
     }
 });
 
-// Expose screen capture API if addon loaded successfully
-if (screenCapture) {
-  contextBridge.exposeInMainWorld('screenCapture', {
-    startCapture: async (options: {
-      sourceId: string;
-      width: number;
-      height: number;
-      frameRate: number;
-    }) => {
-      ipcRenderer.send("preload-log", `Starting capture with options: ${JSON.stringify(options)}`);
-      try {
-        const result = await screenCapture.startCapture(options);
-        ipcRenderer.send("preload-log", `Capture started: ${result}`);
-        return result;
-      } catch (error: any) {
-        ipcRenderer.send("preload-log", `Capture start error: ${error.message}`);
-        throw error;
+// Expose screen capture API using IPC to communicate with main process
+contextBridge.exposeInMainWorld('screenCapture', {
+  startCapture: async (options: {
+    sourceId: string;
+    width: number;
+    height: number;
+    frameRate: number;
+  }) => {
+    ipcRenderer.send("preload-log", `Starting capture with options: ${JSON.stringify(options)}`);
+    try {
+      const response = await ipcRenderer.invoke("screen-capture-start", options);
+      if (response.success) {
+        ipcRenderer.send("preload-log", `Capture started: ${response.result}`);
+        return response.result;
+      } else {
+        throw new Error(response.error);
       }
-    },
-    
-    stopCapture: async () => {
-      ipcRenderer.send("preload-log", "Stopping capture");
-      try {
-        await screenCapture.stopCapture();
+    } catch (error: any) {
+      ipcRenderer.send("preload-log", `Capture start error: ${error.message}`);
+      throw error;
+    }
+  },
+  
+  stopCapture: async () => {
+    ipcRenderer.send("preload-log", "Stopping capture");
+    try {
+      const response = await ipcRenderer.invoke("screen-capture-stop");
+      if (response.success) {
         ipcRenderer.send("preload-log", "Capture stopped successfully");
-      } catch (error: any) {
-        ipcRenderer.send("preload-log", `Capture stop error: ${error.message}`);
-        throw error;
+      } else {
+        throw new Error(response.error);
       }
-    },
-    
-    getFrameStats: () => {
-      try {
-        const stats = screenCapture.getFrameStats();
-        ipcRenderer.send("preload-log", `Frame stats: ${JSON.stringify(stats)}`);
-        return stats;
-      } catch (error: any) {
+    } catch (error: any) {
+      ipcRenderer.send("preload-log", `Capture stop error: ${error.message}`);
+      throw error;
+    }
+  },
+  
+  getFrameStats: () => {
+    try {
+      const response = ipcRenderer.invoke("screen-capture-stats");
+      return response.then((res: any) => {
+        if (res.success) {
+          ipcRenderer.send("preload-log", `Frame stats: ${JSON.stringify(res.stats)}`);
+          return res.stats;
+        } else {
+          throw new Error(res.error);
+        }
+      }).catch((error: any) => {
         ipcRenderer.send("preload-log", `Get frame stats error: ${error.message}`);
         return { videoFrames: 0, audioFrames: 0, isActive: false };
-      }
-    },
-    
-    testMethod: () => {
-      try {
-        return screenCapture.testMethod();
-      } catch (error: any) {
-        ipcRenderer.send("preload-log", `Test method error: ${error.message}`);
-        return "Error calling test method";
-      }
+      });
+    } catch (error: any) {
+      ipcRenderer.send("preload-log", `Get frame stats error: ${error.message}`);
+      return { videoFrames: 0, audioFrames: 0, isActive: false };
     }
-  });
+  },
   
-  ipcRenderer.send("preload-log", "✅ Screen capture API exposed to renderer");
-} else {
-  ipcRenderer.send("preload-log", "⚠️ Screen capture API not exposed - addon not loaded");
-}
+  testMethod: async () => {
+    try {
+      const response = await ipcRenderer.invoke("screen-capture-test");
+      if (response.success) {
+        return response.result;
+      } else {
+        throw new Error(response.error);
+      }
+    } catch (error: any) {
+      ipcRenderer.send("preload-log", `Test method error: ${error.message}`);
+      return "Error calling test method";
+    }
+  }
+});
+
+ipcRenderer.send("preload-log", "✅ Screen capture API exposed to renderer via IPC");
 
 // Остальной код preload.ts остаётся без изменений
 contextBridge.exposeInMainWorld("ipcRenderer", {
@@ -175,6 +165,41 @@ ipcRenderer.on("desktop-sources-response", (event, response) => {
     electron_bridge.send_event("desktop-sources-response", response);
 });
 
+
+
+
+
+// Add this to your preload.ts after your existing forward-message handler
+
+ipcRenderer.on("forward-message", (event, channel) => {
+    ipcRenderer.send("preload-log", `✅ Preload: Получено forward-message с каналом: ${channel}`);
+    if (channel === "trigger-open-desktop-picker") {
+        electron_bridge.send_event("open-desktop-picker");
+    }
+    if (channel === "request-desktop-sources") {
+        electron_bridge.send_event("requestDesktopSources");
+    }
+    
+    // ADD THIS NEW HANDLER:
+    if (channel === "test-screen-capture-in-webview") {
+      ipcRenderer.send("preload-log", "🧪 Preload: Testing screen capture in webview context...");
+      
+      if (window.screenCapture) {
+          ipcRenderer.send("preload-log", "✅ Preload: window.screenCapture is available!");
+          window.screenCapture.testMethod()
+              .then(result => {
+                  ipcRenderer.send("preload-log", `✅ Preload: Test successful: ${result}`);
+              });
+      } else {
+          ipcRenderer.send("preload-log", "❌ Preload: window.screenCapture NOT available in webview");
+      }
+  }
+});
+
+
+
+
+
 window.addEventListener("load", () => {
     if (!location.href.includes("app/renderer/network.html")) {
         return;
@@ -183,3 +208,4 @@ window.addEventListener("load", () => {
     const $settingsButton = document.querySelector("#settings")!;
     NetworkError.init($reconnectButton, $settingsButton);
 });
+
