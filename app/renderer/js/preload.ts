@@ -8,6 +8,26 @@ import { ipcRenderer } from "./typed-ipc-renderer.js";
 import { WalkieTalkieStatus } from "../../common/typed-ipc.js";
 
 
+async function sendDesktopSources(sources: any[], error: any = null) {
+  ipcRenderer.send("preload-log", `🎯[NativeCapture] sendDesktopSources: ${sources?.length || 0} sources`);
+  
+  // Метод 1: Через electron_bridge (для текущего webview)
+  electron_bridge.send_event("desktop-sources-response", {
+    sources: sources,
+    error: error
+  });
+  
+  // Метод 2: Через broadcast (для всех webviews)
+  if (sources && sources.length > 0) {
+    ipcRenderer.send("broadcast-desktop-sources", sources);
+  }
+  
+  // Метод 3: Эмулируем событие напрямую
+  window.dispatchEvent(new CustomEvent("desktop-sources-response", {
+    detail: { sources, error }
+  }));
+}
+
 // === Перехват getDisplayMedia в контексте страницы ===
 const script = `
 (() => {
@@ -200,25 +220,28 @@ async function handleNativeCaptureRequest() {
   ipcRenderer.send("preload-log", "🎯[NativeCapture] ============ handleNativeCaptureRequest START ============");
   
   const now = Date.now();
-  ipcRenderer.send("preload-log", `🎯[NativeCapture] Current timestamp: ${now}`);
-  ipcRenderer.send("preload-log", `🎯[NativeCapture] Current date: ${new Date(now).toISOString()}`);
-  ipcRenderer.send("preload-log", `🎯[NativeCapture] Last dialog time: ${lastDialogTime}`);
-  ipcRenderer.send("preload-log", `🎯[NativeCapture] Time since last: ${now - lastDialogTime}ms`);
   
   // Проверяем таймаут
   if (lastDialogTime > 0 && (now - lastDialogTime) < 30000) {
     ipcRenderer.send("preload-log", "🎯[NativeCapture] ⏭️ Dialog shown recently, using standard sources");
     isHandlingRequest = false;
     
-    // try {
-    //   const sources = await ipcRenderer.invoke('get-desktop-sources');
-    //   electron_bridge.send_event("desktop-sources-response", {
-    //     sources: sources,
-    //     error: null
-    //   });
-    // } catch (error: any) {
-    //   ipcRenderer.send("preload-log", `🎯[NativeCapture] Error: ${error.message}`);
-    // }
+    try {
+      const sources = await ipcRenderer.invoke('get-desktop-sources');
+      ipcRenderer.send("preload-log", `🎯[NativeCapture] Got ${sources.length} sources without dialog`);
+      
+      // Логируем первые несколько источников для отладки
+      if (sources && sources.length > 0) {
+        sources.slice(0, 3).forEach((source: any, i: number) => {
+          ipcRenderer.send("preload-log", `🎯[NativeCapture] Source ${i}: id=${source.id}, name=${source.name}, has thumbnail=${!!source.thumbnail?.dataUrl}`);
+        });
+      }
+      
+      await sendDesktopSources(sources, error);
+    } catch (error: any) {
+      ipcRenderer.send("preload-log", `🎯[NativeCapture] Error getting sources: ${error.message}`);
+      await sendDesktopSources(sources, error);
+    }
     return;
   }
   
@@ -232,79 +255,41 @@ async function handleNativeCaptureRequest() {
       ipcRenderer.send("preload-log", `🎯[NativeCapture] ✅ User selected: ${choice}`);
       
       if (choice === 'native') {
-        ipcRenderer.send("preload-log", "🎯[NativeCapture] 🚀 Starting native capture...");
+        ipcRenderer.send("preload-log", "🎯[NativeCapture] 🚀 Getting native sources...");
         
-        const startResult = await ipcRenderer.invoke('start-native-capture-simple');
-        ipcRenderer.send("preload-log", `🎯[NativeCapture] Native capture result: ${JSON.stringify(startResult)}`);
-        
-        if (startResult && startResult.success) {
-          ipcRenderer.send("preload-log", "🎯[NativeCapture] ✅ Success! Creating native source...");
-
-          try {
-            const svgContent = `<svg width="300" height="300" xmlns="http://www.w3.org/2000/svg">
-              <rect width="300" height="300" fill="#2196F3"/>
-              <circle cx="150" cy="120" r="40" fill="white" opacity="0.9"/>
-              <circle cx="150" cy="120" r="30" fill="#2196F3"/>
-              <circle cx="150" cy="120" r="20" fill="white"/>
-              <text x="150" y="180" font-family="Arial" font-size="20" font-weight="bold" text-anchor="middle" fill="white">Native Capture Active</text>
-              <text x="150" y="210" font-family="Arial" font-size="14" text-anchor="middle" fill="white" opacity="0.8">High Quality Audio</text>
-            </svg>`;
-
-            const base64Svg = btoa(unescape(encodeURIComponent(svgContent)));
-            const nativeSource = {
-              id: 'native-capture-active',
-              name: 'Native Capture (Active)',
-              thumbnail: { dataUrl: `data:image/svg+xml;base64,${base64Svg}` }
-            };
-
-            electron_bridge.send_event("desktop-sources-response", {
-              sources: [nativeSource],
-              error: null,
-              isNativeCapture: true
+        // Получаем источники через Swift
+        try {
+          const sources = await ipcRenderer.invoke('get-desktop-sources');
+          ipcRenderer.send("preload-log", `🎯[NativeCapture] Got ${sources.length} native sources`);
+          
+          if (sources && sources.length > 0) {
+            // Логируем первые несколько источников
+            sources.slice(0, 3).forEach((source: any, i: number) => {
+              ipcRenderer.send("preload-log", `🎯[NativeCapture] Source ${i}: ${source.name} (${source.id})`);
             });
-
-            ipcRenderer.send("preload-log", "🎯[NativeCapture] ✅ Native response sent (with SVG)");
-            return; // <-- Критично: выходим из функции, чтобы не вызвать fallback
-
-          } catch (svgError: any) {
-            ipcRenderer.send("preload-log", `🎯[NativeCapture] ⚠️ SVG Error: ${svgError.message}, sending simple fallback`);
-
-            // Отправляем простой PNG без btoa
-            const simpleSource = {
-              id: 'native-capture-active',
-              name: 'Native Capture Active',
-              thumbnail: { 
-                dataUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg=='
-              }
-            };
-
-            electron_bridge.send_event("desktop-sources-response", {
-              sources: [simpleSource],
-              error: null,
-              isNativeCapture: true
-            });
-
-            return; // <-- Важно: НЕ идём к стандартным источникам
+            
+            await sendDesktopSources(sources, error);
+            
+            ipcRenderer.send("preload-log", "🎯[NativeCapture] ✅ Native sources sent to Jitsi");
+            return;
+          } else {
+            ipcRenderer.send("preload-log", "🎯[NativeCapture] ⚠️ No sources returned");
           }
-        } else {
-          ipcRenderer.send("preload-log", `🎯[NativeCapture] ❌ Native capture failed: ${startResult?.error || 'No success flag'}`);
+        } catch (sourceError: any) {
+          ipcRenderer.send("preload-log", `🎯[NativeCapture] ❌ Error getting sources: ${sourceError.message}`);
         }
-      } else {
-        ipcRenderer.send("preload-log", `🎯[NativeCapture] User selected: ${choice}`);
       }
       
-      // Fallback to standard
+      // Fallback to standard sources
       ipcRenderer.send("preload-log", "🎯[NativeCapture] Using standard sources");
-      // const sources = await ipcRenderer.invoke('get-desktop-sources');
+      const sources = await ipcRenderer.invoke('get-desktop-sources');
+      ipcRenderer.send("preload-log", `🎯[NativeCapture] Got ${sources.length} standard sources`);
       
-      // electron_bridge.send_event("desktop-sources-response", {
-      //   sources: sources,
-      //   error: null
-      // });
+      await sendDesktopSources(sources, error);
       
     } catch (error: any) {
-      ipcRenderer.send("preload-log", `🎯[NativeCapture] ❌ Error: ${error.message}`);        
-        return; // НЕ вызываем get-desktop-sources
+      ipcRenderer.send("preload-log", `🎯[NativeCapture] ❌ Error: ${error.message}`);
+      await sendDesktopSources(sources, error);
     } finally {
       isHandlingRequest = false;
       dialogPromise = null;
@@ -329,19 +314,6 @@ if (!isSubscribed) {
   
   ipcRenderer.send("preload-log", "🎯[NativeCapture] ✅ Event listener registered");
 }
-
-// Перехват send_event для логирования
-const originalSendEvent = electron_bridge.send_event;
-electron_bridge.send_event = function(eventName: string | symbol, ...args: any[]): boolean {
-  const name = String(eventName);
-  
-  if (name.includes("desktop") || name === "api_request") {
-    ipcRenderer.send("preload-log", `🎯[NativeCapture] send_event: ${name}`);
-  }
-  
-  return originalSendEvent.apply(this, [eventName, ...args]);
-};
-
 
 setTimeout(() => {
   const testBtn = document.createElement('button');
@@ -376,3 +348,28 @@ setTimeout(() => {
   
   document.body.appendChild(testBtn);
 }, 2000);
+
+const originalSendEvent = electron_bridge.send_event;
+electron_bridge.send_event = function(eventName: string | symbol, ...args: any[]): boolean {
+  const name = String(eventName);
+  
+  if (name === "desktop-sources-response") {
+    ipcRenderer.send("preload-log", `🎯[NativeCapture] Sending desktop-sources-response`);
+    const response = args[0];
+    if (response) {
+      ipcRenderer.send("preload-log", `🎯[NativeCapture] Response has sources: ${!!response.sources}`);
+      ipcRenderer.send("preload-log", `🎯[NativeCapture] Response has error: ${!!response.error}`);
+      if (response.sources) {
+        ipcRenderer.send("preload-log", `🎯[NativeCapture] Sources count: ${response.sources.length}`);
+        if (response.sources.length > 0) {
+          const first = response.sources[0];
+          ipcRenderer.send("preload-log", `🎯[NativeCapture] First source: id=${first.id}, name=${first.name}`);
+          ipcRenderer.send("preload-log", `🎯[NativeCapture] Has thumbnail: ${!!first.thumbnail}`);
+          ipcRenderer.send("preload-log", `🎯[NativeCapture] Thumbnail dataUrl length: ${first.thumbnail?.dataUrl?.length || 0}`);
+        }
+      }
+    }
+  }
+  
+  return originalSendEvent.apply(this, [eventName, ...args]);
+};

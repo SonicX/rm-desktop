@@ -429,6 +429,56 @@ actor CaptureActor {
         lastAudioTime = .zero
         contentFilter = nil
     }
+
+    func getAvailableSources() async throws -> [[String: Any]] {
+        let contentTask = Task { @MainActor in
+            try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
+        }
+        let content = try await contentTask.value
+        
+        var sources: [[String: Any]] = []
+        
+        // Добавляем дисплеи
+        for (i, display) in content.displays.enumerated() {
+            sources.append([
+                "type": "display",
+                "id": "\(display.displayID)",
+                "name": "Screen \(i + 1)",
+                "width": display.width,
+                "height": display.height
+            ])
+        }
+        
+        // Добавляем окна
+        for window in content.windows {
+            // Пропускаем слишком маленькие окна
+            if window.frame.width < 10 || window.frame.height < 10 {
+                continue
+            }
+            
+            sources.append([
+                "type": "window",
+                "id": "\(window.windowID)",
+                "name": "\(window.title ?? "Untitled") - \(window.owningApplication?.applicationName ?? "Unknown")",
+                "appName": window.owningApplication?.applicationName ?? "Unknown",
+                "title": window.title ?? "Untitled",
+                "width": Int(window.frame.width),
+                "height": Int(window.frame.height)
+            ])
+        }
+        
+        // Добавляем приложения
+        for app in content.applications {
+            sources.append([
+                "type": "application",
+                "id": app.bundleIdentifier,
+                "name": app.applicationName,
+                "bundleId": app.bundleIdentifier
+            ])
+        }
+        
+        return sources
+    }
 }
 
 @available(macOS 12.3, *)
@@ -567,6 +617,23 @@ public class ScreenCaptureManager: NSObject, SCContentSharingPickerObserver {
     @objc public func setWebRTCAudioCallback(_ callback: @escaping (CMSampleBuffer) -> Void) {
         Task {
             await captureActor.setWebRTCAudioCallback(callback)
+        }
+    }
+
+    @objc public func getAvailableSourcesWithCompletion(_ completion: @escaping @Sendable (NSError?, [[String: Any]]?) -> Void) {
+    print("getAvailableSourcesWithCompletion called")
+        Task.detached { [captureActor = self.captureActor] in
+            do {
+                let sources = try await captureActor.getAvailableSources()
+                DispatchQueue.main.async {
+                    completion(nil, sources)
+                }
+            } catch {
+                print("getAvailableSources error: \(error)")
+                DispatchQueue.main.async {
+                    completion(error as NSError, nil)
+                }
+            }
         }
     }
 

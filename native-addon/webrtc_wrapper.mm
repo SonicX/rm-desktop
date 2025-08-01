@@ -459,6 +459,104 @@ void ForwardAudioFrame(const FunctionCallbackInfo<Value>& args) {
     args.GetReturnValue().Set(String::NewFromUtf8(isolate, "Audio frame forwarding enabled").ToLocalChecked());
 }
 
+void GetAvailableSources(const FunctionCallbackInfo<Value>& args) {
+    Isolate* isolate = args.GetIsolate();
+    Local<Context> context = isolate->GetCurrentContext();
+    auto resolver = Promise::Resolver::New(context).ToLocalChecked();
+    args.GetReturnValue().Set(resolver->GetPromise());
+    
+    // Создаем WorkData для асинхронной операции
+    WorkData* data = new WorkData();
+    data->isolate = isolate;
+    data->resolver.Reset(isolate, resolver);
+    data->operation = "getAvailableSources";
+    
+    uv_queue_work(uv_default_loop(), &data->request, 
+        // Функция выполнения в рабочем потоке
+        [](uv_work_t* req) {
+            @autoreleasepool {
+                WorkData* data = static_cast<WorkData*>(req->data);
+                
+                if (!g_manager) {
+                    g_manager = [[CCaptureManager alloc] init];
+                }
+                
+                dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
+                __block NSArray<NSDictionary*>* sources = nil;
+                __block NSError* error = nil;
+                
+                [g_manager getAvailableSourcesWithCompletion:^(NSError* err, NSArray<NSDictionary*>* sourcesArray) {
+                    error = err;
+                    sources = sourcesArray;
+                    dispatch_semaphore_signal(semaphore);
+                }];
+                
+                dispatch_semaphore_wait(semaphore, DISPATCH_TIME_FOREVER);
+                
+                if (error) {
+                    data->error = error;
+                    data->success = false;
+                } else if (sources) {
+                    // Сохраняем источники в формате, который можем передать обратно
+                    data->success = true;
+                    data->sourceDict = @{@"sources": sources};
+                }
+            }
+        },
+        // Функция завершения в главном потоке
+        [](uv_work_t* req, int status) {
+            std::unique_ptr<WorkData> data(static_cast<WorkData*>(req->data));
+            
+            Isolate* isolate = data->isolate;
+            HandleScope scope(isolate);
+            Local<Context> context = isolate->GetCurrentContext();
+            
+            Local<Promise::Resolver> resolver = Local<Promise::Resolver>::New(isolate, data->resolver);
+            
+            if (data->success && status == 0) {
+                NSArray<NSDictionary*>* sources = data->sourceDict[@"sources"];
+                
+                if (sources) {
+                    // Конвертируем NSArray в JavaScript массив
+                    Local<Array> jsArray = Array::New(isolate, (int)sources.count);
+                    
+                    for (NSUInteger i = 0; i < sources.count; i++) {
+                        NSDictionary* source = sources[i];
+                        Local<Object> jsSource = Object::New(isolate);
+                        
+                        // Конвертируем все поля из словаря
+                        for (NSString* key in source) {
+                            id value = source[key];
+                            Local<String> jsKey = String::NewFromUtf8(isolate, [key UTF8String]).ToLocalChecked();
+                            
+                            if ([value isKindOfClass:[NSString class]]) {
+                                jsSource->Set(context, jsKey,
+                                    String::NewFromUtf8(isolate, [(NSString*)value UTF8String]).ToLocalChecked()).ToChecked();
+                            } else if ([value isKindOfClass:[NSNumber class]]) {
+                                jsSource->Set(context, jsKey,
+                                    Number::New(isolate, [(NSNumber*)value doubleValue])).ToChecked();
+                            }
+                        }
+                        
+                        jsArray->Set(context, i, jsSource).ToChecked();
+                    }
+                    
+                    resolver->Resolve(context, jsArray).ToChecked();
+                } else {
+                    resolver->Resolve(context, Array::New(isolate, 0)).ToChecked();
+                }
+            } else {
+                std::string errorMessage = "Failed to get sources";
+                if (data->error) {
+                    errorMessage = [[data->error localizedDescription] UTF8String];
+                }
+                resolver->Reject(context,
+                    String::NewFromUtf8(isolate, errorMessage.c_str()).ToLocalChecked()).ToChecked();
+            }
+        }
+    );
+}
+
 // Update your Init function to export the new methods
 void Init(Local<Object> exports, Local<Value> module, void* context) {
     NODE_SET_METHOD(exports, "testMethod", TestMethod);
@@ -473,6 +571,8 @@ void Init(Local<Object> exports, Local<Value> module, void* context) {
     // Add the new frame forwarding methods
     NODE_SET_METHOD(exports, "forwardVideoFrame", ForwardVideoFrame);
     NODE_SET_METHOD(exports, "forwardAudioFrame", ForwardAudioFrame);
+
+    NODE_SET_METHOD(exports, "getAvailableSources", GetAvailableSources);
 }
 
 NODE_MODULE(NODE_GYP_MODULE_NAME, Init)

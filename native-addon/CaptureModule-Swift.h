@@ -339,6 +339,7 @@ SWIFT_CLASS_NAMED("ScreenCaptureManager") SWIFT_AVAILABILITY(macos,introduced=12
 - (void)setAudioBufferCallback:(void (^ _Nonnull)(CMSampleBufferRef _Nonnull))callback;
 - (void)setWebRTCVideoCallback:(void (^ _Nonnull)(NSDictionary<NSString *, id> * _Nonnull))callback;
 - (void)setWebRTCAudioCallback:(void (^ _Nonnull)(CMSampleBufferRef _Nonnull))callback;
+- (void)getAvailableSourcesWithCompletion:(void (^ _Nonnull)(NSError * _Nullable, NSArray<NSDictionary<NSString *, id> *> * _Nullable))completion;
 - (void)selectSourceWithPickerWithCompletion:(void (^ _Nonnull)(NSError * _Nullable, NSDictionary<NSString *, id> * _Nullable))completion SWIFT_AVAILABILITY(macos,introduced=14.0);
 - (void)contentSharingPicker:(SCContentSharingPicker * _Nonnull)picker didUpdateWithFilter:(SCContentFilter * _Nonnull)filter forStream:(SCStream * _Nullable)stream SWIFT_AVAILABILITY(macos,introduced=14.0);
 - (void)contentSharingPicker:(SCContentSharingPicker * _Nonnull)picker didCancelForStream:(SCStream * _Nullable)stream SWIFT_AVAILABILITY(macos,introduced=14.0);

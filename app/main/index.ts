@@ -46,7 +46,7 @@ import { ipcMain, send } from "./typed-ipc-main.js";
 // В index.ts добавьте в начало файла:
 import * as fs from 'fs';
 
-let screenCaptureAddon: any;
+let screenCaptureAddon: any = null;
 
 
 // Создаем поток для записи логов
@@ -313,6 +313,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
 
   // 1. СНАЧАЛА загружаем native addon (у вас уже правильно)
   try {
+    // Try multiple possible paths for the addon
     const possiblePaths = [
       path.join(__dirname, 'native-addon.node'),
       path.join(__dirname, '..', 'dist-electron', 'native-addon.node'),
@@ -328,13 +329,30 @@ async function createMainWindow(): Promise<BrowserWindow> {
       }
     }
     
-    if (addonPath) {
-      log.info(`Attempting to load native addon from: ${addonPath}`);
-      screenCaptureAddon = require(addonPath);
-      log.info(`✅ Native addon loaded successfully`);
+    if (!addonPath) {
+      throw new Error(`Native addon not found. Searched paths: ${possiblePaths.join(', ')}`);
     }
+    
+    log.info(`Attempting to load native addon from: ${addonPath}`);
+    screenCaptureAddon = require(addonPath); // БЕЗ let - используем глобальную переменную
+    log.info(`✅ Native addon loaded successfully from: ${addonPath}`);
+    
+    // Test the addon
+    const testResult = screenCaptureAddon.testMethod();
+    log.info(`✅ Native addon test result: ${testResult}`);
+    
+    // Проверяем наличие нового метода
+    if (typeof screenCaptureAddon.getAvailableSources === 'function') {
+      log.info("✅ Native addon has getAvailableSources method");
+    } else {
+      log.warn("⚠️ Native addon missing getAvailableSources method");
+    }
+    
   } catch (error) {
     log.error(`❌ Failed to load native addon: ${error}`);
+    log.error(`❌ Current __dirname: ${__dirname}`);
+    log.error(`❌ Current process.cwd(): ${process.cwd()}`);
+    screenCaptureAddon = null; // Явно устанавливаем null при ошибке
   }
 
   // 2. ЗАТЕМ создаем сессию
@@ -357,9 +375,431 @@ async function createMainWindow(): Promise<BrowserWindow> {
   );
 
 
+
+
+  function createSwiftSourceThumbnail(source: any): string {
+    // Цвета и иконки по типу
+    const styles: { [key: string]: { color: string; icon: string } } = {
+      display: { color: '#4CAF50', icon: '🖥' },
+      window: { color: '#2196F3', icon: '🪟' },
+      application: { color: '#FF9800', icon: '📱' },
+      tab: { color: '#9C27B0', icon: '🌐' },
+      browser_tab: { color: '#9C27B0', icon: '🌐' }
+    };
+    
+    const style = styles[source.type] || { color: '#9E9E9E', icon: '❓' };
+    
+    // Размер для дисплеев и окон
+    const sizeInfo = (source.width && source.height) 
+      ? `${source.width}×${source.height}` 
+      : '';
+    
+    // Экранируем HTML в названиях
+    const escapedName = (source.name || 'Unknown')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+      
+    const escapedAppName = source.appName 
+      ? source.appName
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#039;')
+      : '';
+    
+    const svg = `<svg width="300" height="300" xmlns="http://www.w3.org/2000/svg">
+      <rect width="300" height="300" fill="${style.color}"/>
+      <text x="150" y="100" font-size="50" text-anchor="middle" fill="white">${style.icon}</text>
+      <text x="150" y="160" font-family="Arial" font-size="14" text-anchor="middle" fill="white" font-weight="bold">
+        ${escapedName}
+      </text>
+      ${escapedAppName ? `
+        <text x="150" y="185" font-family="Arial" font-size="12" text-anchor="middle" fill="white" opacity="0.9">
+          ${escapedAppName}
+        </text>
+      ` : ''}
+      ${sizeInfo ? `
+        <text x="150" y="210" font-family="Arial" font-size="11" text-anchor="middle" fill="white" opacity="0.7">
+          ${sizeInfo}
+        </text>
+      ` : ''}
+      <rect x="20" y="270" width="260" height="3" rx="1.5" fill="white" opacity="0.2"/>
+      <rect x="20" y="270" width="130" height="3" rx="1.5" fill="white" opacity="0.6"/>
+    </svg>`;
+    
+    // Конвертируем в base64
+    const base64 = Buffer.from(svg).toString('base64');
+    return `data:image/svg+xml;base64,${base64}`;
+  }
+
+  async function getSwiftSourcesSafe(): Promise<any[]> {
+    if (!screenCaptureAddon || typeof screenCaptureAddon.getAvailableSources !== 'function') {
+      throw new Error('Swift addon not available');
+    }
+    
+    return new Promise((resolve, reject) => {
+      try {
+        log.info("🎯[Swift] Calling getAvailableSources with callback wrapper...");
+        
+        // Таймаут 3 секунды
+        const timeout = setTimeout(() => {
+          log.error("🎯[Swift] Timeout waiting for sources");
+          reject(new Error('Timeout waiting for Swift sources'));
+        }, 3000);
+        
+        // Пробуем вызвать метод
+        const result = screenCaptureAddon.getAvailableSources();
+        
+        // Если результат - это Promise
+        if (result && typeof result.then === 'function') {
+          log.info("🎯[Swift] Method returned a Promise");
+          result
+            .then((sources: any) => {
+              clearTimeout(timeout);
+              log.info(`🎯[Swift] Promise resolved with ${sources?.length || 0} sources`);
+              resolve(sources || []);
+            })
+            .catch((err: any) => {
+              clearTimeout(timeout);
+              log.error(`🎯[Swift] Promise rejected: ${err}`);
+              reject(err);
+            });
+        } 
+        // Если результат синхронный
+        else if (result !== undefined) {
+          clearTimeout(timeout);
+          log.info(`🎯[Swift] Synchronous result: ${JSON.stringify(result)}`);
+          resolve(Array.isArray(result) ? result : []);
+        }
+        // Если метод ничего не вернул, возможно он использует колбэк
+        else {
+          log.info("🎯[Swift] No immediate result, method might use callbacks");
+          // Ждём таймаут
+        }
+        
+      } catch (error: any) {
+        log.error(`🎯[Swift] Error calling method: ${error.message}`);
+        reject(error);
+      }
+    });
+  }
+
+  // Обработчик для тестирования Swift addon отдельно
+  ipcMain.handle("get-swift-sources-direct", async () => {
+    try {
+      log.info("🎯[Swift] Testing Swift addon directly...");
+      
+      const sources = await getSwiftSourcesSafe();
+      log.info(`🎯[Swift] Got ${sources.length} sources`);
+      
+      // Форматируем для Electron
+      const formatted = sources.map((source: any, index: number) => ({
+        id: `swift:${source.id || index}`,
+        name: source.name || `Source ${index}`,
+        thumbnail: {
+          dataUrl: createSwiftSourceThumbnail(source)
+        }
+      }));
+      
+      return { success: true, sources: formatted };
+      
+    } catch (error: any) {
+      log.error(`🎯[Swift] Error: ${error.message}`);
+      return { success: false, error: error.message, sources: [] };
+    }
+  });
+
+
   // КРИТИЧНО: Обработчик get-desktop-sources БЕЗ диалога
+  async function testSwiftAddon(): Promise<void> {
+    log.info("🔬[Swift Test] Starting Swift addon test...");
+    
+    if (!screenCaptureAddon) {
+      log.error("🔬[Swift Test] screenCaptureAddon is null!");
+      return;
+    }
+    
+    // Логируем все доступные методы
+    log.info("🔬[Swift Test] Available methods in screenCaptureAddon:");
+    for (const key of Object.keys(screenCaptureAddon)) {
+      const type = typeof screenCaptureAddon[key];
+      log.info(`🔬[Swift Test]   - ${key}: ${type}`);
+    }
+    
+    // Тестируем getAvailableSources разными способами
+    if (typeof screenCaptureAddon.getAvailableSources === 'function') {
+      log.info("🔬[Swift Test] Testing getAvailableSources...");
+      
+      // Способ 1: Прямой вызов
+      try {
+        log.info("🔬[Swift Test] Method 1: Direct call");
+        const result1 = screenCaptureAddon.getAvailableSources();
+        log.info(`🔬[Swift Test] Direct call returned: ${JSON.stringify(result1)}`);
+        log.info(`🔬[Swift Test] Type: ${typeof result1}, isArray: ${Array.isArray(result1)}`);
+        
+        // Если это Promise
+        if (result1 && typeof result1.then === 'function') {
+          log.info("🔬[Swift Test] It's a Promise, waiting...");
+          const resolved = await result1;
+          log.info(`🔬[Swift Test] Promise resolved to: ${JSON.stringify(resolved)}`);
+        }
+      } catch (e: any) {
+        log.error(`🔬[Swift Test] Direct call error: ${e.message}`);
+      }
+      
+      // Способ 2: С колбэком
+      try {
+        log.info("🔬[Swift Test] Method 2: With callback");
+        await new Promise<void>((resolve) => {
+          const timeout = setTimeout(() => {
+            log.warn("🔬[Swift Test] Callback timeout after 2s");
+            resolve();
+          }, 2000);
+          
+          screenCaptureAddon.getAvailableSources((error: any, sources: any) => {
+            clearTimeout(timeout);
+            if (error) {
+              log.error(`🔬[Swift Test] Callback error: ${error}`);
+            } else {
+              log.info(`🔬[Swift Test] Callback sources: ${JSON.stringify(sources)}`);
+            }
+            resolve();
+          });
+        });
+      } catch (e: any) {
+        log.error(`🔬[Swift Test] Callback error: ${e.message}`);
+      }
+      
+      // Способ 3: С параметрами
+      try {
+        log.info("🔬[Swift Test] Method 3: With empty object parameter");
+        const result3 = screenCaptureAddon.getAvailableSources({});
+        log.info(`🔬[Swift Test] With params returned: ${JSON.stringify(result3)}`);
+      } catch (e: any) {
+        log.error(`🔬[Swift Test] With params error: ${e.message}`);
+      }
+    }
+    
+    // Проверяем другие возможные методы
+    const methodsToTest = ['getSources', 'listSources', 'getScreens', 'getWindows', 'getCaptureList'];
+    for (const method of methodsToTest) {
+      if (typeof screenCaptureAddon[method] === 'function') {
+        log.info(`🔬[Swift Test] Found method: ${method}, testing...`);
+        try {
+          const result = screenCaptureAddon[method]();
+          log.info(`🔬[Swift Test] ${method} returned: ${JSON.stringify(result)}`);
+        } catch (e: any) {
+          log.error(`🔬[Swift Test] ${method} error: ${e.message}`);
+        }
+      }
+    }
+    
+    log.info("🔬[Swift Test] Test complete!");
+  }
+
+  // Вызываем тест при загрузке
+  setTimeout(() => {
+    testSwiftAddon().catch(err => log.error(`🔬[Swift Test] Fatal error: ${err}`));
+  }, 3000);
+
+  // Обновленный обработчик get-desktop-sources с дополнительным логированием
+  // В index.ts замените обработчик get-desktop-sources на этот:
+
   ipcMain.handle("get-desktop-sources", async () => {
-    return await getAvailableSources();
+    try {
+      log.info("🎯[NativeCapture] ========== GETTING SOURCES (SWIFT ONLY) ==========");
+      
+      if (!screenCaptureAddon) {
+        log.error("🎯[NativeCapture] screenCaptureAddon is NULL!");
+        return [];
+      }
+      
+      log.info(`🎯[NativeCapture] screenCaptureAddon type: ${typeof screenCaptureAddon}`);
+      log.info(`🎯[NativeCapture] Available methods: ${Object.keys(screenCaptureAddon).join(', ')}`);
+      
+      if (typeof screenCaptureAddon.getAvailableSources !== 'function') {
+        log.error("🎯[NativeCapture] getAvailableSources is not a function!");
+        return [];
+      }
+      
+      // Пробуем разные способы вызова
+      log.info("🎯[NativeCapture] Calling getAvailableSources...");
+      
+      // Способ 1: Прямой вызов без параметров
+      try {
+        const result = screenCaptureAddon.getAvailableSources();
+        log.info(`🎯[NativeCapture] Direct call result type: ${typeof result}`);
+        log.info(`🎯[NativeCapture] Direct call result: ${JSON.stringify(result)}`);
+        
+        // Если это массив - отлично!
+        if (Array.isArray(result)) {
+          log.info(`🎯[NativeCapture] ✅ Got array with ${result.length} sources`);
+          return formatSwiftSources(result);
+        }
+        
+        // Если это объект с полем sources
+        if (result && typeof result === 'object' && 'sources' in result) {
+          log.info(`🎯[NativeCapture] Got object with sources field`);
+          return formatSwiftSources(result.sources);
+        }
+        
+        // Если это Promise
+        if (result && typeof result.then === 'function') {
+          log.info("🎯[NativeCapture] Got Promise, waiting...");
+          const promiseResult = await result;
+          log.info(`🎯[NativeCapture] Promise resolved to: ${JSON.stringify(promiseResult)}`);
+          
+          if (Array.isArray(promiseResult)) {
+            return formatSwiftSources(promiseResult);
+          }
+        }
+        
+        // Если это пустой объект {} - значит метод асинхронный с колбэком
+        if (result && typeof result === 'object' && Object.keys(result).length === 0) {
+          log.info("🎯[NativeCapture] Got empty object, trying callback approach...");
+          
+          // Способ 2: С колбэком
+          const callbackResult = await new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => {
+              log.error("🎯[NativeCapture] Callback timeout!");
+              reject(new Error('Callback timeout'));
+            }, 3000);
+            
+            try {
+              // Пробуем с колбэком
+              screenCaptureAddon.getAvailableSources((error: any, sources: any) => {
+                clearTimeout(timeout);
+                log.info(`🎯[NativeCapture] Callback called! error=${error}, sources=${JSON.stringify(sources)}`);
+                
+                if (error) {
+                  reject(error);
+                } else {
+                  resolve(sources);
+                }
+              });
+            } catch (e: any) {
+              clearTimeout(timeout);
+              log.error(`🎯[NativeCapture] Callback call error: ${e.message}`);
+              reject(e);
+            }
+          });
+          
+          log.info(`🎯[NativeCapture] Callback result: ${JSON.stringify(callbackResult)}`);
+          if (Array.isArray(callbackResult)) {
+            return formatSwiftSources(callbackResult);
+          }
+        }
+        
+      } catch (error: any) {
+        log.error(`🎯[NativeCapture] Error: ${error.message}`);
+        log.error(`🎯[NativeCapture] Stack: ${error.stack}`);
+      }
+      
+      // Если ничего не сработало, возвращаем тестовый источник
+      log.warn("🎯[NativeCapture] Swift failed, returning test source");
+      return [{
+        id: 'test:1',
+        name: 'Test Source (Swift not working)',
+        thumbnail: {
+          dataUrl: createSwiftSourceThumbnail({ type: 'window', name: 'Test' })
+        }
+      }];
+      
+    } catch (error: any) {
+      log.error(`🎯[NativeCapture] ❌ Critical error: ${error.message}`);
+      return [];
+    }
+  });
+
+  ipcMain.on("broadcast-desktop-sources", (event, sources) => {
+    log.info(`🎯[NativeCapture] Broadcasting ${sources.length} sources to all webContents`);
+    
+    // Отправляем всем webContents
+    webContents.getAllWebContents().forEach(content => {
+      // Не отправляем обратно отправителю
+      if (content.id !== event.sender.id) {
+        content.send("desktop-sources-response", {
+          sources: sources,
+          error: null
+        });
+        log.info(`🎯[NativeCapture] Sent to webContents ${content.id}`);
+      }
+    });
+  });
+
+  // Функция форматирования Swift источников
+  function formatSwiftSources(sources: any[]): any[] {
+    if (!Array.isArray(sources)) {
+      log.warn(`🎯[NativeCapture] formatSwiftSources: not an array: ${typeof sources}`);
+      return [];
+    }
+    
+    log.info(`🎯[NativeCapture] Formatting ${sources.length} Swift sources`);
+    
+    return sources.map((source: any, index: number) => {
+      log.info(`🎯[NativeCapture] Source ${index}: ${JSON.stringify(source)}`);
+      
+      return {
+        id: source.id || `swift:${index}`,
+        name: source.name || `Source ${index}`,
+        thumbnail: {
+          dataUrl: createSwiftSourceThumbnail(source)
+        }
+      };
+    });
+  }
+
+  // Добавьте обработчик для тестирования Swift напрямую
+  ipcMain.handle("test-swift-direct", async () => {
+    log.info("🧪[Swift] Direct test starting...");
+    
+    if (!screenCaptureAddon) {
+      return { error: "Addon not loaded" };
+    }
+    
+    const results: any = {};
+    
+    // Тест 1: Прямой вызов
+    try {
+      results.direct = screenCaptureAddon.getAvailableSources();
+    } catch (e: any) {
+      results.direct = `Error: ${e.message}`;
+    }
+    
+    // Тест 2: С пустым объектом
+    try {
+      results.withEmptyObject = screenCaptureAddon.getAvailableSources({});
+    } catch (e: any) {
+      results.withEmptyObject = `Error: ${e.message}`;
+    }
+    
+    // Тест 3: С options
+    try {
+      results.withOptions = screenCaptureAddon.getAvailableSources({
+        types: ['screen', 'window']
+      });
+    } catch (e: any) {
+      results.withOptions = `Error: ${e.message}`;
+    }
+    
+    // Тест 4: Проверка других методов
+    results.allMethods = Object.keys(screenCaptureAddon).filter(key => 
+      typeof screenCaptureAddon[key] === 'function'
+    );
+    
+    // Тест 5: testMethod
+    try {
+      results.testMethod = screenCaptureAddon.testMethod();
+    } catch (e: any) {
+      results.testMethod = `Error: ${e.message}`;
+    }
+    
+    log.info(`🧪[Swift] Test results: ${JSON.stringify(results, null, 2)}`);
+    return results;
   });
 
   ipcMain.handle("get-swift-sources-test", async () => {
@@ -587,6 +1027,111 @@ async function createMainWindow(): Promise<BrowserWindow> {
     });
   });
 
+  ipcMain.handle("test-swift-addon", async () => {
+    log.info("🧪[TEST] Testing Swift addon directly...");
+    
+    const result: any = {
+      addonLoaded: !!screenCaptureAddon,
+      methods: [],
+      testResults: {}
+    };
+    
+    if (screenCaptureAddon) {
+      // Получаем список методов
+      result.methods = Object.keys(screenCaptureAddon).filter(key => 
+        typeof screenCaptureAddon[key] === 'function'
+      );
+      
+      log.info(`🧪[TEST] Available methods: ${result.methods.join(', ')}`);
+      
+      // Тестируем testMethod
+      if (typeof screenCaptureAddon.testMethod === 'function') {
+        try {
+          result.testResults.testMethod = screenCaptureAddon.testMethod();
+          log.info(`🧪[TEST] testMethod result: ${result.testResults.testMethod}`);
+        } catch (e: any) {
+          result.testResults.testMethod = `Error: ${e.message}`;
+        }
+      }
+      
+      // Тестируем getAvailableSources с разными вариантами
+      if (typeof screenCaptureAddon.getAvailableSources === 'function') {
+        try {
+          log.info("🧪[TEST] Calling getAvailableSources()...");
+          
+          // Пробуем без параметров
+          const sources1 = await screenCaptureAddon.getAvailableSources();
+          result.testResults.getAvailableSourcesNoParams = {
+            success: true,
+            result: sources1,
+            type: typeof sources1,
+            isArray: Array.isArray(sources1),
+            count: Array.isArray(sources1) ? sources1.length : 'N/A'
+          };
+          
+          log.info(`🧪[TEST] Result without params: ${JSON.stringify(result.testResults.getAvailableSourcesNoParams)}`);
+          
+        } catch (e: any) {
+          result.testResults.getAvailableSourcesNoParams = {
+            success: false,
+            error: e.message,
+            stack: e.stack
+          };
+        }
+        
+        // Пробуем с колбэком (если поддерживается)
+        try {
+          log.info("🧪[TEST] Trying with callback...");
+          const callbackResult = await new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => reject(new Error('Callback timeout')), 3000);
+            
+            screenCaptureAddon.getAvailableSources((error: any, sources: any) => {
+              clearTimeout(timeout);
+              if (error) {
+                reject(error);
+              } else {
+                resolve(sources);
+              }
+            });
+          });
+          
+          result.testResults.getAvailableSourcesCallback = {
+            success: true,
+            result: callbackResult
+          };
+        } catch (e: any) {
+          result.testResults.getAvailableSourcesCallback = {
+            success: false,
+            error: e.message
+          };
+        }
+      }
+      
+      // Проверяем другие возможные методы
+      const possibleMethods = ['getSources', 'listSources', 'getScreens', 'getWindows'];
+      for (const method of possibleMethods) {
+        if (typeof screenCaptureAddon[method] === 'function') {
+          try {
+            const methodResult = await screenCaptureAddon[method]();
+            result.testResults[method] = {
+              success: true,
+              result: methodResult
+            };
+            log.info(`🧪[TEST] ${method} found and returned: ${JSON.stringify(methodResult)}`);
+          } catch (e: any) {
+            result.testResults[method] = {
+              success: false,
+              error: e.message
+            };
+          }
+        }
+      }
+    }
+    
+    log.info(`🧪[TEST] Complete test results: ${JSON.stringify(result, null, 2)}`);
+    return result;
+  });
+
   log.info("🎯[NativeCapture] All IPC handlers registered");
 
   // После регистрации всех IPC обработчиков добавьте:
@@ -796,6 +1341,8 @@ function formatSourceName(source: any): string {
   return source.name || `${source.type} ${source.id}`;
 }
 
+
+
 async function getAvailableSources(): Promise<Electron.DesktopCapturerSource[]> {
   log.info("🎯[NativeCapture] Fetching available sources...");
 
@@ -814,3 +1361,60 @@ async function getAvailableSources(): Promise<Electron.DesktopCapturerSource[]> 
   log.info("🎯[NativeCapture] Using Electron desktopCapturer fallback");
   return desktopCapturer.getSources({ types: ['screen', 'window'] });
 }
+
+setTimeout(() => {
+  const testBtn = document.createElement('button');
+  testBtn.innerHTML = '🧪 Test Swift Addon';
+  testBtn.style.cssText = `
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    z-index: 99999;
+    padding: 10px 20px;
+    background: #ff5722;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: bold;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+  `;
+  
+  testBtn.onclick = async () => {
+    try {
+      console.log('🧪 Testing Swift addon...');
+      testBtn.disabled = true;
+      testBtn.innerHTML = '⏳ Testing...';
+      
+      const result = await ipcRenderer.invoke('test-swift-addon');
+      console.log('🧪 Test results:', result);
+      
+      // Показываем результаты в алерте
+      const summary = `
+Swift Addon Test Results:
+========================
+Addon Loaded: ${result.addonLoaded}
+Methods Found: ${result.methods.join(', ')}
+
+Test Results:
+${Object.entries(result.testResults).map(([key, value]: [string, any]) => 
+  `${key}: ${value.success ? '✅ Success' : '❌ Failed'} ${value.error || ''}`
+).join('\n')}
+
+Check console for full details.
+      `;
+      
+      alert(summary);
+      
+    } catch (err: any) {
+      console.error('Test error:', err);
+      alert(`Test failed: ${err.message}`);
+    } finally {
+      testBtn.disabled = false;
+      testBtn.innerHTML = '🧪 Test Swift Addon';
+    }
+  };
+  
+  document.body.appendChild(testBtn);
+}, 2000);
