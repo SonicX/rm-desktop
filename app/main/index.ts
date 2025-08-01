@@ -46,6 +46,8 @@ import { ipcMain, send } from "./typed-ipc-main.js";
 // В index.ts добавьте в начало файла:
 import * as fs from 'fs';
 
+let screenCaptureAddon: any;
+
 
 // Создаем поток для записи логов
 const preloadLogStream = fs.createWriteStream(
@@ -283,10 +285,6 @@ async function createMainWindow(): Promise<BrowserWindow> {
     send(win.webContents, "enter-fullscreen");
   });
 
-  win.webContents.on('will-attach-webview', (event: Electron.Event, webPreferences: Electron.WebPreferences, params: any) => {
-    log.info(`Main: WebView будет создан с preload: ${webPreferences.preload}, URL: ${params.src}`);
-  });
-
   win.on("leave-full-screen", () => {
     send(win.webContents, "leave-fullscreen");
   });
@@ -299,24 +297,6 @@ async function createMainWindow(): Promise<BrowserWindow> {
 
   win.setTitle("Цифровые технологии РМ");
 
-
-
-  win.webContents.on('will-attach-webview', (event: Electron.Event, webPreferences: Electron.WebPreferences, params: any) => {
-    log.info(`Main: WebView будет создан с preload: ${webPreferences.preload}, URL: ${params.src}`);
-    
-    // IMPORTANT: Set the correct preload script for webviews
-    const preloadPath = path.join(bundlePath, "preload.js");
-    webPreferences.preload = preloadPath;
-    webPreferences.nodeIntegration = false;
-    webPreferences.contextIsolation = true;
-    
-    log.info(`Main: Webview preload path set to: ${preloadPath}`);
-    log.info(`Main: File exists: ${require('fs').existsSync(preloadPath)}`);
-  });
-
-
-
-
   mainWindowState.manage(win);
   return win;
 }
@@ -328,24 +308,16 @@ async function createMainWindow(): Promise<BrowserWindow> {
   }
 
   setFeaturesApp();
-
   app.disableHardwareAcceleration();
-
   await app.whenReady();
 
-
-
-  // Updated addon loading code for index.ts
-  // Replace the existing screenCaptureAddon loading section (around lines 317-330)
-
-  let screenCaptureAddon: any;
+  // 1. СНАЧАЛА загружаем native addon (у вас уже правильно)
   try {
-    // Try multiple possible paths for the addon
     const possiblePaths = [
       path.join(__dirname, 'native-addon.node'),
       path.join(__dirname, '..', 'dist-electron', 'native-addon.node'),
       path.join(process.cwd(), 'dist-electron', 'native-addon.node'),
-      '/Users/sg12/zulip-desktop/dist-electron/native-addon.node' // Absolute path as fallback
+      '/Users/sg12/zulip-desktop/dist-electron/native-addon.node'
     ];
     
     let addonPath: string | null = null;
@@ -356,32 +328,21 @@ async function createMainWindow(): Promise<BrowserWindow> {
       }
     }
     
-    if (!addonPath) {
-      throw new Error(`Native addon not found. Searched paths: ${possiblePaths.join(', ')}`);
+    if (addonPath) {
+      log.info(`Attempting to load native addon from: ${addonPath}`);
+      screenCaptureAddon = require(addonPath);
+      log.info(`✅ Native addon loaded successfully`);
     }
-    
-    log.info(`Attempting to load native addon from: ${addonPath}`);
-    screenCaptureAddon = require(addonPath);
-    log.info(`✅ Native addon loaded successfully from: ${addonPath}`);
-    
-    // Test the addon
-    const testResult = screenCaptureAddon.testMethod();
-    log.info(`✅ Native addon test result: ${testResult}`);
   } catch (error) {
     log.error(`❌ Failed to load native addon: ${error}`);
-    log.error(`❌ Current __dirname: ${__dirname}`);
-    log.error(`❌ Current process.cwd(): ${process.cwd()}`);
   }
 
-
-
-
-
+  // 2. ЗАТЕМ создаем сессию
   const ses = session.fromPartition("persist:webviewsession");
   ses.setUserAgent(`ZulipElectron/${app.getVersion()} ${ses.getUserAgent()}`);
-  await ses.clearCache().catch((err) => {
-    console.error("Failed to clear cache:", err);
-  });
+
+  // 3. РЕГИСТРИРУЕМ ВСЕ IPC ОБРАБОТЧИКИ ДО СОЗДАНИЯ ОКНА
+  log.info("🎯[NativeCapture] Registering IPC handlers BEFORE window creation...");
 
   ipcMain.handle("get-server-settings", async (event, domain: string) =>
     _getServerSettings(domain, ses),
@@ -396,337 +357,100 @@ async function createMainWindow(): Promise<BrowserWindow> {
   );
 
 
+  // КРИТИЧНО: Обработчик get-desktop-sources БЕЗ диалога
+  ipcMain.handle("get-desktop-sources", async () => {
+    return await getAvailableSources();
+  });
 
-
-  // Add these IPC handlers after your existing handlers in index.ts
-  // Add this around line 400, after your other ipcMain.handle calls
-
-  // Add IPC handlers for the native addon
-  // Make sure these IPC handlers are in your index.ts
-  // Add them right after the screenCaptureAddon loading code (around line 350)
-
-  // Add IPC handlers for the native addon
-  // Update your IPC handlers in index.ts to include frame forwarding
-
-  // Add IPC handlers for the native addon (replace existing ones)
-  if (screenCaptureAddon) {
-    log.info("✅ Adding enhanced screen capture IPC handlers with frame forwarding...");
-    
-    // Set up frame forwarding when the addon loads
-    screenCaptureAddon.forwardVideoFrame((frameData: any) => {
-      log.info(`📹 Video frame forwarded: ${frameData.width}x${frameData.height}, frame #${frameData.frameNumber}`);
-      
-      // Send frame to all renderer processes
-      const windows = BrowserWindow.getAllWindows();
-      windows.forEach(window => {
-        window.webContents.send('screen-capture-video-frame', frameData);
-      });
-    });
-    
-    screenCaptureAddon.forwardAudioFrame((audioData: any) => {
-      log.info(`🔊 Audio frame forwarded: ${audioData.sampleRate}Hz, ${audioData.channels}CH, frame #${audioData.frameNumber}`);
-      
-      // Send audio frame to all renderer processes
-      const windows = BrowserWindow.getAllWindows();
-      windows.forEach(window => {
-        window.webContents.send('screen-capture-audio-frame', audioData);
-      });
-    });
-    
-    ipcMain.handle("screen-capture-test", () => {
-      try {
-        log.info("🧪 Testing screen capture addon via IPC...");
-        const result = screenCaptureAddon.testMethod();
-        log.info(`✅ Screen capture test successful: ${result}`);
-        return { success: true, result };
-      } catch (error: any) {
-        log.error(`❌ Failed to test addon: ${error.message}`);
-        return { success: false, error: error.message };
-      }
-    });
-
-    // Replace your screen-capture-start handler with this version that has detailed step-by-step logging
-
-    ipcMain.handle("screen-capture-start", async (event, options: {
-      sourceId: string;
-      width: number;
-      height: number;
-      frameRate: number;
-    }) => {
-      try {
-        log.info(`🎬 Starting screen capture with options:`, {
-          sourceId: options.sourceId,
-          width: options.width,
-          height: options.height,
-          frameRate: options.frameRate
-        });
-        
-        if (!screenCaptureAddon) {
-          throw new Error("Screen capture addon not available");
-        }
-        
-        // Check available methods
-        if (typeof screenCaptureAddon.forwardVideoFrame !== 'function') {
-          log.warn("⚠️ forwardVideoFrame not available - frame forwarding disabled");
-        } else {
-          log.info("✅ Frame forwarding functions available");
-        }
-        
-        // Parse source info
-        const sourceType = options.sourceId.startsWith('screen:') ? 'display' : 
-                          options.sourceId.startsWith('window:') ? 'window' : 'window';
-        const sourceId = options.sourceId.split(':')[1] || options.sourceId.split(':')[2] || options.sourceId;
-        
-        log.info(`🎯 Setting capture source: type=${sourceType}, id=${sourceId}`);
-        
-        // Step 1: Set capture source with detailed logging
-        try {
-          log.info("📋 Step 1: Calling setCaptureSource...");
-          
-          const sourceResult = await screenCaptureAddon.setCaptureSource({
-            type: sourceType,
-            id: sourceId
-          });
-          
-          log.info(`✅ Step 1 complete: setCaptureSource result: ${JSON.stringify(sourceResult)}`);
-        } catch (sourceError: any) {
-          log.error(`❌ Step 1 failed - setCaptureSource error: ${sourceError.message}`);
-          log.error(`❌ Source error stack: ${sourceError.stack}`);
-          throw new Error(`Failed to set capture source: ${sourceError.message}`);
-        }
-        
-        // Step 2: Start capture with detailed logging
-        try {
-          log.info("🚀 Step 2: Calling startCapture...");
-          
-          const startResult = await screenCaptureAddon.startCapture();
-          
-          log.info(`✅ Step 2 complete: startCapture result: ${JSON.stringify(startResult)}`);
-        } catch (startError: any) {
-          log.error(`❌ Step 2 failed - startCapture error: ${startError.message}`);
-          log.error(`❌ Start error stack: ${startError.stack}`);
-          throw new Error(`Failed to start capture: ${startError.message}`);
-        }
-        
-        // Step 3: Set up frame forwarding (only if capture started successfully)
-        try {
-          log.info("📹 Step 3: Setting up frame forwarding...");
-          
-          if (typeof screenCaptureAddon.forwardVideoFrame === 'function') {
-            screenCaptureAddon.forwardVideoFrame((frameData: any) => {
-              // Reduce logging frequency to avoid spam
-              if (frameData.frameNumber % 30 === 0) { // Log every 30th frame
-                log.info(`📹 Video frame: ${frameData.width}x${frameData.height}, #${frameData.frameNumber}`);
-              }
-              
-              const windows = BrowserWindow.getAllWindows();
-              windows.forEach(window => {
-                try {
-                  window.webContents.send('screen-capture-video-frame', frameData);
-                } catch (sendError) {
-                  log.error(`Failed to send video frame: ${sendError}`);
-                }
-              });
-            });
-            log.info("✅ Video frame forwarding set up");
-          }
-          
-          if (typeof screenCaptureAddon.forwardAudioFrame === 'function') {
-            screenCaptureAddon.forwardAudioFrame((audioData: any) => {
-              // Reduce logging frequency
-              if (audioData.frameNumber % 100 === 0) { // Log every 100th frame
-                log.info(`🔊 Audio frame: ${audioData.sampleRate}Hz, #${audioData.frameNumber}`);
-              }
-              
-              const windows = BrowserWindow.getAllWindows();
-              windows.forEach(window => {
-                try {
-                  window.webContents.send('screen-capture-audio-frame', audioData);
-                } catch (sendError) {
-                  log.error(`Failed to send audio frame: ${sendError}`);
-                }
-              });
-            });
-            log.info("✅ Audio frame forwarding set up");
-          }
-          
-          log.info("✅ Step 3 complete: Frame forwarding configured");
-        } catch (forwardingError: any) {
-          log.error(`❌ Step 3 failed - frame forwarding error: ${forwardingError.message}`);
-          // Don't throw here - capture might still work without forwarding
-        }
-        
-        log.info("🎉 Screen capture started successfully!");
-        return { success: true, result: "Capture started with detailed logging" };
-        
-      } catch (error: any) {
-        log.error(`❌ Screen capture start failed at top level: ${error.message}`);
-        log.error(`❌ Top level error stack: ${error.stack}`);
-        return { success: false, error: error.message };
-      }
-    });
-
-    ipcMain.handle("screen-capture-start-with-picker", async () => {
-      try {
-        log.info("🎯 Starting capture with Swift native picker...");
-        
-        if (!screenCaptureAddon) {
-          throw new Error("Screen capture addon not available");
-        }
-        
-        // Don't set source - let Swift handle it with its picker
-        log.info("🚀 Calling startCapture (Swift will show picker)...");
-        
-        const result = await screenCaptureAddon.startCapture();
-        
-        log.info(`✅ Screen capture started with picker: ${JSON.stringify(result)}`);
-        
-        // Set up frame forwarding
-        if (typeof screenCaptureAddon.forwardVideoFrame === 'function') {
-          screenCaptureAddon.forwardVideoFrame((frameData: any) => {
-            if (frameData.frameNumber % 30 === 0) {
-              log.info(`📹 Video frame: ${frameData.width}x${frameData.height}`);
-            }
-            
-            const windows = BrowserWindow.getAllWindows();
-            windows.forEach(window => {
-              window.webContents.send('screen-capture-video-frame', frameData);
-            });
-          });
-        }
-        
-        if (typeof screenCaptureAddon.forwardAudioFrame === 'function') {
-          screenCaptureAddon.forwardAudioFrame((audioData: any) => {
-            if (audioData.frameNumber % 100 === 0) {
-              log.info(`🔊 Audio frame: ${audioData.sampleRate}Hz`);
-            }
-            
-            const windows = BrowserWindow.getAllWindows();
-            windows.forEach(window => {
-              window.webContents.send('screen-capture-audio-frame', audioData);
-            });
-          });
-        }
-        
-        return { success: true, result: result.message || result };
-        
-      } catch (error: any) {
-        log.error(`❌ Screen capture with picker failed: ${error.message}`);
-        return { success: false, error: error.message };
-      }
-    });
-
-    ipcMain.handle("screen-capture-stop", async () => {
-      try {
-        log.info("🛑 Stopping screen capture...");
-        const result = await screenCaptureAddon.stopCapture();
-        log.info("✅ Screen capture stopped successfully");
-        return { success: true, result: result.message || result };
-      } catch (error: any) {
-        log.error(`❌ Failed to stop capture: ${error.message}`);
-        return { success: false, error: error.message };
-      }
-    });
-
-    ipcMain.handle("screen-capture-stats", () => {
-      try {
-        log.info("📊 Getting screen capture statistics...");
-        const stats = screenCaptureAddon.getFrameStats();
-        log.info(`📈 Current stats:`, {
-          videoFrames: stats.videoFrames,
-          audioFrames: stats.audioFrames,
-          isActive: stats.isActive
-        });
-        return { success: true, stats };
-      } catch (error: any) {
-        log.error(`❌ Failed to get frame stats: ${error.message}`);
-        return { success: false, error: error.message };
-      }
-    });
-    
-    log.info("✅ Enhanced screen capture IPC handlers with frame forwarding registered");
-  } else {
-    log.error("❌ screenCaptureAddon not available, skipping IPC handlers");
-  }
-
-
-
-
-
-
-
-  ipcMain.handle("inject-webview-test", async () => {
+  ipcMain.handle("get-swift-sources-test", async () => {
     try {
-      // Find the webview
-      const windows = BrowserWindow.getAllWindows();
-      const mainWindow = windows[0]; // Assuming first window is main
-      
-      if (mainWindow && mainWindow.webContents) {
-        // Inject test code into the webview
-        const testCode = `
-          console.log('🔍 Testing screenCapture in webview context...');
-          console.log('window.screenCapture:', typeof window.screenCapture);
-          console.log('window.electron_bridge:', typeof window.electron_bridge);
-          
-          if (window.screenCapture) {
-            console.log('✅ screenCapture methods:', Object.keys(window.screenCapture));
-            
-            // Create a test button in the webview
-            const testBtn = document.createElement('button');
-            testBtn.id = 'webview-test-btn';
-            testBtn.innerHTML = '📹 Test Screen Capture (Webview)';
-            testBtn.style.cssText = \`
-              position: fixed;
-              top: 10px;
-              right: 10px;
-              z-index: 9999;
-              padding: 10px 15px;
-              background: #28a745;
-              color: white;
-              border: none;
-              border-radius: 5px;
-              cursor: pointer;
-              font-size: 14px;
-              box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-            \`;
-            
-            testBtn.onclick = async () => {
-              try {
-                console.log('🧪 Testing screenCapture.testMethod...');
-                const result = await window.screenCapture.testMethod();
-                console.log('✅ Test result:', result);
-                alert('✅ Screen capture works! Result: ' + result);
-              } catch (error) {
-                console.error('❌ Test failed:', error);
-                alert('❌ Test failed: ' + error.message);
-              }
-            };
-            
-            document.body.appendChild(testBtn);
-            console.log('✅ Test button added to webview');
-          } else {
-            console.log('❌ screenCapture not available in webview');
-            alert('❌ screenCapture not available in webview context');
-          }
-        `;
-        
-        await mainWindow.webContents.executeJavaScript(testCode);
-        log.info("✅ Test code injected into webview");
-        return { success: true };
-      } else {
-        throw new Error("No main window found");
-      }
-    } catch (error: any) {
-      log.error(`❌ Failed to inject webview test: ${error.message}`);
+      const sources = await getAvailableSources();
+      return { success: true, sources };
+    } catch (error) {
       return { success: false, error: error.message };
     }
   });
 
+  // Обработчик для диалога выбора
+  ipcMain.handle("show-native-capture-choice", async () => {
+    log.info("🎯[NativeCapture] show-native-capture-choice called");
+    
+    // Проверяем, что mainWindow уже создан
+    if (!mainWindow) {
+      log.error("🎯[NativeCapture] mainWindow not created yet!");
+      return 'standard';
+    }
+    
+    const { dialog } = require('electron');
+    
+    const result = await dialog.showMessageBox(mainWindow, {
+      type: 'question',
+      title: 'Выбор метода захвата экрана',
+      message: 'Выберите метод захвата экрана:',
+      detail: '🎯 Native Capture:\n• Захват только звука выбранного приложения\n• Нет эха и обратной связи\n• Высокое качество\n\n📺 Стандартный:\n• Обычный захват экрана Electron\n• Захват всего системного звука',
+      buttons: ['🎯 Native Capture', '📺 Стандартный'],
+      defaultId: 0,
+      cancelId: 1,
+      noLink: true
+    });
+    
+    const choice = result.response === 0 ? 'native' : 'standard';
+    log.info(`🎯[NativeCapture] User selected: ${choice}`);
+    
+    return choice;
+  });
 
+  ipcMain.handle("get-native-sources", async () => {
+    try {
+      log.info("🎯[NativeCapture] Requesting native sources via get-native-sources");
 
+      if (!screenCaptureAddon) {
+        throw new Error("Native addon not loaded");
+      }
 
+      if (typeof screenCaptureAddon.getSources !== 'function') {
+        log.error("🎯[NativeCapture] getSources is not a function");
+        throw new Error("getSources not found in native addon");
+      }
 
+      const sources = await screenCaptureAddon.getSources();
+      log.info(`🎯[NativeCapture] Successfully retrieved ${sources.length} native sources`);
+      
+      return sources;
+    } catch (error) {
+      log.error("🎯[NativeCapture] Failed to get native sources:", error);
+      throw error;
+    }
+  });
 
+  // Native capture handlers
+  if (screenCaptureAddon) {
+    ipcMain.handle("start-native-capture-simple", async () => {
+      try {
+        log.info("🎯[NativeCapture] Starting native capture...");
+        const result = await screenCaptureAddon.startCapture({
+          frameRate: 30,
+          enableAppSpecificAudio: true
+        });
+        log.info("🎯[NativeCapture] Native capture started");
+        return { success: true, result: "Native capture started" };
+      } catch (error) {
+        log.error(`🎯[NativeCapture] Native capture failed: ${error.message}`);
+        return { success: false, error: error.message };
+      }
+    });
+
+    ipcMain.handle("stop-native-capture-simple", async () => {
+      try {
+        log.info("🎯[NativeCapture] Stopping native capture...");
+        const result = await screenCaptureAddon.stopCapture();
+        return { success: true, result: "Native capture stopped" };
+      } catch (error) {
+        log.error(`🎯[NativeCapture] Stop failed: ${error.message}`);
+        return { success: false, error: error.message };
+      }
+    });
+  }
 
   ipcMain.on("focus-app", () => {
     mainWindow.show();
@@ -742,6 +466,20 @@ async function createMainWindow(): Promise<BrowserWindow> {
     mainWindow.reload();
     send(page, "destroytray");
   });
+
+  ipcMain.on("forward-message", (event, channel, ...args) => {
+    log.info(`Main: Получено forward-message с каналом: ${channel}`);
+    webContents.getAllWebContents().forEach(content => {
+      content.send("forward-message", channel, ...args);
+    });
+  });
+
+  // Обработчик jitsi-log-event
+  ipcMain.on('jitsi-log-event', (event, logData) => {
+    log.info(`Jitsi Log [${logData.level}]: ${logData.message}`);
+    console.log(`Jitsi Log [${logData.level}]: ${logData.message}`);
+  });
+
 
   ipcMain.on("preload-log", (event, message: string) => {
     log.info(`Preload Log: ${message}`);
@@ -849,6 +587,14 @@ async function createMainWindow(): Promise<BrowserWindow> {
     });
   });
 
+  log.info("🎯[NativeCapture] All IPC handlers registered");
+
+  // После регистрации всех IPC обработчиков добавьте:
+  log.info("🎯[NativeCapture] Проверка зарегистрированных обработчиков:");
+  log.info(`🎯[NativeCapture] get-desktop-sources: ${ipcMain.listenerCount('get-desktop-sources') > 0 ? '✅' : '❌'}`);
+  log.info(`🎯[NativeCapture] get-server-settings: ${ipcMain.listenerCount('get-server-settings') > 0 ? '✅' : '❌'}`);
+
+
   if (process.env.GDK_BACKEND !== GDK_BACKEND) {
     console.warn(
       "Возвращаем GDK_BACKEND для обхода проблемы https://github.com/electron/electron/issues/28436",
@@ -872,84 +618,15 @@ async function createMainWindow(): Promise<BrowserWindow> {
     }
   });
 
-  console.log("🖼 Создаём окно...");
+  
+
   mainWindow = await createMainWindow();
   console.log("✅ Окно создано!");
-  console.log("✅ Окно создано!-1");
-  console.log("✅ Окно создано!-2");
-
-  ipcMain.on("forward-message", (event, channel, ...args) => {
-    log.info(`Main: Получено forward-message с каналом: ${channel}`);
-    webContents.getAllWebContents().forEach(content => {
-      content.send("forward-message", channel, ...args);
-    });
-  });
 
   // Кэш для thumbnails
   let thumbnailCache: { [key: string]: { dataUrl: string; timestamp: number } } = {};
   const CACHE_TIMEOUT = 0.1 * 1000; // 1 секунд
   const DEFAULT_THUMBNAIL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYGD4AQAA/QGOrDGjAAAAAElFTkSuQmCC";
-
-  ipcMain.handle("get-desktop-sources", async () => {
-    try {
-      log.info("Main: Запрос источников экрана");
-      const sources = await desktopCapturer.getSources({
-        types: ['screen', 'window'],
-        thumbnailSize: { width: 300, height: 300 }
-      });
-      if (!sources || sources.length === 0) {
-        log.warn("Main: Источники экрана пусты");
-        throw new Error("Источники экрана не найдены");
-      }
-      log.info("Main: Источники экрана и окон:", sources.map(s => `${s.name} (${s.id})`));
-      const currentTime = Date.now();
-      const formattedSources = sources.map((source, index) => {
-        let thumbnailData = thumbnailCache[source.id]?.dataUrl;
-        if (!thumbnailData || (currentTime - thumbnailCache[source.id].timestamp > CACHE_TIMEOUT)) {
-          const startTime = Date.now();
-          thumbnailData = source.thumbnail.toDataURL();
-          if (!thumbnailData || thumbnailData === "data:image/png;base64,") {
-            log.warn(`Main: Пустой thumbnail для ${source.name} (index: ${index}, id: ${source.id})`);
-            thumbnailData = DEFAULT_THUMBNAIL;
-          } else {
-            thumbnailCache[source.id] = { dataUrl: thumbnailData, timestamp: currentTime };
-            log.info(`Main: Сгенерирован thumbnail для ${source.name} (index: ${index}, id: ${source.id}), длина: ${thumbnailData.length}, время: ${Date.now() - startTime}ms`);
-          }
-        } else {
-          log.info(`Main: Использован кэшированный thumbnail для ${source.name} (index: ${index}, id: ${source.id}), длина: ${thumbnailData.length}`);
-        }
-        return {
-          id: source.id,
-          name: source.name,
-          thumbnail: { dataUrl: thumbnailData }
-        };
-      });
-      webContents.getAllWebContents().forEach(content => {
-        log.info(`Main: Отправлен desktop-sources-response to WebContents #${content.id}`);
-        content.send("desktop-sources-response", {
-          sources: formattedSources,
-          error: null
-        });
-      });
-      return formattedSources;
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      log.error("Main: Ошибка получения источников экрана:", errorMessage);
-      webContents.getAllWebContents().forEach(content => {
-        content.send("desktop-sources-response", {
-          sources: null,
-          error: errorMessage
-        });
-      });
-      throw error;
-    }
-  });
-
-  // Обработчик jitsi-log-event
-  ipcMain.on('jitsi-log-event', (event, logData) => {
-    log.info(`Jitsi Log [${logData.level}]: ${logData.message}`);
-    console.log(`Jitsi Log [${logData.level}]: ${logData.message}`);
-  });
 
   if (process.platform !== "darwin") {
     const shouldHideMenu = ConfigUtil.getConfigItem("autoHideMenubar", false);
@@ -976,6 +653,44 @@ async function createMainWindow(): Promise<BrowserWindow> {
   });
 
 })();
+
+
+function createNativeThumbnail(): string {
+  const svg = `
+    <svg width="300" height="300" xmlns="http://www.w3.org/2000/svg">
+      <rect width="300" height="300" fill="#2196F3"/>
+      <text x="150" y="150" font-family="Arial" font-size="24" text-anchor="middle" fill="white">
+        🎯 Native Capture Active
+      </text>
+    </svg>
+  `;
+  return `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
+}
+
+// Обновленный диалог (если еще не добавлен)
+async function showNativeCaptureDialog(): Promise<'native' | 'standard'> {
+  return new Promise((resolve) => {
+    const { dialog } = require('electron');
+    
+    dialog.showMessageBox(mainWindow, {
+      type: 'question',
+      title: 'Выбор метода захвата экрана',
+      message: 'Выберите метод захвата экрана:',
+      detail: '🎯 Native: Захват с изоляцией звука приложения\n📺 Standard: Обычный захват экрана Electron',
+      buttons: ['🎯 Native Capture', '📺 Стандартный'],
+      defaultId: 0,
+      cancelId: 1,
+      noLink: true
+    }).then(result => {
+      const choice = result.response === 0 ? 'native' : 'standard';
+      log.info(`🎯[NativeCapture] Пользователь выбрал: ${choice}`);
+      resolve(choice);
+    }).catch((error) => {
+      log.error(`🎯[NativeCapture] Ошибка диалога: ${error.message}`);
+      resolve('standard');
+    });
+  });
+}
 
 app.on("before-quit", () => {
   isQuitting = true;
@@ -1022,3 +737,80 @@ process.on("uncaughtException", (error) => {
   console.error(error);
   console.error(error.stack);
 });
+
+// Вспомогательные функции
+function createSourceThumbnail(source: any): string {
+  // Разные цвета для разных типов
+  const colors = {
+    display: '#4CAF50',
+    screen: '#4CAF50',
+    window: '#2196F3',
+    tab: '#FF9800',
+    browser_tab: '#FF9800',
+    unknown: '#9E9E9E'
+  };
+  
+  const color = colors[source.type] || colors.unknown;
+  
+  // Разные иконки для разных типов
+  const icons = {
+    display: '🖥',
+    screen: '🖥',
+    window: '🪟',
+    tab: '🌐',
+    browser_tab: '🌐',
+    unknown: '❓'
+  };
+  
+  const icon = icons[source.type] || icons.unknown;
+  
+  const svg = `
+    <svg width="300" height="300" xmlns="http://www.w3.org/2000/svg">
+      <rect width="300" height="300" fill="${color}"/>
+      <text x="150" y="100" font-size="50" text-anchor="middle">${icon}</text>
+      <text x="150" y="160" font-family="Arial" font-size="14" text-anchor="middle" fill="white">
+        ${source.name || 'Unknown'}
+      </text>
+      <text x="150" y="185" font-family="Arial" font-size="11" text-anchor="middle" fill="white" opacity="0.8">
+        ${source.appName || source.type || 'Unknown Type'}
+      </text>
+      <text x="150" y="210" font-family="Arial" font-size="10" text-anchor="middle" fill="white" opacity="0.6">
+        ID: ${source.id}
+      </text>
+    </svg>
+  `;
+  
+  return `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
+}
+
+function formatSourceName(source: any): string {
+  // Форматируем имя в зависимости от типа
+  if (source.type === 'tab' || source.type === 'browser_tab') {
+    return `🌐 ${source.name}`;
+  } else if (source.type === 'display' || source.type === 'screen') {
+    return `🖥 ${source.name || 'Display'}`;
+  } else if (source.appName) {
+    return `${source.name} - ${source.appName}`;
+  }
+  
+  return source.name || `${source.type} ${source.id}`;
+}
+
+async function getAvailableSources(): Promise<Electron.DesktopCapturerSource[]> {
+  log.info("🎯[NativeCapture] Fetching available sources...");
+
+  // 1. Попробуем нативный способ
+  if (screenCaptureAddon && typeof screenCaptureAddon.getSources === 'function') {
+    try {
+      const sources = await screenCaptureAddon.getSources();
+      log.info(`🎯[NativeCapture] Swift returned ${sources.length} sources`);
+      return sources;
+    } catch (error) {
+      log.error("🎯[NativeCapture] Error from native getSources:", error);
+    }
+  }
+
+  // 2. Fallback на Electron
+  log.info("🎯[NativeCapture] Using Electron desktopCapturer fallback");
+  return desktopCapturer.getSources({ types: ['screen', 'window'] });
+}

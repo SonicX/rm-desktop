@@ -1064,8 +1064,8 @@ window.addEventListener("load", async () => {
   }
 
   // Create both test buttons
-  createRemoteTest();
-  createWebviewTest();
+  // createRemoteTest();
+  // createWebviewTest();
 
 
 
@@ -1367,7 +1367,7 @@ window.addEventListener("load", async () => {
   }
 
   // Create the pipeline test UI
-  createScreenCapturePipelineTest();
+  // createScreenCapturePipelineTest();
 
   // Update your setupFrameReceiver function in main.ts
 
@@ -1524,6 +1524,64 @@ window.addEventListener("load", async () => {
   }
 
   // Set up frame receiver
-  setupFrameReceiver();
+  // setupFrameReceiver();
+
+
+
+
+  // DEBUGGING: Add this temporary test in your main.ts window load handler:
+  function createWebviewIntegrationTest() {
+    console.log('🧪 Creating webview integration test...');
+    
+    const testButton = document.createElement('button');
+    testButton.innerHTML = '🔍 Test Webview Native Capture';
+    testButton.style.cssText = `
+      position: fixed;
+      top: 160px;
+      right: 20px;
+      z-index: 10000;
+      padding: 12px 18px;
+      background: #ff9800;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: bold;
+    `;
+    
+    testButton.addEventListener('click', async () => {
+      console.log('🧪 Testing webview integration...');
+      testButton.innerHTML = '⏳ Testing...';
+      
+      try {
+        // Send test message to webview
+        ipcRenderer.send('forward-message', 'test-native-capture-in-webview');
+        
+        // Check if webview has native capture
+        setTimeout(() => {
+          testButton.innerHTML = '✅ Check Console';
+          testButton.style.background = '#4caf50';
+        }, 2000);
+        
+      } catch (error) {
+        console.error('❌ Webview test error:', error);
+        testButton.innerHTML = '❌ Error';
+        testButton.style.background = '#f44336';
+      }
+      
+      // Reset button
+      setTimeout(() => {
+        testButton.innerHTML = '🔍 Test Webview Native Capture';
+        testButton.style.background = '#ff9800';
+      }, 5000);
+    });
+    
+    document.body.appendChild(testButton);
+    console.log('✅ Webview integration test button added');
+  }
+
+  // Add this to your window.addEventListener("load", ...) function in main.ts
+  // createWebviewIntegrationTest();
 
 });

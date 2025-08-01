@@ -1,24 +1,75 @@
+// Simplified preload.ts - remove all the complex getUserMedia overrides
+// Keep only essential parts
+
 import { contextBridge } from "electron/renderer";
 import electron_bridge, { bridgeEvents } from "./electron-bridge.js";
 import * as NetworkError from "./pages/network.js";
 import { ipcRenderer } from "./typed-ipc-renderer.js";
 import { WalkieTalkieStatus } from "../../common/typed-ipc.js";
 
-ipcRenderer.send("preload-log", "✅ Preload: Начало выполнения");
-ipcRenderer.send("preload-log", `✅ Preload: Загружен для URL: ${window.location.href}`);
-ipcRenderer.send("preload-log", `✅ Preload: ipcRenderer.send: ${typeof ipcRenderer.send}, ipcRenderer.invoke: ${typeof ipcRenderer.invoke}`);
 
-// Регистрация обработчика toggle-walkie-talkie
-ipcRenderer.send("preload-log", "✅ Preload: Регистрация обработчика toggle-walkie-talkie");
+// === Перехват getDisplayMedia в контексте страницы ===
+const script = `
+(() => {
+  if (navigator.mediaDevices && !navigator.mediaDevices._getDisplayMedia) {
+    // Сохраняем оригинальный метод
+    navigator.mediaDevices._getDisplayMedia = navigator.mediaDevices.getDisplayMedia;
+
+    // Переопределяем
+    navigator.mediaDevices.getDisplayMedia = async function(constraints) {
+      console.log('🎯[Jitsi Intercept] getDisplayMedia called', constraints);
+
+      // Если это запрос на захват экрана
+      if (constraints.video && typeof constraints.video === 'object' && 
+          (constraints.video.mediaSource === 'screen' || constraints.video.mandatory?.chromeMediaSource === 'desktop')) {
+
+        // Сообщаем основному процессу, что нужно запустить native capture
+        const { ipcRenderer } = require('electron');
+        const result = await ipcRenderer.invoke('start-native-capture-simple');
+
+        if (result.success && result.streamId) {
+          console.log('🎯[Jitsi Intercept] Using native stream:', result.streamId);
+          // Запрашиваем поток с нашим streamId
+          return navigator.mediaDevices.getUserMedia({
+            video: {
+              mandatory: {
+                chromeMediaSource: 'desktop',
+                chromeMediaSourceId: result.streamId
+              }
+            },
+            audio: constraints.audio || false
+          });
+        }
+      }
+
+      // Иначе — стандартное поведение
+      return navigator.mediaDevices._getDisplayMedia(constraints);
+    };
+  }
+})();
+`;
+
+// Инжектируем скрипт в страницу
+window.addEventListener('DOMContentLoaded', () => {
+  const scriptEl = document.createElement('script');
+  scriptEl.textContent = script;
+  scriptEl.type = 'text/javascript';
+  document.documentElement.appendChild(scriptEl);
+  scriptEl.remove(); // Удаляем, но выполнение уже произошло
+});
+
+ipcRenderer.send("preload-log", "🎯[NativeCapture] Preload загружен, версия 2.0");
+ipcRenderer.send("preload-log", "✅ Preload: Начало выполнения");
+// В самом начале
+
+
+// Keep your existing walkie-talkie code
 ipcRenderer.on("toggle-walkie-talkie", (event, isMuted: boolean) => {
     ipcRenderer.send("preload-log", `Preload: Получено событие toggle-walkie-talkie: isMuted=${isMuted}`);
     bridgeEvents.emit("toggle-walkie-talkie", isMuted);
-    ipcRenderer.send("preload-log", `Preload: Отправлено событие toggle-walkie-talkie в bridgeEvents: isMuted=${isMuted}`);
-    const listenerCount = bridgeEvents.listenerCount("toggle-walkie-talkie");
-    ipcRenderer.send("preload-log", `Preload: Количество слушателей toggle-walkie-talkie: ${listenerCount}`);
 });
 
-// Расширяем electron_bridge для обработки событий микрофона
+// Keep your existing electron_bridge setup
 contextBridge.exposeInMainWorld("electron_bridge", {
     ...electron_bridge,
     setMicHotkey: (enabled: boolean, hotkey: string) => {
@@ -28,92 +79,46 @@ contextBridge.exposeInMainWorld("electron_bridge", {
     onMicStateChanged: (callback: (data: boolean) => void) => {
         ipcRenderer.send("preload-log", "Preload: Установка слушателя для toggle-walkie-talkie");
         bridgeEvents.on("toggle-walkie-talkie", callback);
-        ipcRenderer.send("preload-log", `Preload: Зарегистрирован слушатель toggle-walkie-talkie, текущих слушателей: ${bridgeEvents.listenerCount("toggle-walkie-talkie")}`);
     }
 });
 
-// Expose screen capture API using IPC to communicate with main process
+// SIMPLIFIED screen capture API - only essential methods
 contextBridge.exposeInMainWorld('screenCapture', {
-  startCapture: async (options: {
-    sourceId: string;
-    width: number;
-    height: number;
-    frameRate: number;
-  }) => {
-    ipcRenderer.send("preload-log", `Starting capture with options: ${JSON.stringify(options)}`);
+  // Only keep the simple method that works
+  startForZulip: async () => {
+    ipcRenderer.send("preload-log", "🚀 Starting native capture for Zulip");
     try {
-      const response = await ipcRenderer.invoke("screen-capture-start", options);
+      const response = await ipcRenderer.invoke('start-native-capture-simple');
       if (response.success) {
-        ipcRenderer.send("preload-log", `Capture started: ${response.result}`);
-        return response.result;
+        ipcRenderer.send("preload-log", "✅ Native capture started");
+        return { success: true };
       } else {
         throw new Error(response.error);
       }
     } catch (error: any) {
-      ipcRenderer.send("preload-log", `Capture start error: ${error.message}`);
+      ipcRenderer.send("preload-log", `❌ Native capture error: ${error.message}`);
       throw error;
     }
   },
-  
-  stopCapture: async () => {
-    ipcRenderer.send("preload-log", "Stopping capture");
+
+  stopForZulip: async () => {
+    ipcRenderer.send("preload-log", "🛑 Stopping native capture");
     try {
-      const response = await ipcRenderer.invoke("screen-capture-stop");
-      if (response.success) {
-        ipcRenderer.send("preload-log", "Capture stopped successfully");
-      } else {
-        throw new Error(response.error);
-      }
+      const response = await ipcRenderer.invoke('stop-native-capture-simple');
+      return response;
     } catch (error: any) {
-      ipcRenderer.send("preload-log", `Capture stop error: ${error.message}`);
+      ipcRenderer.send("preload-log", `❌ Stop error: ${error.message}`);
       throw error;
-    }
-  },
-  
-  getFrameStats: () => {
-    try {
-      const response = ipcRenderer.invoke("screen-capture-stats");
-      return response.then((res: any) => {
-        if (res.success) {
-          ipcRenderer.send("preload-log", `Frame stats: ${JSON.stringify(res.stats)}`);
-          return res.stats;
-        } else {
-          throw new Error(res.error);
-        }
-      }).catch((error: any) => {
-        ipcRenderer.send("preload-log", `Get frame stats error: ${error.message}`);
-        return { videoFrames: 0, audioFrames: 0, isActive: false };
-      });
-    } catch (error: any) {
-      ipcRenderer.send("preload-log", `Get frame stats error: ${error.message}`);
-      return { videoFrames: 0, audioFrames: 0, isActive: false };
-    }
-  },
-  
-  testMethod: async () => {
-    try {
-      const response = await ipcRenderer.invoke("screen-capture-test");
-      if (response.success) {
-        return response.result;
-      } else {
-        throw new Error(response.error);
-      }
-    } catch (error: any) {
-      ipcRenderer.send("preload-log", `Test method error: ${error.message}`);
-      return "Error calling test method";
     }
   }
 });
 
-ipcRenderer.send("preload-log", "✅ Screen capture API exposed to renderer via IPC");
-
-// Остальной код preload.ts остаётся без изменений
+// Keep your existing ipcRenderer exposure
 contextBridge.exposeInMainWorld("ipcRenderer", {
     invoke: async (channel: any, ...args: unknown[]) => {
-        ipcRenderer.send("preload-log", `Zulip Preload: Запрос ${channel} с аргументами: ${JSON.stringify(args)}`);
+        ipcRenderer.send("preload-log", `Zulip Preload: Запрос ${channel}`);
         try {
             const result = await ipcRenderer.invoke(channel, ...args);
-            ipcRenderer.send("preload-log", `Zulip Preload: Успех ${channel}: ${Array.isArray(result) ? result.map((s: any) => s.name || JSON.stringify(s)).join(', ') : JSON.stringify(result)}`);
             return result;
         } catch (error) {
             ipcRenderer.send("preload-log", `Zulip Preload: Ошибка ${channel}: ${error instanceof Error ? error.message : String(error)}`);
@@ -126,80 +131,35 @@ contextBridge.exposeInMainWorld("ipcRenderer", {
     }
 });
 
+// Keep your essential event handlers
+ipcRenderer.on("desktop-sources-response", (event, response) => {
+  const sourcesNames = response.sources ? response.sources.map((s: any) => s.name).join(', ') : '[]';
+  ipcRenderer.send("preload-log", `✅ Preload: desktop-sources-response: sources=[${sourcesNames}]`);
+  electron_bridge.send_event("desktop-sources-response", response);
+});
+
+// Keep other essential handlers
 ipcRenderer.on("logout", () => {
     bridgeEvents.emit("logout");
 });
 
-ipcRenderer.on("show-keyboard-shortcuts", () => {
-    bridgeEvents.emit("show-keyboard-shortcuts");
-});
-
-ipcRenderer.on("show-notification-settings", () => {
-    bridgeEvents.emit("show-notification-settings");
-});
-
 ipcRenderer.on("trigger-open-desktop-picker", () => {
-    ipcRenderer.send("preload-log", "✅ Preload: Получена команда trigger-open-desktop-picker (direct)");
+    ipcRenderer.send("preload-log", "✅ Preload: trigger-open-desktop-picker");
     electron_bridge.send_event("open-desktop-picker");
 });
 
-ipcRenderer.on("requestDesktopSources", () => {
-    ipcRenderer.send("preload-log", "✅ Preload: Получена команда requestDesktopSources (direct)");
-    electron_bridge.send_event("requestDesktopSources");
-});
-
 ipcRenderer.on("forward-message", (event, channel) => {
-    ipcRenderer.send("preload-log", `✅ Preload: Получено forward-message с каналом: ${channel}`);
-    if (channel === "trigger-open-desktop-picker") {
-        electron_bridge.send_event("open-desktop-picker");
-    }
-    if (channel === "request-desktop-sources") {
-        electron_bridge.send_event("requestDesktopSources");
-    }
-});
-
-ipcRenderer.on("desktop-sources-response", (event, response) => {
-    const sourcesNames = response.sources ? response.sources.map((s: any) => s.name).join(', ') : '[]';
-    const errorMessage = response.error || 'none';
-    ipcRenderer.send("preload-log", `✅ Preload: Получен ответ desktop-sources-response: sources=[${sourcesNames}], error=${errorMessage}`);
-    electron_bridge.send_event("desktop-sources-response", response);
-});
-
-
-
-
-
-// Add this to your preload.ts after your existing forward-message handler
-
-ipcRenderer.on("forward-message", (event, channel) => {
-    ipcRenderer.send("preload-log", `✅ Preload: Получено forward-message с каналом: ${channel}`);
-    if (channel === "trigger-open-desktop-picker") {
-        electron_bridge.send_event("open-desktop-picker");
-    }
-    if (channel === "request-desktop-sources") {
-        electron_bridge.send_event("requestDesktopSources");
-    }
+    ipcRenderer.send("preload-log", `✅ Preload: forward-message: ${channel}`);
     
-    // ADD THIS NEW HANDLER:
-    if (channel === "test-screen-capture-in-webview") {
-      ipcRenderer.send("preload-log", "🧪 Preload: Testing screen capture in webview context...");
-      
-      if (window.screenCapture) {
-          ipcRenderer.send("preload-log", "✅ Preload: window.screenCapture is available!");
-          window.screenCapture.testMethod()
-              .then(result => {
-                  ipcRenderer.send("preload-log", `✅ Preload: Test successful: ${result}`);
-              });
-      } else {
-          ipcRenderer.send("preload-log", "❌ Preload: window.screenCapture NOT available in webview");
-      }
-  }
+    if (channel === "trigger-open-desktop-picker") {
+        electron_bridge.send_event("open-desktop-picker");
+    }
+    if (channel === "request-desktop-sources") {
+        electron_bridge.send_event("requestDesktopSources");
+    }
 });
 
-
-
-
-
+// Keep network error handler
 window.addEventListener("load", () => {
     if (!location.href.includes("app/renderer/network.html")) {
         return;
@@ -209,3 +169,210 @@ window.addEventListener("load", () => {
     NetworkError.init($reconnectButton, $settingsButton);
 });
 
+
+
+
+
+
+
+// Глобальные переменные для предотвращения дублей
+let isHandlingRequest = false;
+let lastDialogTime = 0;
+let dialogPromise: Promise<void> | null = null;
+
+// Исправленная функция обработки
+async function handleNativeCaptureRequest() {
+  // Предотвращаем множественные одновременные вызовы
+  if (isHandlingRequest) {
+    ipcRenderer.send("preload-log", "🎯[NativeCapture] ⚠️ Already handling request, skipping duplicate");
+    return;
+  }
+  
+  // Если диалог уже показывается, ждем его завершения
+  if (dialogPromise) {
+    ipcRenderer.send("preload-log", "🎯[NativeCapture] ⏳ Waiting for existing dialog...");
+    await dialogPromise;
+    return;
+  }
+  
+  isHandlingRequest = true;
+  
+  ipcRenderer.send("preload-log", "🎯[NativeCapture] ============ handleNativeCaptureRequest START ============");
+  
+  const now = Date.now();
+  ipcRenderer.send("preload-log", `🎯[NativeCapture] Current timestamp: ${now}`);
+  ipcRenderer.send("preload-log", `🎯[NativeCapture] Current date: ${new Date(now).toISOString()}`);
+  ipcRenderer.send("preload-log", `🎯[NativeCapture] Last dialog time: ${lastDialogTime}`);
+  ipcRenderer.send("preload-log", `🎯[NativeCapture] Time since last: ${now - lastDialogTime}ms`);
+  
+  // Проверяем таймаут
+  if (lastDialogTime > 0 && (now - lastDialogTime) < 30000) {
+    ipcRenderer.send("preload-log", "🎯[NativeCapture] ⏭️ Dialog shown recently, using standard sources");
+    isHandlingRequest = false;
+    
+    // try {
+    //   const sources = await ipcRenderer.invoke('get-desktop-sources');
+    //   electron_bridge.send_event("desktop-sources-response", {
+    //     sources: sources,
+    //     error: null
+    //   });
+    // } catch (error: any) {
+    //   ipcRenderer.send("preload-log", `🎯[NativeCapture] Error: ${error.message}`);
+    // }
+    return;
+  }
+  
+  // Создаем промис для диалога
+  dialogPromise = (async () => {
+    try {
+      lastDialogTime = now;
+      ipcRenderer.send("preload-log", "🎯[NativeCapture] 📢 Showing dialog...");
+      
+      const choice = await ipcRenderer.invoke('show-native-capture-choice');
+      ipcRenderer.send("preload-log", `🎯[NativeCapture] ✅ User selected: ${choice}`);
+      
+      if (choice === 'native') {
+        ipcRenderer.send("preload-log", "🎯[NativeCapture] 🚀 Starting native capture...");
+        
+        const startResult = await ipcRenderer.invoke('start-native-capture-simple');
+        ipcRenderer.send("preload-log", `🎯[NativeCapture] Native capture result: ${JSON.stringify(startResult)}`);
+        
+        if (startResult && startResult.success) {
+          ipcRenderer.send("preload-log", "🎯[NativeCapture] ✅ Success! Creating native source...");
+
+          try {
+            const svgContent = `<svg width="300" height="300" xmlns="http://www.w3.org/2000/svg">
+              <rect width="300" height="300" fill="#2196F3"/>
+              <circle cx="150" cy="120" r="40" fill="white" opacity="0.9"/>
+              <circle cx="150" cy="120" r="30" fill="#2196F3"/>
+              <circle cx="150" cy="120" r="20" fill="white"/>
+              <text x="150" y="180" font-family="Arial" font-size="20" font-weight="bold" text-anchor="middle" fill="white">Native Capture Active</text>
+              <text x="150" y="210" font-family="Arial" font-size="14" text-anchor="middle" fill="white" opacity="0.8">High Quality Audio</text>
+            </svg>`;
+
+            const base64Svg = btoa(unescape(encodeURIComponent(svgContent)));
+            const nativeSource = {
+              id: 'native-capture-active',
+              name: 'Native Capture (Active)',
+              thumbnail: { dataUrl: `data:image/svg+xml;base64,${base64Svg}` }
+            };
+
+            electron_bridge.send_event("desktop-sources-response", {
+              sources: [nativeSource],
+              error: null,
+              isNativeCapture: true
+            });
+
+            ipcRenderer.send("preload-log", "🎯[NativeCapture] ✅ Native response sent (with SVG)");
+            return; // <-- Критично: выходим из функции, чтобы не вызвать fallback
+
+          } catch (svgError: any) {
+            ipcRenderer.send("preload-log", `🎯[NativeCapture] ⚠️ SVG Error: ${svgError.message}, sending simple fallback`);
+
+            // Отправляем простой PNG без btoa
+            const simpleSource = {
+              id: 'native-capture-active',
+              name: 'Native Capture Active',
+              thumbnail: { 
+                dataUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg=='
+              }
+            };
+
+            electron_bridge.send_event("desktop-sources-response", {
+              sources: [simpleSource],
+              error: null,
+              isNativeCapture: true
+            });
+
+            return; // <-- Важно: НЕ идём к стандартным источникам
+          }
+        } else {
+          ipcRenderer.send("preload-log", `🎯[NativeCapture] ❌ Native capture failed: ${startResult?.error || 'No success flag'}`);
+        }
+      } else {
+        ipcRenderer.send("preload-log", `🎯[NativeCapture] User selected: ${choice}`);
+      }
+      
+      // Fallback to standard
+      ipcRenderer.send("preload-log", "🎯[NativeCapture] Using standard sources");
+      // const sources = await ipcRenderer.invoke('get-desktop-sources');
+      
+      // electron_bridge.send_event("desktop-sources-response", {
+      //   sources: sources,
+      //   error: null
+      // });
+      
+    } catch (error: any) {
+      ipcRenderer.send("preload-log", `🎯[NativeCapture] ❌ Error: ${error.message}`);        
+        return; // НЕ вызываем get-desktop-sources
+    } finally {
+      isHandlingRequest = false;
+      dialogPromise = null;
+      ipcRenderer.send("preload-log", "🎯[NativeCapture] ============ END ============");
+    }
+  })();
+  
+  await dialogPromise;
+}
+
+// Единственная подписка на событие
+let isSubscribed = false;
+
+if (!isSubscribed) {
+  isSubscribed = true;
+  
+  // Подписываемся только один раз
+  electron_bridge.on_event("requestDesktopSources", () => {
+    ipcRenderer.send("preload-log", "🎯[NativeCapture] Event received via on_event");
+    handleNativeCaptureRequest();
+  });
+  
+  ipcRenderer.send("preload-log", "🎯[NativeCapture] ✅ Event listener registered");
+}
+
+// Перехват send_event для логирования
+const originalSendEvent = electron_bridge.send_event;
+electron_bridge.send_event = function(eventName: string | symbol, ...args: any[]): boolean {
+  const name = String(eventName);
+  
+  if (name.includes("desktop") || name === "api_request") {
+    ipcRenderer.send("preload-log", `🎯[NativeCapture] send_event: ${name}`);
+  }
+  
+  return originalSendEvent.apply(this, [eventName, ...args]);
+};
+
+
+setTimeout(() => {
+  const testBtn = document.createElement('button');
+  testBtn.innerHTML = '🧪 Test Swift Sources';
+  testBtn.style.cssText = `
+    position: fixed;
+    bottom: 20px;
+    left: 20px;
+    z-index: 99999;
+    padding: 10px;
+    background: #ff5722;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+  `;
+  
+  testBtn.onclick = async () => {
+    try {
+      const result = await ipcRenderer.invoke('get-swift-sources-test');
+      console.log('🧪 Swift sources test:', result);
+      
+      if (result.success) {
+        alert(`Swift Sources: ${result.sources.length} found\n\nCheck console for details`);
+      } else {
+        alert(`Error: ${result.error}`);
+      }
+    } catch (err) {
+      console.error('Test error:', err);
+    }
+  };
+  
+  document.body.appendChild(testBtn);
+}, 2000);
