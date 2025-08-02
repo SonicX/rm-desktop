@@ -1584,4 +1584,178 @@ window.addEventListener("load", async () => {
   // Add this to your window.addEventListener("load", ...) function in main.ts
   // createWebviewIntegrationTest();
 
+  function createTestButtons() {
+    console.log('🧪 Creating test buttons for desktop sources...');
+    
+    // Кнопка для тестирования стандартного Electron
+    const electronBtn = document.createElement('button');
+    electronBtn.innerHTML = '🔬 Test Electron Sources';
+    electronBtn.style.cssText = `
+      position: fixed;
+      top: 60px;
+      right: 20px;
+      z-index: 10000;
+      padding: 12px 18px;
+      background: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: bold;
+      box-shadow: 0 3px 6px rgba(0,0,0,0.2);
+    `;
+    
+    electronBtn.onclick = async () => {
+      console.log('🔬 Testing Electron desktopCapturer...');
+      electronBtn.innerHTML = '⏳ Testing...';
+      electronBtn.disabled = true;
+      
+      try {
+        const result = await ipcRenderer.invoke('test-electron-sources');
+        console.log('🔬 Test result:', result);
+        
+        if (result.success) {
+          electronBtn.innerHTML = '✅ Electron Works!';
+          electronBtn.style.background = '#4CAF50';
+          alert(`✅ Electron desktopCapturer Works!\n\nFound ${result.sources.length} sources:\n${result.sources.slice(0, 3).map(s => `• ${s.name}`).join('\n')}`);
+        } else {
+          electronBtn.innerHTML = '❌ Electron Failed';
+          electronBtn.style.background = '#f44336';
+          alert(`❌ Electron failed: ${result.error}`);
+        }
+        
+      } catch (error: any) {
+        console.error('❌ Test error:', error);
+        electronBtn.innerHTML = '❌ Error';
+        electronBtn.style.background = '#f44336';
+        alert(`❌ Error: ${error.message}`);
+      }
+      
+      // Reset button
+      setTimeout(() => {
+        electronBtn.innerHTML = '🔬 Test Electron Sources';
+        electronBtn.style.background = '#4CAF50';
+        electronBtn.disabled = false;
+      }, 5000);
+    };
+    
+    document.body.appendChild(electronBtn);
+    
+    // Кнопка для получения RAW источников
+    const rawBtn = document.createElement('button');
+    rawBtn.innerHTML = '📋 Get Raw Sources';
+    rawBtn.style.cssText = `
+      position: fixed;
+      top: 110px;
+      right: 20px;
+      z-index: 10000;
+      padding: 12px 18px;
+      background: #2196F3;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: bold;
+      box-shadow: 0 3px 6px rgba(0,0,0,0.2);
+    `;
+    
+    rawBtn.onclick = async () => {
+      console.log('📋 Getting raw Electron sources...');
+      rawBtn.innerHTML = '⏳ Loading...';
+      rawBtn.disabled = true;
+      
+      try {
+        const rawSources = await ipcRenderer.invoke('get-electron-sources-raw');
+        console.log('📋 Raw sources:', rawSources);
+        
+        rawBtn.innerHTML = '✅ Got Raw!';
+        rawBtn.style.background = '#4CAF50';
+        
+        // Показываем информацию о первых 3 источниках
+        const info = rawSources.slice(0, 3).map((source: any, i: number) => 
+          `${i + 1}. ${source.name}\n   ID: ${source.id}\n   Type: ${source.id.startsWith('screen:') ? 'Screen' : 'Window'}`
+        ).join('\n\n');
+        
+        alert(`📋 Raw Electron Sources (${rawSources.length} total):\n\n${info}\n\nCheck console for full details.`);
+        
+      } catch (error: any) {
+        console.error('❌ Raw sources error:', error);
+        rawBtn.innerHTML = '❌ Error';
+        rawBtn.style.background = '#f44336';
+        alert(`❌ Error getting raw sources: ${error.message}`);
+      }
+      
+      // Reset button
+      setTimeout(() => {
+        rawBtn.innerHTML = '📋 Get Raw Sources';
+        rawBtn.style.background = '#2196F3';
+        rawBtn.disabled = false;
+      }, 5000);
+    };
+    
+    document.body.appendChild(rawBtn);
+    
+    // Кнопка для тестирования обработчика get-desktop-sources
+    const getSourcesBtn = document.createElement('button');
+    getSourcesBtn.innerHTML = '🎯 Test get-desktop-sources';
+    getSourcesBtn.style.cssText = `
+      position: fixed;
+      top: 160px;
+      right: 20px;
+      z-index: 10000;
+      padding: 12px 18px;
+      background: #FF9800;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: bold;
+      box-shadow: 0 3px 6px rgba(0,0,0,0.2);
+    `;
+    
+    getSourcesBtn.onclick = async () => {
+      console.log('🎯 Testing get-desktop-sources handler...');
+      getSourcesBtn.innerHTML = '⏳ Testing...';
+      getSourcesBtn.disabled = true;
+      
+      try {
+        const sources = await ipcRenderer.invoke('get-desktop-sources');
+        console.log('🎯 get-desktop-sources result:', sources);
+        
+        getSourcesBtn.innerHTML = '✅ Handler Works!';
+        getSourcesBtn.style.background = '#4CAF50';
+        
+        const info = `Found ${sources.length} formatted sources:\n\n` +
+          sources.slice(0, 3).map((source: any, i: number) => 
+            `${i + 1}. ${source.name}\n   ID: ${source.id}\n   Has thumbnail: ${source.thumbnail ? 'Yes' : 'No'}`
+          ).join('\n\n');
+        
+        alert(`🎯 Desktop Sources Handler Result:\n\n${info}\n\nCheck console for full details.`);
+        
+      } catch (error: any) {
+        console.error('❌ Handler test error:', error);
+        getSourcesBtn.innerHTML = '❌ Handler Failed';
+        getSourcesBtn.style.background = '#f44336';
+        alert(`❌ Handler error: ${error.message}`);
+      }
+      
+      // Reset button
+      setTimeout(() => {
+        getSourcesBtn.innerHTML = '🎯 Test get-desktop-sources';
+        getSourcesBtn.style.background = '#FF9800';
+        getSourcesBtn.disabled = false;
+      }, 5000);
+    };
+    
+    document.body.appendChild(getSourcesBtn);
+    
+    console.log('✅ Test buttons created');
+  }
+
+  // Добавить в конец window.addEventListener("load", ...) функции в main.ts:
+  createTestButtons();
+
 });

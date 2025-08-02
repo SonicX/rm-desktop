@@ -611,107 +611,153 @@ async function createMainWindow(): Promise<BrowserWindow> {
 
   ipcMain.handle("get-desktop-sources", async () => {
     try {
-      log.info("🎯[NativeCapture] ========== GETTING SOURCES (SWIFT ONLY) ==========");
+      log.info("🎯[DesktopSources] ========== GETTING DESKTOP SOURCES ==========");
       
-      if (!screenCaptureAddon) {
-        log.error("🎯[NativeCapture] screenCaptureAddon is NULL!");
-        return [];
-      }
-      
-      log.info(`🎯[NativeCapture] screenCaptureAddon type: ${typeof screenCaptureAddon}`);
-      log.info(`🎯[NativeCapture] Available methods: ${Object.keys(screenCaptureAddon).join(', ')}`);
-      
-      if (typeof screenCaptureAddon.getAvailableSources !== 'function') {
-        log.error("🎯[NativeCapture] getAvailableSources is not a function!");
-        return [];
-      }
-      
-      // Пробуем разные способы вызова
-      log.info("🎯[NativeCapture] Calling getAvailableSources...");
-      
-      // Способ 1: Прямой вызов без параметров
+      // ПРИОРИТЕТ 1: Стандартный Electron desktopCapturer
       try {
-        const result = screenCaptureAddon.getAvailableSources();
-        log.info(`🎯[NativeCapture] Direct call result type: ${typeof result}`);
-        log.info(`🎯[NativeCapture] Direct call result: ${JSON.stringify(result)}`);
+        log.info("🎯[DesktopSources] Using standard Electron desktopCapturer...");
         
-        // Если это массив - отлично!
-        if (Array.isArray(result)) {
-          log.info(`🎯[NativeCapture] ✅ Got array with ${result.length} sources`);
-          return formatSwiftSources(result);
-        }
+        const electronSources = await desktopCapturer.getSources({
+          types: ['screen', 'window'],
+          thumbnailSize: { width: 300, height: 300 },
+          fetchWindowIcons: true
+        });
         
-        // Если это объект с полем sources
-        if (result && typeof result === 'object' && 'sources' in result) {
-          log.info(`🎯[NativeCapture] Got object with sources field`);
-          return formatSwiftSources(result.sources);
-        }
+        log.info(`🎯[DesktopSources] ✅ Electron returned ${electronSources.length} sources`);
         
-        // Если это Promise
-        if (result && typeof result.then === 'function') {
-          log.info("🎯[NativeCapture] Got Promise, waiting...");
-          const promiseResult = await result;
-          log.info(`🎯[NativeCapture] Promise resolved to: ${JSON.stringify(promiseResult)}`);
+        // Преобразуем в нужный формат
+        const formattedSources = electronSources.map((source, index) => {
+          log.info(`🎯[DesktopSources] Source ${index}: ${source.name} (${source.id})`);
           
-          if (Array.isArray(promiseResult)) {
-            return formatSwiftSources(promiseResult);
-          }
-        }
-        
-        // Если это пустой объект {} - значит метод асинхронный с колбэком
-        if (result && typeof result === 'object' && Object.keys(result).length === 0) {
-          log.info("🎯[NativeCapture] Got empty object, trying callback approach...");
-          
-          // Способ 2: С колбэком
-          const callbackResult = await new Promise((resolve, reject) => {
-            const timeout = setTimeout(() => {
-              log.error("🎯[NativeCapture] Callback timeout!");
-              reject(new Error('Callback timeout'));
-            }, 3000);
-            
-            try {
-              // Пробуем с колбэком
-              screenCaptureAddon.getAvailableSources((error: any, sources: any) => {
-                clearTimeout(timeout);
-                log.info(`🎯[NativeCapture] Callback called! error=${error}, sources=${JSON.stringify(sources)}`);
-                
-                if (error) {
-                  reject(error);
-                } else {
-                  resolve(sources);
-                }
-              });
-            } catch (e: any) {
-              clearTimeout(timeout);
-              log.error(`🎯[NativeCapture] Callback call error: ${e.message}`);
-              reject(e);
+          return {
+            id: source.id,
+            name: source.name,
+            thumbnail: {
+              dataUrl: source.thumbnail.toDataURL()
             }
-          });
+          };
+        });
+        
+        log.info(`🎯[DesktopSources] ✅ Successfully formatted ${formattedSources.length} Electron sources`);
+        return formattedSources;
+        
+      } catch (electronError: any) {
+        log.error(`🎯[DesktopSources] ❌ Electron desktopCapturer failed: ${electronError.message}`);
+        
+        // FALLBACK: Swift addon (если Electron не работает)
+        if (screenCaptureAddon && typeof screenCaptureAddon.getAvailableSources === 'function') {
+          log.info("🎯[DesktopSources] Falling back to Swift addon...");
           
-          log.info(`🎯[NativeCapture] Callback result: ${JSON.stringify(callbackResult)}`);
-          if (Array.isArray(callbackResult)) {
-            return formatSwiftSources(callbackResult);
+          try {
+            const swiftSources = await getSwiftSourcesSafe();
+            log.info(`🎯[DesktopSources] Swift returned ${swiftSources.length} sources`);
+            
+            const formattedSwiftSources = swiftSources.map((source: any, index: number) => ({
+              id: source.id || `swift:${index}`,
+              name: source.name || `Source ${index}`,
+              thumbnail: {
+                dataUrl: createSwiftSourceThumbnail(source)
+              }
+            }));
+            
+            log.info(`🎯[DesktopSources] ✅ Using Swift fallback with ${formattedSwiftSources.length} sources`);
+            return formattedSwiftSources;
+            
+          } catch (swiftError: any) {
+            log.error(`🎯[DesktopSources] ❌ Swift fallback also failed: ${swiftError.message}`);
           }
         }
         
-      } catch (error: any) {
-        log.error(`🎯[NativeCapture] Error: ${error.message}`);
-        log.error(`🎯[NativeCapture] Stack: ${error.stack}`);
+        // ПОСЛЕДНИЙ FALLBACK: Тестовые источники
+        log.warn("🎯[DesktopSources] Both Electron and Swift failed, returning test sources");
+        return [{
+          id: 'test:screen:1',
+          name: '🧪 Test Screen (Fallback)',
+          thumbnail: {
+            dataUrl: createTestSourceThumbnail('screen')
+          }
+        }, {
+          id: 'test:window:1', 
+          name: '🧪 Test Window (Fallback)',
+          thumbnail: {
+            dataUrl: createTestSourceThumbnail('window')
+          }
+        }];
       }
-      
-      // Если ничего не сработало, возвращаем тестовый источник
-      log.warn("🎯[NativeCapture] Swift failed, returning test source");
-      return [{
-        id: 'test:1',
-        name: 'Test Source (Swift not working)',
-        thumbnail: {
-          dataUrl: createSwiftSourceThumbnail({ type: 'window', name: 'Test' })
-        }
-      }];
       
     } catch (error: any) {
-      log.error(`🎯[NativeCapture] ❌ Critical error: ${error.message}`);
+      log.error(`🎯[DesktopSources] ❌ Critical error: ${error.message}`);
+      log.error(`🎯[DesktopSources] Stack: ${error.stack}`);
       return [];
+    }
+  });
+
+  // Добавить функцию создания тестовых thumbnail
+  function createTestSourceThumbnail(type: string): string {
+    const styles = {
+      screen: { color: '#4CAF50', icon: '🖥' },
+      window: { color: '#2196F3', icon: '🪟' }
+    };
+    
+    const style = styles[type] || { color: '#9E9E9E', icon: '❓' };
+    
+    const svg = `<svg width="300" height="300" xmlns="http://www.w3.org/2000/svg">
+      <rect width="300" height="300" fill="${style.color}"/>
+      <text x="150" y="120" font-size="60" text-anchor="middle" fill="white">${style.icon}</text>
+      <text x="150" y="180" font-family="Arial" font-size="16" text-anchor="middle" fill="white" font-weight="bold">
+        Test ${type.charAt(0).toUpperCase() + type.slice(1)}
+      </text>
+      <text x="150" y="210" font-family="Arial" font-size="12" text-anchor="middle" fill="white" opacity="0.8">
+        Fallback Source
+      </text>
+    </svg>`;
+    
+    return `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
+  }
+
+  // Добавить обработчик для тестирования стандартного Electron
+  ipcMain.handle("test-electron-sources", async () => {
+    try {
+      log.info("🧪[TEST] Testing standard Electron desktopCapturer...");
+      
+      const sources = await desktopCapturer.getSources({
+        types: ['screen', 'window'],
+        thumbnailSize: { width: 150, height: 150 }
+      });
+      
+      log.info(`🧪[TEST] ✅ Electron desktopCapturer returned ${sources.length} sources`);
+      
+      const result = sources.map((source, index) => ({
+        id: source.id,
+        name: source.name,
+        display_id: source.display_id,
+        appIcon: source.appIcon ? 'Yes' : 'No',
+        thumbnail: source.thumbnail ? 'Yes' : 'No'
+      }));
+      
+      return { success: true, sources: result };
+      
+    } catch (error: any) {
+      log.error(`🧪[TEST] ❌ Electron test failed: ${error.message}`);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Добавить простой обработчик для прямого тестирования
+  ipcMain.handle("get-electron-sources-raw", async () => {
+    log.info("🎯[RAW] Getting raw Electron sources...");
+    
+    try {
+      const sources = await desktopCapturer.getSources({
+        types: ['screen', 'window']
+      });
+      
+      log.info(`🎯[RAW] Got ${sources.length} raw sources`);
+      return sources;
+      
+    } catch (error: any) {
+      log.error(`🎯[RAW] Error: ${error.message}`);
+      throw error;
     }
   });
 

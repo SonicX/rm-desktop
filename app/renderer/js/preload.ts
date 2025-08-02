@@ -1,375 +1,642 @@
-// Simplified preload.ts - remove all the complex getUserMedia overrides
-// Keep only essential parts
-
+// Очищенный preload.ts с возвратом к стандартному Electron API
 import { contextBridge } from "electron/renderer";
 import electron_bridge, { bridgeEvents } from "./electron-bridge.js";
 import * as NetworkError from "./pages/network.js";
 import { ipcRenderer } from "./typed-ipc-renderer.js";
-import { WalkieTalkieStatus } from "../../common/typed-ipc.js";
 
+ipcRenderer.send("preload-log", "🎯[DesktopSources] Preload загружен - стандартный Electron API");
 
-async function sendDesktopSources(sources: any[], error: any = null) {
-  ipcRenderer.send("preload-log", `🎯[NativeCapture] sendDesktopSources: ${sources?.length || 0} sources`);
+// === ОСНОВНЫЕ ФУНКЦИИ ===
+
+// Функция отправки источников в Jitsi (упрощенная)
+function sendDesktopSources(sources: any[], error: any = null) {
+  ipcRenderer.send("preload-log", `🎯[DesktopSources] sendDesktopSources: ${sources?.length || 0} sources`);
   
-  // Метод 1: Через electron_bridge (для текущего webview)
-  electron_bridge.send_event("desktop-sources-response", {
-    sources: sources,
-    error: error
+  // КРИТИЧНО: Проверяем формат источников
+  if (sources && sources.length > 0) {
+    sources.forEach((source, i) => {
+      if (!source.id || !source.name) {
+        ipcRenderer.send("preload-log", `🎯[DesktopSources] ⚠️ Source ${i} missing id/name: ${JSON.stringify(source)}`);
+      }
+      if (!source.thumbnail || !source.thumbnail.dataUrl) {
+        ipcRenderer.send("preload-log", `🎯[DesktopSources] ⚠️ Source ${i} missing thumbnail: ${JSON.stringify(source)}`);
+      }
+    });
+  }
+  
+  // Метод 1: Через electron_bridge (основной для Zulip)
+  if (typeof electron_bridge !== 'undefined') {
+    try {
+      const result = electron_bridge.send_event("desktop-sources-response", {
+        sources: sources,
+        error: error
+      });
+      ipcRenderer.send("preload-log", `🎯[DesktopSources] ✅ electron_bridge.send_event result: ${result}`);
+    } catch (e: any) {
+      ipcRenderer.send("preload-log", `🎯[DesktopSources] ❌ electron_bridge error: ${e.message}`);
+    }
+  }
+  
+  // Метод 2: Прямо в Jitsi API если доступен
+  try {
+    // @ts-ignore - проверяем JitsiMeetElectron
+    if (window.JitsiMeetElectron && typeof window.JitsiMeetElectron._desktopCapturerSourcesResponse === 'function') {
+      // @ts-ignore
+      window.JitsiMeetElectron._desktopCapturerSourcesResponse(sources);
+      ipcRenderer.send("preload-log", `🎯[DesktopSources] ✅ Sent via JitsiMeetElectron._desktopCapturerSourcesResponse`);
+    } else {
+      ipcRenderer.send("preload-log", `🎯[DesktopSources] ℹ️ JitsiMeetElectron._desktopCapturerSourcesResponse not available`);
+    }
+  } catch (e: any) {
+    ipcRenderer.send("preload-log", `🎯[DesktopSources] ❌ JitsiMeetElectron error: ${e.message}`);
+  }
+  
+  // Метод 3: Через postMessage в текущем окне
+  try {
+    window.postMessage({
+      type: '_desktopCapturerSources',
+      sources: sources
+    }, '*');
+    ipcRenderer.send("preload-log", `🎯[DesktopSources] ✅ Sent via window.postMessage`);
+  } catch (e: any) {
+    ipcRenderer.send("preload-log", `🎯[DesktopSources] ❌ postMessage error: ${e.message}`);
+  }
+  
+  // Метод 4: Отправка во ВСЕ iframe (включая скрытые)
+  const iframes = document.querySelectorAll('iframe');
+  ipcRenderer.send("preload-log", `🎯[DesktopSources] Found ${iframes.length} iframes`);
+  
+  iframes.forEach((iframe, index) => {
+    try {
+      const src = iframe.src || iframe.getAttribute('src') || 'no-src';
+      ipcRenderer.send("preload-log", `🎯[DesktopSources] Iframe ${index}: ${src}`);
+      
+      // Отправляем в ВСЕ iframe, не только Jitsi
+      if (iframe.contentWindow) {
+        // Формат 1: Стандартный Electron
+        iframe.contentWindow.postMessage({
+          type: '_desktopCapturerSources',
+          sources: sources
+        }, '*');
+        
+        // Формат 2: Альтернативный формат для Jitsi
+        iframe.contentWindow.postMessage({
+          method: 'desktop-capturer-selection',
+          sources: sources
+        }, '*');
+        
+        // Формат 3: Jitsi-специфичный
+        iframe.contentWindow.postMessage({
+          jitsiApiEvent: {
+            name: 'desktop-sources-updated',
+            sources: sources
+          }
+        }, '*');
+        
+        ipcRenderer.send("preload-log", `🎯[DesktopSources] ✅ Sent 3 formats to iframe ${index}`);
+      } else {
+        ipcRenderer.send("preload-log", `🎯[DesktopSources] ⚠️ Iframe ${index} has no contentWindow`);
+      }
+    } catch (e: any) {
+      ipcRenderer.send("preload-log", `🎯[DesktopSources] ❌ Iframe ${index} error: ${e.message}`);
+    }
   });
   
-  // Метод 2: Через broadcast (для всех webviews)
-  if (sources && sources.length > 0) {
-    ipcRenderer.send("broadcast-desktop-sources", sources);
+  // Метод 5: Custom events
+  try {
+    // Event 1: Стандартный
+    window.dispatchEvent(new CustomEvent("desktop-sources-response", {
+      detail: { sources, error },
+      bubbles: true,
+      cancelable: true
+    }));
+    
+    // Event 2: Jitsi-специфичный
+    window.dispatchEvent(new CustomEvent("jitsi-desktop-capturer-sources", {
+      detail: { sources },
+      bubbles: true,
+      cancelable: true
+    }));
+    
+    ipcRenderer.send("preload-log", `🎯[DesktopSources] ✅ Dispatched custom events`);
+  } catch (e: any) {
+    ipcRenderer.send("preload-log", `🎯[DesktopSources] ❌ Custom events error: ${e.message}`);
   }
   
-  // Метод 3: Эмулируем событие напрямую
-  window.dispatchEvent(new CustomEvent("desktop-sources-response", {
-    detail: { sources, error }
-  }));
+  // Сохраняем источники глобально
+  (window as any).__lastDesktopSources = sources;
+  (window as any).__lastDesktopSourcesTime = Date.now();
+  
+  ipcRenderer.send("preload-log", `🎯[DesktopSources] ✅ Sources saved globally`);
 }
 
-// === Перехват getDisplayMedia в контексте страницы ===
-const script = `
-(() => {
-  if (navigator.mediaDevices && !navigator.mediaDevices._getDisplayMedia) {
-    // Сохраняем оригинальный метод
-    navigator.mediaDevices._getDisplayMedia = navigator.mediaDevices.getDisplayMedia;
-
-    // Переопределяем
-    navigator.mediaDevices.getDisplayMedia = async function(constraints) {
-      console.log('🎯[Jitsi Intercept] getDisplayMedia called', constraints);
-
-      // Если это запрос на захват экрана
-      if (constraints.video && typeof constraints.video === 'object' && 
-          (constraints.video.mediaSource === 'screen' || constraints.video.mandatory?.chromeMediaSource === 'desktop')) {
-
-        // Сообщаем основному процессу, что нужно запустить native capture
-        const { ipcRenderer } = require('electron');
-        const result = await ipcRenderer.invoke('start-native-capture-simple');
-
-        if (result.success && result.streamId) {
-          console.log('🎯[Jitsi Intercept] Using native stream:', result.streamId);
-          // Запрашиваем поток с нашим streamId
-          return navigator.mediaDevices.getUserMedia({
-            video: {
-              mandatory: {
-                chromeMediaSource: 'desktop',
-                chromeMediaSourceId: result.streamId
-              }
-            },
-            audio: constraints.audio || false
+// Добавьте функцию для агрессивного поиска и отправки в iframe:
+function aggressiveFindAndSendToIframes(sources: any[]) {
+  ipcRenderer.send("preload-log", `🎯[DesktopSources] 🔍 Aggressive iframe search starting...`);
+  
+  // Ищем iframe по всем возможным селекторам
+  const selectors = [
+    'iframe',
+    'iframe[src*="jitsi"]',
+    'iframe[src*="joinrm"]',
+    'iframe[src*="connectrm"]',
+    'webview',
+    'embed',
+    'object'
+  ];
+  
+  let totalFound = 0;
+  
+  selectors.forEach(selector => {
+    const elements = document.querySelectorAll(selector);
+    ipcRenderer.send("preload-log", `🎯[DesktopSources] Selector "${selector}": ${elements.length} found`);
+    
+    elements.forEach((element, index) => {
+      try {
+        let contentWindow = null;
+        let src = '';
+        
+        if (element instanceof HTMLIFrameElement) {
+          contentWindow = element.contentWindow;
+          src = element.src;
+        } else if (element instanceof HTMLElement && 'contentWindow' in element) {
+          contentWindow = (element as any).contentWindow;
+          src = element.getAttribute('src') || '';
+        }
+        
+        if (contentWindow) {
+          ipcRenderer.send("preload-log", `🎯[DesktopSources] 📤 Sending to ${selector}[${index}]: ${src}`);
+          
+          // Отправляем в агрессивном режиме со всеми возможными форматами
+          const formats = [
+            { type: '_desktopCapturerSources', sources },
+            { method: 'desktop-capturer-selection', sources },
+            { jitsiApiEvent: { name: 'desktop-sources-updated', sources } },
+            { type: 'DESKTOP_CAPTURER_GET_SOURCES_RESPONSE', sources },
+            { data: { type: '_desktopCapturerSources', sources } }
+          ];
+          
+          formats.forEach((format, formatIndex) => {
+            try {
+              contentWindow.postMessage(format, '*');
+            } catch (e: any) {
+              ipcRenderer.send("preload-log", `🎯[DesktopSources] Format ${formatIndex} failed: ${e.message}`);
+            }
           });
+          
+          totalFound++;
         }
+      } catch (e: any) {
+        ipcRenderer.send("preload-log", `🎯[DesktopSources] ❌ Error with ${selector}[${index}]: ${e.message}`);
       }
+    });
+  });
+  
+  ipcRenderer.send("preload-log", `🎯[DesktopSources] 🔍 Aggressive search complete: ${totalFound} targets found`);
+}
 
-      // Иначе — стандартное поведение
-      return navigator.mediaDevices._getDisplayMedia(constraints);
-    };
+// Основной обработчик запроса источников (ИСПРАВЛЕННЫЙ)
+async function handleDesktopSourcesRequest() {
+  ipcRenderer.send("preload-log", "🎯[DesktopSources] ========== HANDLE REQUEST START ==========");
+  
+  try {
+    // Получаем источники
+    const sources = await ipcRenderer.invoke('get-desktop-sources');
+    ipcRenderer.send("preload-log", `🎯[DesktopSources] Got ${sources.length} sources from main process`);
+    
+    if (sources && sources.length > 0) {
+      // Логируем каждый источник детально
+      sources.forEach((source: any, i: number) => {
+        ipcRenderer.send("preload-log", `🎯[DesktopSources] Source ${i}: ${source.name} (${source.id}) - thumbnail: ${source.thumbnail ? 'YES' : 'NO'}`);
+      });
+      
+      // Стандартная отправка
+      sendDesktopSources(sources, null);
+      
+      // ДОПОЛНИТЕЛЬНО: Агрессивный поиск iframe через 500мс
+      setTimeout(() => {
+        aggressiveFindAndSendToIframes(sources);
+      }, 500);
+      
+      // ДОПОЛНИТЕЛЬНО: Повторная отправка через 2 секунды
+      setTimeout(() => {
+        ipcRenderer.send("preload-log", `🎯[DesktopSources] 🔄 Retry send after 2s...`);
+        sendDesktopSources(sources, null);
+      }, 2000);
+      
+    } else {
+      ipcRenderer.send("preload-log", `🎯[DesktopSources] ⚠️ No sources received!`);
+      sendDesktopSources([], "No sources available");
+    }
+    
+  } catch (error: any) {
+    ipcRenderer.send("preload-log", `🎯[DesktopSources] ❌ Error: ${error.message}`);
+    sendDesktopSources([], error.message);
   }
-})();
-`;
+  
+  ipcRenderer.send("preload-log", "🎯[DesktopSources] ========== HANDLE REQUEST END ==========");
+}
 
-// Инжектируем скрипт в страницу
-window.addEventListener('DOMContentLoaded', () => {
-  const scriptEl = document.createElement('script');
-  scriptEl.textContent = script;
-  scriptEl.type = 'text/javascript';
-  document.documentElement.appendChild(scriptEl);
-  scriptEl.remove(); // Удаляем, но выполнение уже произошло
-});
+// === ЭКСПОРТ В WINDOW ===
 
-ipcRenderer.send("preload-log", "🎯[NativeCapture] Preload загружен, версия 2.0");
-ipcRenderer.send("preload-log", "✅ Preload: Начало выполнения");
-// В самом начале
-
-
-// Keep your existing walkie-talkie code
-ipcRenderer.on("toggle-walkie-talkie", (event, isMuted: boolean) => {
-    ipcRenderer.send("preload-log", `Preload: Получено событие toggle-walkie-talkie: isMuted=${isMuted}`);
-    bridgeEvents.emit("toggle-walkie-talkie", isMuted);
-});
-
-// Keep your existing electron_bridge setup
+// Стандартный electron_bridge
 contextBridge.exposeInMainWorld("electron_bridge", {
-    ...electron_bridge,
-    setMicHotkey: (enabled: boolean, hotkey: string) => {
-        ipcRenderer.send("preload-log", `Preload: Установка горячей клавиши микрофона: ${hotkey}`);
-        ipcRenderer.send("walkie-talkie-status", { enabled: enabled, key: hotkey });
-    },
-    onMicStateChanged: (callback: (data: boolean) => void) => {
-        ipcRenderer.send("preload-log", "Preload: Установка слушателя для toggle-walkie-talkie");
-        bridgeEvents.on("toggle-walkie-talkie", callback);
-    }
-});
-
-// SIMPLIFIED screen capture API - only essential methods
-contextBridge.exposeInMainWorld('screenCapture', {
-  // Only keep the simple method that works
-  startForZulip: async () => {
-    ipcRenderer.send("preload-log", "🚀 Starting native capture for Zulip");
-    try {
-      const response = await ipcRenderer.invoke('start-native-capture-simple');
-      if (response.success) {
-        ipcRenderer.send("preload-log", "✅ Native capture started");
-        return { success: true };
-      } else {
-        throw new Error(response.error);
-      }
-    } catch (error: any) {
-      ipcRenderer.send("preload-log", `❌ Native capture error: ${error.message}`);
-      throw error;
-    }
+  ...electron_bridge,
+  
+  // Walkie-talkie
+  setMicHotkey: (enabled: boolean, hotkey: string) => {
+    ipcRenderer.send("walkie-talkie-status", { enabled, key: hotkey });
   },
-
-  stopForZulip: async () => {
-    ipcRenderer.send("preload-log", "🛑 Stopping native capture");
-    try {
-      const response = await ipcRenderer.invoke('stop-native-capture-simple');
-      return response;
-    } catch (error: any) {
-      ipcRenderer.send("preload-log", `❌ Stop error: ${error.message}`);
-      throw error;
-    }
+  onMicStateChanged: (callback: (data: boolean) => void) => {
+    bridgeEvents.on("toggle-walkie-talkie", callback);
   }
 });
 
-// Keep your existing ipcRenderer exposure
+// ipcRenderer для Zulip
 contextBridge.exposeInMainWorld("ipcRenderer", {
-    invoke: async (channel: any, ...args: unknown[]) => {
-        ipcRenderer.send("preload-log", `Zulip Preload: Запрос ${channel}`);
-        try {
-            const result = await ipcRenderer.invoke(channel, ...args);
-            return result;
-        } catch (error) {
-            ipcRenderer.send("preload-log", `Zulip Preload: Ошибка ${channel}: ${error instanceof Error ? error.message : String(error)}`);
-            throw error;
-        }
-    },
-    on: (channel: any, listener: (event: any, ...args: any[]) => void) => {
-        ipcRenderer.send("preload-log", `Zulip Preload: Установка слушателя для канала ${channel}`);
-        ipcRenderer.on(channel, listener);
-    }
+  invoke: async (channel: any, ...args: unknown[]) => {
+    ipcRenderer.send("preload-log", `Zulip: ipcRenderer.invoke ${channel}`);
+    return ipcRenderer.invoke(channel, ...args);
+  },
+  on: (channel: any, listener: (event: any, ...args: any[]) => void) => {
+    ipcRenderer.send("preload-log", `Zulip: ipcRenderer.on ${channel}`);
+    ipcRenderer.on(channel, listener);
+  }
 });
 
-// Keep your essential event handlers
+// === ПОДПИСКИ НА СОБЫТИЯ ===
+
+// Основной слушатель запроса источников
+electron_bridge.on_event("requestDesktopSources", () => {
+  ipcRenderer.send("preload-log", "🎯[DesktopSources] requestDesktopSources event received via electron_bridge");
+  handleDesktopSourcesRequest();
+});
+
+// Резервные слушатели для совместимости
 ipcRenderer.on("desktop-sources-response", (event, response) => {
-  const sourcesNames = response.sources ? response.sources.map((s: any) => s.name).join(', ') : '[]';
-  ipcRenderer.send("preload-log", `✅ Preload: desktop-sources-response: sources=[${sourcesNames}]`);
+  ipcRenderer.send("preload-log", `🎯[DesktopSources] Got desktop-sources-response from main`);
   electron_bridge.send_event("desktop-sources-response", response);
 });
 
-// Keep other essential handlers
-ipcRenderer.on("logout", () => {
-    bridgeEvents.emit("logout");
+// Walkie-talkie
+ipcRenderer.on("toggle-walkie-talkie", (event, isMuted: boolean) => {
+  bridgeEvents.emit("toggle-walkie-talkie", isMuted);
 });
 
-ipcRenderer.on("trigger-open-desktop-picker", () => {
-    ipcRenderer.send("preload-log", "✅ Preload: trigger-open-desktop-picker");
-    electron_bridge.send_event("open-desktop-picker");
-});
-
-ipcRenderer.on("forward-message", (event, channel) => {
-    ipcRenderer.send("preload-log", `✅ Preload: forward-message: ${channel}`);
-    
-    if (channel === "trigger-open-desktop-picker") {
-        electron_bridge.send_event("open-desktop-picker");
-    }
-    if (channel === "request-desktop-sources") {
-        electron_bridge.send_event("requestDesktopSources");
-    }
-});
-
-// Keep network error handler
-window.addEventListener("load", () => {
-    if (!location.href.includes("app/renderer/network.html")) {
-        return;
-    }
-    const $reconnectButton = document.querySelector("#reconnect")!;
-    const $settingsButton = document.querySelector("#settings")!;
-    NetworkError.init($reconnectButton, $settingsButton);
-});
-
-
-
-
-
-
-
-// Глобальные переменные для предотвращения дублей
-let isHandlingRequest = false;
-let lastDialogTime = 0;
-let dialogPromise: Promise<void> | null = null;
-
-// Исправленная функция обработки
-async function handleNativeCaptureRequest() {
-  // Предотвращаем множественные одновременные вызовы
-  if (isHandlingRequest) {
-    ipcRenderer.send("preload-log", "🎯[NativeCapture] ⚠️ Already handling request, skipping duplicate");
-    return;
-  }
-  
-  // Если диалог уже показывается, ждем его завершения
-  if (dialogPromise) {
-    ipcRenderer.send("preload-log", "🎯[NativeCapture] ⏳ Waiting for existing dialog...");
-    await dialogPromise;
-    return;
-  }
-  
-  isHandlingRequest = true;
-  
-  ipcRenderer.send("preload-log", "🎯[NativeCapture] ============ handleNativeCaptureRequest START ============");
-  
-  const now = Date.now();
-  
-  // Проверяем таймаут
-  if (lastDialogTime > 0 && (now - lastDialogTime) < 30000) {
-    ipcRenderer.send("preload-log", "🎯[NativeCapture] ⏭️ Dialog shown recently, using standard sources");
-    isHandlingRequest = false;
-    
-    try {
-      const sources = await ipcRenderer.invoke('get-desktop-sources');
-      ipcRenderer.send("preload-log", `🎯[NativeCapture] Got ${sources.length} sources without dialog`);
-      
-      // Логируем первые несколько источников для отладки
-      if (sources && sources.length > 0) {
-        sources.slice(0, 3).forEach((source: any, i: number) => {
-          ipcRenderer.send("preload-log", `🎯[NativeCapture] Source ${i}: id=${source.id}, name=${source.name}, has thumbnail=${!!source.thumbnail?.dataUrl}`);
-        });
-      }
-      
-      await sendDesktopSources(sources, error);
-    } catch (error: any) {
-      ipcRenderer.send("preload-log", `🎯[NativeCapture] Error getting sources: ${error.message}`);
-      await sendDesktopSources(sources, error);
-    }
-    return;
-  }
-  
-  // Создаем промис для диалога
-  dialogPromise = (async () => {
-    try {
-      lastDialogTime = now;
-      ipcRenderer.send("preload-log", "🎯[NativeCapture] 📢 Showing dialog...");
-      
-      const choice = await ipcRenderer.invoke('show-native-capture-choice');
-      ipcRenderer.send("preload-log", `🎯[NativeCapture] ✅ User selected: ${choice}`);
-      
-      if (choice === 'native') {
-        ipcRenderer.send("preload-log", "🎯[NativeCapture] 🚀 Getting native sources...");
-        
-        // Получаем источники через Swift
-        try {
-          const sources = await ipcRenderer.invoke('get-desktop-sources');
-          ipcRenderer.send("preload-log", `🎯[NativeCapture] Got ${sources.length} native sources`);
-          
-          if (sources && sources.length > 0) {
-            // Логируем первые несколько источников
-            sources.slice(0, 3).forEach((source: any, i: number) => {
-              ipcRenderer.send("preload-log", `🎯[NativeCapture] Source ${i}: ${source.name} (${source.id})`);
-            });
-            
-            await sendDesktopSources(sources, error);
-            
-            ipcRenderer.send("preload-log", "🎯[NativeCapture] ✅ Native sources sent to Jitsi");
-            return;
-          } else {
-            ipcRenderer.send("preload-log", "🎯[NativeCapture] ⚠️ No sources returned");
-          }
-        } catch (sourceError: any) {
-          ipcRenderer.send("preload-log", `🎯[NativeCapture] ❌ Error getting sources: ${sourceError.message}`);
-        }
-      }
-      
-      // Fallback to standard sources
-      ipcRenderer.send("preload-log", "🎯[NativeCapture] Using standard sources");
-      const sources = await ipcRenderer.invoke('get-desktop-sources');
-      ipcRenderer.send("preload-log", `🎯[NativeCapture] Got ${sources.length} standard sources`);
-      
-      await sendDesktopSources(sources, error);
-      
-    } catch (error: any) {
-      ipcRenderer.send("preload-log", `🎯[NativeCapture] ❌ Error: ${error.message}`);
-      await sendDesktopSources(sources, error);
-    } finally {
-      isHandlingRequest = false;
-      dialogPromise = null;
-      ipcRenderer.send("preload-log", "🎯[NativeCapture] ============ END ============");
-    }
-  })();
-  
-  await dialogPromise;
-}
-
-// Единственная подписка на событие
-let isSubscribed = false;
-
-if (!isSubscribed) {
-  isSubscribed = true;
-  
-  // Подписываемся только один раз
-  electron_bridge.on_event("requestDesktopSources", () => {
-    ipcRenderer.send("preload-log", "🎯[NativeCapture] Event received via on_event");
-    handleNativeCaptureRequest();
-  });
-  
-  ipcRenderer.send("preload-log", "🎯[NativeCapture] ✅ Event listener registered");
-}
-
-setTimeout(() => {
-  const testBtn = document.createElement('button');
-  testBtn.innerHTML = '🧪 Test Swift Sources';
-  testBtn.style.cssText = `
-    position: fixed;
-    bottom: 20px;
-    left: 20px;
-    z-index: 99999;
-    padding: 10px;
-    background: #ff5722;
-    color: white;
-    border: none;
-    border-radius: 5px;
-    cursor: pointer;
-  `;
-  
-  testBtn.onclick = async () => {
-    try {
-      const result = await ipcRenderer.invoke('get-swift-sources-test');
-      console.log('🧪 Swift sources test:', result);
-      
-      if (result.success) {
-        alert(`Swift Sources: ${result.sources.length} found\n\nCheck console for details`);
-      } else {
-        alert(`Error: ${result.error}`);
-      }
-    } catch (err) {
-      console.error('Test error:', err);
-    }
-  };
-  
-  document.body.appendChild(testBtn);
-}, 2000);
-
+// === ПЕРЕХВАТ send_event ДЛЯ ЛОГИРОВАНИЯ ===
 const originalSendEvent = electron_bridge.send_event;
 electron_bridge.send_event = function(eventName: string | symbol, ...args: any[]): boolean {
   const name = String(eventName);
   
-  if (name === "desktop-sources-response") {
-    ipcRenderer.send("preload-log", `🎯[NativeCapture] Sending desktop-sources-response`);
-    const response = args[0];
-    if (response) {
-      ipcRenderer.send("preload-log", `🎯[NativeCapture] Response has sources: ${!!response.sources}`);
-      ipcRenderer.send("preload-log", `🎯[NativeCapture] Response has error: ${!!response.error}`);
-      if (response.sources) {
-        ipcRenderer.send("preload-log", `🎯[NativeCapture] Sources count: ${response.sources.length}`);
-        if (response.sources.length > 0) {
-          const first = response.sources[0];
-          ipcRenderer.send("preload-log", `🎯[NativeCapture] First source: id=${first.id}, name=${first.name}`);
-          ipcRenderer.send("preload-log", `🎯[NativeCapture] Has thumbnail: ${!!first.thumbnail}`);
-          ipcRenderer.send("preload-log", `🎯[NativeCapture] Thumbnail dataUrl length: ${first.thumbnail?.dataUrl?.length || 0}`);
-        }
-      }
-    }
+  if (name === "desktop-sources-response" || name === "requestDesktopSources") {
+    ipcRenderer.send("preload-log", `🎯[DesktopSources] send_event: ${name}`);
   }
   
   return originalSendEvent.apply(this, [eventName, ...args]);
 };
+
+// === ТЕСТОВЫЕ ФУНКЦИИ ===
+
+// Тестовая функция для проверки стандартного Electron
+async function testElectronSources() {
+  ipcRenderer.send("preload-log", "🧪[TEST] Testing standard Electron sources...");
+  
+  try {
+    const result = await ipcRenderer.invoke('test-electron-sources');
+    ipcRenderer.send("preload-log", `🧪[TEST] Electron test result: ${JSON.stringify(result)}`);
+    return result;
+  } catch (error: any) {
+    ipcRenderer.send("preload-log", `🧪[TEST] Electron test error: ${error.message}`);
+    return { success: false, error: error.message };
+  }
+}
+
+// === ГЛОБАЛЬНЫЕ СЛУШАТЕЛИ ===
+
+// Слушаем postMessage для запросов от Jitsi
+window.addEventListener('message', (event) => {
+  if (event.data && typeof event.data === 'object') {
+    // Проверяем запросы от Jitsi на источники экрана
+    if (event.data.type === '_requestDesktopSources' || 
+        event.data.method === 'get-desktop-sources' ||
+        (event.data.jitsiApiEvent && event.data.jitsiApiEvent.name === 'request-desktop-sources')) {
+      ipcRenderer.send("preload-log", `🎯[DesktopSources] Desktop sources requested via postMessage!`);
+      handleDesktopSourcesRequest();
+    }
+  }
+});
+
+// Мониторинг появления новых iframe
+const iframeObserver = new MutationObserver((mutations) => {
+  mutations.forEach((mutation) => {
+    mutation.addedNodes.forEach((node) => {
+      if (node instanceof HTMLIFrameElement) {
+        const src = node.src || '';
+        ipcRenderer.send("preload-log", `🎯[DesktopSources] New iframe detected: ${src}`);
+        
+        // Если это Jitsi iframe и у нас есть сохраненные источники
+        if ((src.includes('joinrm-svz.ru') || src.includes('jitsi')) && 
+            (window as any).__lastDesktopSources) {
+          setTimeout(() => {
+            ipcRenderer.send("preload-log", `🎯[DesktopSources] Sending saved sources to new iframe`);
+            sendDesktopSources((window as any).__lastDesktopSources);
+          }, 2000);
+        }
+      }
+    });
+  });
+});
+
+// Начинаем наблюдение за DOM
+if (document.body) {
+  iframeObserver.observe(document.body, {
+    childList: true,
+    subtree: true
+  });
+} else {
+  document.addEventListener('DOMContentLoaded', () => {
+    iframeObserver.observe(document.body, {
+      childList: true,
+      subtree: true
+    });
+  });
+}
+
+// Перехват Jitsi API если он загружается позже
+let jitsiCheckInterval: any = null;
+function checkForJitsiAPI() {
+  // @ts-ignore
+  if (window.JitsiMeetElectron || window.APP) {
+    ipcRenderer.send("preload-log", `🎯[DesktopSources] Jitsi API detected!`);
+    
+    // Переопределяем метод запроса источников если есть
+    // @ts-ignore
+    if (window.JitsiMeetElectron && !window.JitsiMeetElectron._requestDesktopSourcesPatched) {
+      // @ts-ignore
+      const originalRequest = window.JitsiMeetElectron._requestDesktopSources;
+      // @ts-ignore
+      window.JitsiMeetElectron._requestDesktopSources = function(options: any) {
+        ipcRenderer.send("preload-log", `🎯[DesktopSources] Intercepted JitsiMeetElectron._requestDesktopSources`);
+        handleDesktopSourcesRequest();
+      };
+      // @ts-ignore
+      window.JitsiMeetElectron._requestDesktopSourcesPatched = true;
+    }
+    
+    if (jitsiCheckInterval) {
+      clearInterval(jitsiCheckInterval);
+      jitsiCheckInterval = null;
+    }
+  }
+}
+
+// Проверяем каждые 500мс в течение 10 секунд
+jitsiCheckInterval = setInterval(checkForJitsiAPI, 500);
+setTimeout(() => {
+  if (jitsiCheckInterval) {
+    clearInterval(jitsiCheckInterval);
+    jitsiCheckInterval = null;
+  }
+}, 10000);
+
+// === ТЕСТОВЫЕ КНОПКИ ===
+setTimeout(() => {
+  // Кнопка для тестирования стандартного Electron
+  const electronTestBtn = document.createElement('button');
+  electronTestBtn.innerHTML = '🔬 Test Electron';
+  electronTestBtn.style.cssText = `
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    z-index: 99999;
+    padding: 10px 20px;
+    background: #4CAF50;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-weight: bold;
+  `;
+  
+  electronTestBtn.onclick = async () => {
+    console.log('🔬 Testing Electron desktopCapturer');
+    electronTestBtn.innerHTML = '⏳ Testing...';
+    
+    try {
+      const result = await testElectronSources();
+      console.log('🔬 Electron test result:', result);
+      alert(`Electron Test: ${result.success ? 'SUCCESS' : 'FAILED'}\n${result.success ? `Found ${result.sources.length} sources` : result.error}`);
+    } catch (err: any) {
+      console.error('🔬 Test error:', err);
+      alert(`Test failed: ${err.message}`);
+    }
+    
+    electronTestBtn.innerHTML = '🔬 Test Electron';
+  };
+  
+  document.body.appendChild(electronTestBtn);
+  
+  // Кнопка для ручного запроса источников
+  const requestBtn = document.createElement('button');
+  requestBtn.innerHTML = '🎯 Request Sources';
+  requestBtn.style.cssText = `
+    position: fixed;
+    bottom: 20px;
+    right: 160px;
+    z-index: 99999;
+    padding: 10px 20px;
+    background: #2196F3;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-weight: bold;
+  `;
+  
+  requestBtn.onclick = async () => {
+    console.log('🎯 Manual sources request');
+    requestBtn.innerHTML = '⏳ Requesting...';
+    
+    try {
+      await handleDesktopSourcesRequest();
+      requestBtn.innerHTML = '✅ Done';
+      setTimeout(() => {
+        requestBtn.innerHTML = '🎯 Request Sources';
+      }, 2000);
+    } catch (err: any) {
+      console.error('🎯 Request error:', err);
+      requestBtn.innerHTML = '❌ Error';
+      setTimeout(() => {
+        requestBtn.innerHTML = '🎯 Request Sources';
+      }, 2000);
+    }
+  };
+  
+  document.body.appendChild(requestBtn);
+  
+}, 2000);
+
+// Network error handler
+window.addEventListener("load", () => {
+  if (location.href.includes("app/renderer/network.html")) {
+    const $reconnectButton = document.querySelector("#reconnect")!;
+    const $settingsButton = document.querySelector("#settings")!;
+    NetworkError.init($reconnectButton, $settingsButton);
+  }
+});
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+const debugDialogBtn = document.createElement('button');
+debugDialogBtn.innerHTML = '🔍 Debug Jitsi Dialog';
+debugDialogBtn.style.cssText = `
+  position: fixed;
+  bottom: 80px;
+  right: 20px;
+  z-index: 99999;
+  padding: 10px 20px;
+  background: #9C27B0;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-weight: bold;
+`;
+
+debugDialogBtn.onclick = () => {
+  console.log('🔍 Debugging Jitsi dialog...');
+  
+  // 1. Проверяем наличие глобальных объектов
+  const checks = {
+    // @ts-ignore
+    hasJitsiMeetElectron: typeof window.JitsiMeetElectron !== 'undefined',
+    // @ts-ignore
+    hasAPP: typeof window.APP !== 'undefined',
+    // @ts-ignore
+    hasDesktopCapturerResponse: window.JitsiMeetElectron && typeof window.JitsiMeetElectron._desktopCapturerSourcesResponse === 'function',
+    hasElectronBridge: typeof window.electron_bridge !== 'undefined',
+    hasSavedSources: !!(window as any).__lastDesktopSources
+  };
+  
+  console.log('🔍 Global objects check:', checks);
+  
+  // 2. Ищем диалоги выбора источников
+  const dialogSelectors = [
+    '[data-testid="desktop-capturer-selection"]',
+    '.desktop-capturer-selection',
+    '[class*="desktop"]',
+    '[class*="source"]',
+    '[class*="capturer"]',
+    '[class*="screen"]',
+    '.source-selection',
+    '.desktop-picker'
+  ];
+  
+  let dialogsFound = 0;
+  dialogSelectors.forEach(selector => {
+    const elements = document.querySelectorAll(selector);
+    if (elements.length > 0) {
+      console.log(`🔍 Found ${elements.length} elements with selector: ${selector}`);
+      elements.forEach((el, i) => {
+        console.log(`  - Element ${i}:`, el);
+      });
+      dialogsFound += elements.length;
+    }
+  });
+  
+  // 3. Ищем кнопки "Share screen" или похожие
+  const buttons = document.querySelectorAll('button, [role="button"]');
+  const shareButtons = Array.from(buttons).filter(btn => {
+    const text = btn.textContent?.toLowerCase() || '';
+    return text.includes('share') || text.includes('screen') || text.includes('desktop');
+  });
+  
+  console.log(`🔍 Found ${shareButtons.length} potential share buttons:`, shareButtons);
+  
+  // 4. Проверяем iframe
+  const iframes = document.querySelectorAll('iframe');
+  console.log(`🔍 Found ${iframes.length} iframes:`);
+  iframes.forEach((iframe, i) => {
+    console.log(`  - Iframe ${i}: ${iframe.src || 'no src'}`);
+    
+    // Пробуем получить доступ к содержимому iframe
+    try {
+      if (iframe.contentWindow && iframe.contentDocument) {
+        const iframeDialogs = iframe.contentDocument.querySelectorAll('[class*="desktop"], [class*="source"], [class*="capturer"]');
+        console.log(`    - Iframe ${i} dialogs found: ${iframeDialogs.length}`);
+      }
+    } catch (e) {
+      console.log(`    - Iframe ${i} access blocked (cross-origin)`);
+    }
+  });
+  
+  // 5. Имитируем запрос источников
+  console.log('🔍 Triggering desktop sources request...');
+  handleDesktopSourcesRequest();
+  
+  // 6. Показываем результат
+  const summary = `
+🔍 Jitsi Dialog Debug Results:
+=============================
+✓ JitsiMeetElectron: ${checks.hasJitsiMeetElectron}
+✓ APP object: ${checks.hasAPP}
+✓ Response function: ${checks.hasDesktopCapturerResponse}
+✓ Electron bridge: ${checks.hasElectronBridge}
+✓ Saved sources: ${checks.hasSavedSources}
+
+📋 Elements found:
+- Dialog elements: ${dialogsFound}
+- Share buttons: ${shareButtons.length}
+- Iframes: ${iframes.length}
+
+Check console for detailed information.
+  `;
+  
+  alert(summary);
+  
+  // 7. Принудительно отправляем тестовые источники
+  if ((window as any).__lastDesktopSources) {
+    console.log('🔍 Re-sending saved sources...');
+    sendDesktopSources((window as any).__lastDesktopSources);
+  } else {
+    console.log('🔍 Sending test sources...');
+    const testSources = [
+      {
+        id: 'test:debug:screen',
+        name: '🔍 Debug Test Screen',
+        thumbnail: { dataUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYGD4AQAA/QGOrDGjAAAAAElFTkSuQmCC' }
+      },
+      {
+        id: 'test:debug:window',
+        name: '🔍 Debug Test Window',
+        thumbnail: { dataUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==' }
+      }
+    ];
+    sendDesktopSources(testSources);
+  }
+};
+
+document.body.appendChild(debugDialogBtn);
+
+
+
+
+
+
+
+ipcRenderer.send("preload-log", "🎯[DesktopSources] Preload initialized with standard Electron API");
+
+
+
+
