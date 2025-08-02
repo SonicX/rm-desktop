@@ -295,6 +295,19 @@ async function createMainWindow(): Promise<BrowserWindow> {
     }
   });
 
+  win.webContents.on('will-attach-webview', (event: Electron.Event, webPreferences: Electron.WebPreferences, params: any) => {
+    log.info(`Main: WebView создается с URL: ${params.src}`);
+    
+    // ВАЖНО: Устанавливаем правильный preload для webview
+    const preloadPath = path.join(bundlePath, "preload.js");
+    webPreferences.preload = preloadPath;
+    webPreferences.nodeIntegration = false;
+    webPreferences.contextIsolation = true;
+    
+    log.info(`Main: Webview preload установлен: ${preloadPath}`);
+    log.info(`Main: Preload файл существует: ${require('fs').existsSync(preloadPath)}`);
+  });
+
   win.setTitle("Цифровые технологии РМ");
 
   mainWindowState.manage(win);
@@ -606,93 +619,6 @@ async function createMainWindow(): Promise<BrowserWindow> {
     testSwiftAddon().catch(err => log.error(`🔬[Swift Test] Fatal error: ${err}`));
   }, 3000);
 
-  // Обновленный обработчик get-desktop-sources с дополнительным логированием
-  // В index.ts замените обработчик get-desktop-sources на этот:
-
-  ipcMain.handle("get-desktop-sources", async () => {
-    try {
-      log.info("🎯[DesktopSources] ========== GETTING DESKTOP SOURCES ==========");
-      
-      // ПРИОРИТЕТ 1: Стандартный Electron desktopCapturer
-      try {
-        log.info("🎯[DesktopSources] Using standard Electron desktopCapturer...");
-        
-        const electronSources = await desktopCapturer.getSources({
-          types: ['screen', 'window'],
-          thumbnailSize: { width: 300, height: 300 },
-          fetchWindowIcons: true
-        });
-        
-        log.info(`🎯[DesktopSources] ✅ Electron returned ${electronSources.length} sources`);
-        
-        // Преобразуем в нужный формат
-        const formattedSources = electronSources.map((source, index) => {
-          log.info(`🎯[DesktopSources] Source ${index}: ${source.name} (${source.id})`);
-          
-          return {
-            id: source.id,
-            name: source.name,
-            thumbnail: {
-              dataUrl: source.thumbnail.toDataURL()
-            }
-          };
-        });
-        
-        log.info(`🎯[DesktopSources] ✅ Successfully formatted ${formattedSources.length} Electron sources`);
-        return formattedSources;
-        
-      } catch (electronError: any) {
-        log.error(`🎯[DesktopSources] ❌ Electron desktopCapturer failed: ${electronError.message}`);
-        
-        // FALLBACK: Swift addon (если Electron не работает)
-        if (screenCaptureAddon && typeof screenCaptureAddon.getAvailableSources === 'function') {
-          log.info("🎯[DesktopSources] Falling back to Swift addon...");
-          
-          try {
-            const swiftSources = await getSwiftSourcesSafe();
-            log.info(`🎯[DesktopSources] Swift returned ${swiftSources.length} sources`);
-            
-            const formattedSwiftSources = swiftSources.map((source: any, index: number) => ({
-              id: source.id || `swift:${index}`,
-              name: source.name || `Source ${index}`,
-              thumbnail: {
-                dataUrl: createSwiftSourceThumbnail(source)
-              }
-            }));
-            
-            log.info(`🎯[DesktopSources] ✅ Using Swift fallback with ${formattedSwiftSources.length} sources`);
-            return formattedSwiftSources;
-            
-          } catch (swiftError: any) {
-            log.error(`🎯[DesktopSources] ❌ Swift fallback also failed: ${swiftError.message}`);
-          }
-        }
-        
-        // ПОСЛЕДНИЙ FALLBACK: Тестовые источники
-        log.warn("🎯[DesktopSources] Both Electron and Swift failed, returning test sources");
-        return [{
-          id: 'test:screen:1',
-          name: '🧪 Test Screen (Fallback)',
-          thumbnail: {
-            dataUrl: createTestSourceThumbnail('screen')
-          }
-        }, {
-          id: 'test:window:1', 
-          name: '🧪 Test Window (Fallback)',
-          thumbnail: {
-            dataUrl: createTestSourceThumbnail('window')
-          }
-        }];
-      }
-      
-    } catch (error: any) {
-      log.error(`🎯[DesktopSources] ❌ Critical error: ${error.message}`);
-      log.error(`🎯[DesktopSources] Stack: ${error.stack}`);
-      return [];
-    }
-  });
-
-  // Добавить функцию создания тестовых thumbnail
   function createTestSourceThumbnail(type: string): string {
     const styles = {
       screen: { color: '#4CAF50', icon: '🖥' },
@@ -714,6 +640,170 @@ async function createMainWindow(): Promise<BrowserWindow> {
     
     return `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
   }
+
+  // Добавьте эту функцию где-нибудь в index.ts, например, рядом с другими вспомогательными функциями
+  function createTestSourceThumbnailAsPngBase64(): string {
+    // Создаем очень простой 1x1 пиксель PNG (зеленый, как в SVG)
+    // Это стандартный заголовок для 1x1 зеленого пикселя PNG
+    return "image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYGD4DwABBAEAnjDjIgAAAABJRU5ErkJggg==";
+  }
+
+  // КРИТИЧНО: Обработчик get-desktop-sources БЕЗ диалога
+  // КРИТИЧНО: Обработчик get-desktop-sources БЕЗ диалога
+  // КРИТИЧНО: Обработчик get-desktop-sources БЕЗ диалога
+  ipcMain.handle("get-desktop-sources", async () => {
+    try {
+      log.info("Main: [TEST_SOURCE_DEBUG] === НАЧАЛО ЗАПРОСА ИСТОЧНИКОВ ЭКРАНА ===");
+
+      // --- 1. Получаем источники из нативного Swift аддона ---
+      let nativeSourcesRaw: any[] = [];
+      try {
+          log.info("Main: [TEST_SOURCE_DEBUG] Получение источников из нативного Swift аддона...");
+          const swiftResult = await getAvailableSources(); // Используем вашу готовую функцию
+          if (swiftResult && Array.isArray(swiftResult)) {
+              nativeSourcesRaw = swiftResult;
+              log.info(`Main: [TEST_SOURCE_DEBUG] Успешно получено ${nativeSourcesRaw.length} сырых источников из Swift аддона`);
+              // Логируем каждый полученный источник для отладки (первые 3, чтобы не засорять логи)
+              const sourcesToLog = nativeSourcesRaw.slice(0, 3);
+              sourcesToLog.forEach((src, idx) => {
+                  log.info(`Main: [TEST_SOURCE_DEBUG] Сырой нативный источник ${idx}: ${JSON.stringify(src)}`);
+              });
+              if (nativeSourcesRaw.length > 3) {
+                  log.info(`Main: [TEST_SOURCE_DEBUG] ... и ещё ${nativeSourcesRaw.length - 3} источников`);
+              }
+          } else {
+              log.warn(`Main: [TEST_SOURCE_DEBUG] getAvailableSources вернул не массив:`, swiftResult);
+          }
+      } catch (swiftError: any) {
+          log.error(`Main: [TEST_SOURCE_DEBUG] Ошибка при получении источников из Swift аддона: ${swiftError.message}`);
+          // Не прерываем выполнение, продолжаем с пустым массивом
+      }
+
+      // --- 2. Форматируем нативные источники в формат Electron/Jitsi ---
+      log.info("Main: [TEST_SOURCE_DEBUG] === НАЧАЛО ФОРМАТИРОВАНИЯ НАТИВНЫХ ИСТОЧНИКОВ ===");
+      const formattedNativeSources = nativeSourcesRaw.map((source, index) => {
+          try {
+              log.debug(`Main: [TEST_SOURCE_DEBUG] Форматирование нативного источника ${index}: ${JSON.stringify({type: source.type, id: source.id, name: source.name})}`);
+              
+              // --- Проверка и извлечение базовых полей ---
+              const sourceTypeRaw = source.type;
+              const sourceIdRaw = source.id;
+              const sourceName = source.name || `Native Source ${index + 1}`;
+
+              if (!sourceTypeRaw) {
+                  log.warn(`Main: [TEST_SOURCE_DEBUG] Пропущен нативный источник без 'type' (индекс ${index})`, source);
+                  return null; // Будет отфильтрован
+              }
+              if (!sourceIdRaw && sourceIdRaw !== 0) { // 0 это валидный ID
+                  log.warn(`Main: [TEST_SOURCE_DEBUG] Пропущен нативный источник без 'id' (индекс ${index})`, source);
+                  return null; // Будет отфильтрован
+              }
+
+              const sourceType = sourceTypeRaw.toString().toLowerCase();
+
+              // --- Определение префикса и ID для Electron/Jitsi ---
+              let prefix = 'screen:'; // Префикс по умолчанию (для display/screen)
+              if (sourceType === 'window' || sourceType === 'application') {
+                  prefix = 'window:'; // Окна и приложения получают префикс window:
+              }
+              // Формируем ID в формате Electron (добавляем :0 в конце для совместимости)
+              // Electron обычно использует формат prefix:id:capture_session_id
+              // capture_session_id часто 0 для первого запроса
+              const formattedId = `${prefix}${sourceIdRaw}:0`; // <-- Изменение здесь
+              log.debug(`Main: [TEST_SOURCE_DEBUG]   Исходный тип: ${sourceType}, Исходный ID: ${sourceIdRaw} -> Форматированный ID: ${formattedId}`);
+
+              // --- Создание thumbnail (заглушка в формате PNG) ---
+              const thumbnailDataUrl = "image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYGD4AQAA/QGOrDGjAAAAAElFTkSuQmCC";
+              log.debug(`Main: [TEST_SOURCE_DEBUG]   Thumbnail создан (заглушка)`);
+
+              // --- Возвращаем отформатированный объект ---
+              const formattedSource = {
+                  id: formattedId,
+                  name: sourceName,
+                  thumbnail: { dataUrl: thumbnailDataUrl }
+              };
+              // Не логируем каждый отформатированный источник, чтобы не засорять логи
+              // log.debug(`Main: [TEST_SOURCE_DEBUG]   Отформатированный источник ${index}: ${JSON.stringify(formattedSource)}`);
+              return formattedSource;
+          } catch (formatError: any) {
+              log.error(`Main: [TEST_SOURCE_DEBUG] Ошибка форматирования нативного источника (индекс ${index}): ${formatError.message}`, source);
+              return null; // Будет отфильтрован
+          }
+      }).filter((source): source is NonNullable<typeof source> => source !== null); // Убираем null
+
+      log.info(`Main: [TEST_SOURCE_DEBUG] Отформатировано ${formattedNativeSources.length} нативных источников`);
+
+      // --- 3. Создаем тестовые источники (с :0 в конце для совместимости) ---
+      log.info("Main: [TEST_SOURCE_DEBUG] === СОЗДАНИЕ ТЕСТОВЫХ ИСТОЧНИКОВ ===");
+      const testScreenSource = {
+        id: 'screen:test-source-screen-123:0', // <-- Добавлен :0
+        name: '🖥️ [TEST] Тестовый Экран (Заглушка)',
+        thumbnail: { dataUrl: createTestSourceThumbnailAsPngBase64() } // Убедитесь, что функция существует
+      };
+      log.info(`Main: [TEST_SOURCE_DEBUG] Тестовый ЭКРАН: ${JSON.stringify({id: testScreenSource.id, name: testScreenSource.name})}`);
+
+      const testWindowSource = {
+        id: 'window:test-source-window-456:0', // <-- Добавлен :0
+        name: '🪟 [TEST] Тестовое Окно (Заглушка)',
+        thumbnail: { dataUrl: createTestSourceThumbnailAsPngBase64() } // Убедитесь, что функция существует
+      };
+      log.info(`Main: [TEST_SOURCE_DEBUG] Тестовое ОКНО: ${JSON.stringify({id: testWindowSource.id, name: testWindowSource.name})}`);
+
+      // --- 4. Объединяем списки ---
+      log.info("Main: [TEST_SOURCE_DEBUG] === ОБЪЕДИНЕНИЕ СПИСКОВ ===");
+      // Только нативные источники + тестовые заглушки
+      const finalSourcesToSend = [testScreenSource, testWindowSource, ...formattedNativeSources];
+      log.info(`Main: [TEST_SOURCE_DEBUG] Всего источников для отправки: ${finalSourcesToSend.length}`);
+
+      // --- 5. Подробное логирование финального списка (первые и последние несколько) ---
+      log.info("Main: [TEST_SOURCE_DEBUG] === ФИНАЛЬНЫЙ СПИСОК ИСТОЧНИКОВ ДЛЯ ОТПРАВКИ ===");
+      const totalSources = finalSourcesToSend.length;
+      const maxToLog = 10; // Логируем не более 10 источников
+      const sourcesToLogFinal = totalSources <= maxToLog ? finalSourcesToSend : [
+          ...finalSourcesToSend.slice(0, Math.floor(maxToLog / 2)),
+          ...finalSourcesToSend.slice(-Math.ceil(maxToLog / 2))
+      ];
+      
+      sourcesToLogFinal.forEach((src, idx) => {
+          // Для удобства читаемости в логах
+          const displayIndex = totalSources <= maxToLog ? idx : 
+              (idx < Math.floor(maxToLog / 2) ? idx : totalSources - (maxToLog - Math.floor(maxToLog / 2)) + idx);
+          log.info(`Main: [TEST_SOURCE_DEBUG] Источник ${displayIndex}: ID='${src.id}', Name='${src.name}'`);
+      });
+      if (totalSources > maxToLog) {
+          log.info(`Main: [TEST_SOURCE_DEBUG] ... (пропущено ${totalSources - maxToLog} источников) ...`);
+      }
+
+      // --- 6. Отправляем список через webContents.send ---
+      log.info("Main: [TEST_SOURCE_DEBUG] === ОТПРАВКА ИСТОЧНИКОВ В WEBVIEW ===");
+      webContents.getAllWebContents().forEach(content => {
+        log.info(`Main: [TEST_SOURCE_DEBUG] Отправляем ${finalSourcesToSend.length} sources в WebContents #${content.id}`);
+        content.send("desktop-sources-response", {
+          sources: finalSourcesToSend,
+          error: null
+        });
+      });
+
+      log.info("Main: [TEST_SOURCE_DEBUG] === ИСТОЧНИКИ УСПЕШНО ОТПРАВЛЕНЫ ===");
+      return finalSourcesToSend; // Возвращаем для invoke тоже
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      log.error("Main: [TEST_SOURCE_DEBUG] === КРИТИЧЕСКАЯ ОШИБКА ===", error);
+
+      // Отправляем ошибку
+      const errorResponse = { sources: [], error: errorMessage };
+      webContents.getAllWebContents().forEach(content => {
+        log.info(`Main: [TEST_SOURCE_DEBUG] Отправляем ОШИБКУ в WebContents #${content.id}`);
+        content.send("desktop-sources-response", errorResponse);
+      });
+
+      return errorResponse;
+    }
+  });
+
+  // Добавить функцию создания тестовых thumbnail
+  
 
   // Добавить обработчик для тестирования стандартного Electron
   ipcMain.handle("test-electron-sources", async () => {
@@ -1393,9 +1483,9 @@ async function getAvailableSources(): Promise<Electron.DesktopCapturerSource[]> 
   log.info("🎯[NativeCapture] Fetching available sources...");
 
   // 1. Попробуем нативный способ
-  if (screenCaptureAddon && typeof screenCaptureAddon.getSources === 'function') {
+  if (screenCaptureAddon && typeof screenCaptureAddon.getAvailableSources === 'function') {
     try {
-      const sources = await screenCaptureAddon.getSources();
+      const sources = await screenCaptureAddon.getAvailableSources();
       log.info(`🎯[NativeCapture] Swift returned ${sources.length} sources`);
       return sources;
     } catch (error) {
@@ -1403,9 +1493,9 @@ async function getAvailableSources(): Promise<Electron.DesktopCapturerSource[]> 
     }
   }
 
-  // 2. Fallback на Electron
-  log.info("🎯[NativeCapture] Using Electron desktopCapturer fallback");
-  return desktopCapturer.getSources({ types: ['screen', 'window'] });
+  // // 2. Fallback на Electron
+  // log.info("🎯[NativeCapture] Using Electron desktopCapturer fallback");
+  // return desktopCapturer.getSources({ types: ['screen', 'window'] });
 }
 
 setTimeout(() => {
