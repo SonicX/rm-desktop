@@ -8,17 +8,68 @@ extension CMSampleBuffer {
     }
     
     func getVideoFrame() -> [String: Any]? {
-        guard let imageBuffer = getImageBuffer() else { return nil }
+        guard let imageBuffer = CMSampleBufferGetImageBuffer(self) else { return nil }
         
         let width = CVPixelBufferGetWidth(imageBuffer)
         let height = CVPixelBufferGetHeight(imageBuffer)
         let timestamp = CMSampleBufferGetPresentationTimeStamp(self).seconds
         
+        // Блокируем буфер для чтения
+        CVPixelBufferLockBaseAddress(imageBuffer, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(imageBuffer, .readOnly) }
+        
+        // Получаем указатель на данные
+        let baseAddress = CVPixelBufferGetBaseAddress(imageBuffer)
+        let bytesPerRow = CVPixelBufferGetBytesPerRow(imageBuffer)
+        let bufferSize = bytesPerRow * height
+        
+        // Создаем Data из буфера
+        var frameData: Data?
+        if let baseAddress = baseAddress {
+            frameData = Data(bytes: baseAddress, count: bufferSize)
+        }
+        
         return [
             "width": width,
             "height": height,
             "timestamp": timestamp,
-            "pixelBuffer": imageBuffer
+            "pixelFormat": CVPixelBufferGetPixelFormatType(imageBuffer),
+            "bytesPerRow": bytesPerRow,
+            "dataSize": bufferSize,
+            // Для WebRTC нужны только метаданные, сами данные передаем отдельно
+            "hasData": frameData != nil
+        ]
+    }
+
+    func getAudioData() -> [String: Any]? {
+        guard let formatDesc = CMSampleBufferGetFormatDescription(self) else { return nil }
+        guard let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDesc) else { return nil }
+        
+        let numSamples = CMSampleBufferGetNumSamples(self)
+        let timestamp = CMSampleBufferGetPresentationTimeStamp(self).seconds
+        
+        // Получаем аудио данные
+        var audioBufferList = AudioBufferList()
+        var blockBuffer: CMBlockBuffer?
+        
+        CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
+            self,
+            bufferListSizeNeededOut: nil,
+            bufferListOut: &audioBufferList,
+            bufferListSize: MemoryLayout<AudioBufferList>.size,
+            blockBufferAllocator: nil,
+            blockBufferMemoryAllocator: nil,
+            flags: 0,
+            blockBufferOut: &blockBuffer
+        )
+        
+        return [
+            "sampleRate": asbd.pointee.mSampleRate,
+            "channels": asbd.pointee.mChannelsPerFrame,
+            "timestamp": timestamp,
+            "numSamples": numSamples,
+            "format": asbd.pointee.mFormatID,
+            "bitsPerChannel": asbd.pointee.mBitsPerChannel
         ]
     }
 }
@@ -59,6 +110,8 @@ actor CaptureActor {
     private var lastVideoTime: CMTime = .zero
     private var lastAudioTime: CMTime = .zero
     private let outputDelegate: CaptureOutputDelegate
+    private var directVideoCallback: ((CVImageBuffer, Double) -> Void)?
+    private var directAudioCallback: ((CMSampleBuffer) -> Void)?
 
     // WebRTC callbacks
     var videoBufferCallback: ((CMSampleBuffer) -> Void)?
@@ -269,52 +322,81 @@ actor CaptureActor {
         let streamConfig = SCStreamConfiguration()
         streamConfig.width = captureWidth
         streamConfig.height = captureHeight
+        
         if #available(macOS 13.0, *) {
+            // КРИТИЧНО: Включаем захват системного аудио
             streamConfig.capturesAudio = true
-            streamConfig.excludesCurrentProcessAudio = false
+            streamConfig.excludesCurrentProcessAudio = true // Исключаем звук самого Electron приложения
             streamConfig.sampleRate = 48000
-            streamConfig.channelCount = 1
+            streamConfig.channelCount = 2 // Стерео для системного звука
+            
+            // ВАЖНО: Для захвата звука конкретного приложения при типе "application"
+            if contentFilter != nil {
+                // Это автоматически настроит захват аудио от выбранного источника
+                print("Audio capture enabled for selected source")
+            }
         }
-        streamConfig.minimumFrameInterval = CMTime(value: 1, timescale: 30) // 30 FPS for WebRTC
-        streamConfig.queueDepth = 3 // Reduced for lower latency
+        
+        streamConfig.minimumFrameInterval = CMTime(value: 1, timescale: 30)
+        streamConfig.queueDepth = 3
         streamConfig.pixelFormat = kCVPixelFormatType_32BGRA
         streamConfig.showsCursor = true
 
+        // Создаем сессию для микрофона (опционально)
         let session = AVCaptureSession()
         captureSession = session
-        guard let audioDevice = AVCaptureDevice.default(for: .audio) else {
-            throw RecordingError("Microphone unavailable")
-        }
-        let audioInputDevice = try AVCaptureDeviceInput(device: audioDevice)
-        if session.canAddInput(audioInputDevice) {
-            session.addInput(audioInputDevice)
-            print("Microphone audio input added")
+        
+        // Добавляем микрофон только если нужно
+        if let audioDevice = AVCaptureDevice.default(for: .audio) {
+            do {
+                let audioInputDevice = try AVCaptureDeviceInput(device: audioDevice)
+                if session.canAddInput(audioInputDevice) {
+                    session.addInput(audioInputDevice)
+                    print("Microphone audio input added")
+                    
+                    let audioOutput = AVCaptureAudioDataOutput()
+                    audioOutput.setSampleBufferDelegate(outputDelegate, queue: sampleBufferQueue)
+                    if session.canAddOutput(audioOutput) {
+                        session.addOutput(audioOutput)
+                        print("Microphone audio output added")
+                    } else {
+                        print("Failed to add microphone audio output")
+                        captureSession = nil
+                    }
+                } else {
+                    print("Failed to add microphone audio input")
+                    captureSession = nil
+                }
+            } catch {
+                print("Microphone setup error: \(error), continuing without mic")
+                captureSession = nil
+            }
         } else {
-            throw RecordingError("Failed to add audio input")
-        }
-        let audioOutput = AVCaptureAudioDataOutput()
-        audioOutput.setSampleBufferDelegate(outputDelegate, queue: sampleBufferQueue)
-        if session.canAddOutput(audioOutput) {
-            session.addOutput(audioOutput)
-            print("Microphone audio output added")
-        } else {
-            throw RecordingError("Failed to add audio output")
+            print("Microphone unavailable, continuing without mic capture")
+            captureSession = nil
         }
 
         let streamLocal = SCStream(filter: contentFilter!, configuration: streamConfig, delegate: outputDelegate)
         try streamLocal.addStreamOutput(outputDelegate, type: .screen, sampleHandlerQueue: sampleBufferQueue)
+        
         if #available(macOS 13.0, *) {
+            // Добавляем обработчик для системного аудио
             try streamLocal.addStreamOutput(outputDelegate, type: .audio, sampleHandlerQueue: sampleBufferQueue)
+            print("System audio output handler added")
         }
         
         try await streamLocal.startCapture()
-        session.startRunning()
-        print("AVCaptureSession started, state: \(session.isRunning)")
+        
+        // Запускаем сессию микрофона только если она была создана
+        if let session = captureSession {
+            session.startRunning()
+            print("Microphone capture started")
+        }
         
         self.stream = streamLocal
         isCapturing = true
         isStreaming = true
-        print("Video and audio capture started for WebRTC streaming")
+        print("Video and audio capture started with system audio support")
     }
 
     private func requestMicrophoneAccess() async throws {
@@ -353,41 +435,26 @@ actor CaptureActor {
         
         let adjustedTime = presentationTime - firstSampleTime
         
-        var timingInfo = CMSampleTimingInfo(
-            duration: sampleBuffer.duration,
-            presentationTimeStamp: adjustedTime,
-            decodeTimeStamp: .invalid
-        )
-        
-        var newSampleBuffer: CMSampleBuffer?
-        CMSampleBufferCreateCopyWithNewTiming(
-            allocator: kCFAllocatorDefault,
-            sampleBuffer: sampleBuffer,
-            sampleTimingEntryCount: 1,
-            sampleTimingArray: &timingInfo,
-            sampleBufferOut: &newSampleBuffer
-        )
-        
-        guard let newSampleBuffer = newSampleBuffer else { return }
-        
         switch type {
         case .screen:
-            lastVideoTime = adjustedTime
-            print("Video buffer for WebRTC, time: \(adjustedTime.seconds)")
-            
-            // Send to traditional callback
-            videoBufferCallback?(newSampleBuffer)
-            
-            // Send processed frame data for WebRTC
-            if let frameData = newSampleBuffer.getVideoFrame() {
-                webrtcVideoCallback?(frameData)
+            if let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) {
+                // Прямая передача видео буфера
+                directVideoCallback?(imageBuffer, adjustedTime.seconds)
+                
+                // Также отправляем в существующие callbacks
+                videoBufferCallback?(sampleBuffer)
+                if let frameData = sampleBuffer.getVideoFrame() {
+                    webrtcVideoCallback?(frameData)
+                }
             }
             
         case .audio:
-            lastAudioTime = adjustedTime
-            print("Audio buffer for WebRTC, time: \(adjustedTime.seconds)")
-            audioBufferCallback?(newSampleBuffer)
-            webrtcAudioCallback?(newSampleBuffer)
+            // Прямая передача аудио буфера
+            directAudioCallback?(sampleBuffer)
+            
+            // Также отправляем в существующие callbacks
+            audioBufferCallback?(sampleBuffer)
+            webrtcAudioCallback?(sampleBuffer)
             
         default:
             break
@@ -478,6 +545,16 @@ actor CaptureActor {
         }
         
         return sources
+    }
+
+    func setDirectVideoCallback(_ callback: @escaping (CVImageBuffer, Double) -> Void) {
+        // Сохраняем прямой callback для видео буфера
+        self.directVideoCallback = callback
+    }
+
+    func setDirectAudioCallback(_ callback: @escaping (CMSampleBuffer) -> Void) {
+        // Сохраняем прямой callback для аудио буфера
+        self.directAudioCallback = callback
     }
 }
 

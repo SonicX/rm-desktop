@@ -1,8 +1,12 @@
-// Here's how your webrtc_wrapper.mm should be structured:
-
 #include <node.h>
 #include <uv.h>
 #include <node_object_wrap.h>
+#include <memory>
+#include <vector>
+#include <map>        // Добавьте этот include для std::map
+#include <string>     // Добавьте для std::string
+#include <chrono>     // Добавьте для std::chrono
+#include <atomic>     // Добавьте для std::atomic
 
 // Include Foundation and other frameworks first
 #import <Foundation/Foundation.h>
@@ -27,6 +31,18 @@ static std::atomic<bool> g_capture_active{false};
 static v8::Persistent<v8::Function> g_video_callback;
 static v8::Persistent<v8::Function> g_audio_callback;
 
+// Структура для хранения информации о потоке
+struct StreamInfo {
+    std::string streamId;
+    bool hasVideo;
+    bool hasAudio;
+    int width;
+    int height;
+    double frameRate;
+    int sampleRate;
+    int channels;
+};
+
 struct WorkData {
     uv_work_t request;
     Persistent<Promise::Resolver> resolver;
@@ -49,6 +65,9 @@ struct WorkData {
         sourceDict = nil;
     }
 };
+
+static std::map<std::string, StreamInfo> g_active_streams;
+
 
 void WorkAsync(uv_work_t* req) {
     @autoreleasepool {
@@ -374,8 +393,8 @@ void ForwardVideoFrame(const FunctionCallbackInfo<Value>& args) {
                 Local<Value> argv[] = { jsFrameData };
                 
                 v8::TryCatch try_catch(isolate);
-                callback->Call(context, Null(isolate), 1, argv);
-                if (try_catch.HasCaught()) {
+                MaybeLocal<Value> result = callback->Call(context, Null(isolate), 1, argv);
+                if (try_catch.HasCaught() || result.IsEmpty()) {
                     // Silently ignore callback errors to prevent crashes
                 }
             }
@@ -448,8 +467,8 @@ void ForwardAudioFrame(const FunctionCallbackInfo<Value>& args) {
                 Local<Value> argv[] = { jsAudioData };
                 
                 v8::TryCatch try_catch(isolate);
-                callback->Call(context, Null(isolate), 1, argv);
-                if (try_catch.HasCaught()) {
+                MaybeLocal<Value> result = callback->Call(context, Null(isolate), 1, argv);
+                if (try_catch.HasCaught() || result.IsEmpty()) {
                     // Silently ignore callback errors to prevent crashes
                 }
             }
@@ -557,6 +576,124 @@ void GetAvailableSources(const FunctionCallbackInfo<Value>& args) {
     );
 }
 
+// Функция для создания виртуального MediaStream ID
+void CreateVirtualStream(const FunctionCallbackInfo<Value>& args) {
+    Isolate* isolate = args.GetIsolate();
+    Local<Context> context = isolate->GetCurrentContext();
+    
+    if (args.Length() < 1 || !args[0]->IsObject()) {
+        isolate->ThrowException(Exception::TypeError(
+            String::NewFromUtf8(isolate, "Expected stream configuration object").ToLocalChecked()));
+        return;
+    }
+    
+    Local<Object> config = args[0]->ToObject(context).ToLocalChecked();
+    
+    // Генерируем уникальный ID для потока
+    auto now = std::chrono::system_clock::now();
+    auto timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
+    std::string streamId = "native-stream-" + std::to_string(timestamp);
+    
+    StreamInfo info;
+    info.streamId = streamId;
+    
+    // Получаем параметры видео
+    Local<Value> hasVideoVal = config->Get(context, String::NewFromUtf8(isolate, "hasVideo").ToLocalChecked()).ToLocalChecked();
+    info.hasVideo = hasVideoVal->BooleanValue(isolate);
+    
+    if (info.hasVideo) {
+        info.width = config->Get(context, String::NewFromUtf8(isolate, "width").ToLocalChecked())
+            .ToLocalChecked()->NumberValue(context).ToChecked();
+        info.height = config->Get(context, String::NewFromUtf8(isolate, "height").ToLocalChecked())
+            .ToLocalChecked()->NumberValue(context).ToChecked();
+        info.frameRate = config->Get(context, String::NewFromUtf8(isolate, "frameRate").ToLocalChecked())
+            .ToLocalChecked()->NumberValue(context).ToChecked();
+    }
+    
+    // Получаем параметры аудио
+    Local<Value> hasAudioVal = config->Get(context, String::NewFromUtf8(isolate, "hasAudio").ToLocalChecked()).ToLocalChecked();
+    info.hasAudio = hasAudioVal->BooleanValue(isolate);
+    
+    if (info.hasAudio) {
+        info.sampleRate = config->Get(context, String::NewFromUtf8(isolate, "sampleRate").ToLocalChecked())
+            .ToLocalChecked()->NumberValue(context).ToChecked();
+        info.channels = config->Get(context, String::NewFromUtf8(isolate, "channels").ToLocalChecked())
+            .ToLocalChecked()->NumberValue(context).ToChecked();
+    }
+    
+    // Сохраняем информацию о потоке
+    g_active_streams[streamId] = info;
+    
+    // Настраиваем прямые callbacks для этого потока
+    if (!g_manager) {
+        g_manager = [[CCaptureManager alloc] init];
+    }
+    
+    // Возвращаем ID потока
+    Local<Object> result = Object::New(isolate);
+    result->Set(context,
+        String::NewFromUtf8(isolate, "streamId").ToLocalChecked(),
+        String::NewFromUtf8(isolate, streamId.c_str()).ToLocalChecked()).ToChecked();
+    result->Set(context,
+        String::NewFromUtf8(isolate, "hasVideo").ToLocalChecked(),
+        v8::Boolean::New(isolate, info.hasVideo)).ToChecked();  // Используем v8::Boolean
+    result->Set(context,
+        String::NewFromUtf8(isolate, "hasAudio").ToLocalChecked(),
+        v8::Boolean::New(isolate, info.hasAudio)).ToChecked();  // Используем v8::Boolean
+    
+    args.GetReturnValue().Set(result);
+}
+
+// Функция для получения видео фрейма в формате, пригодном для WebRTC
+void GetVideoFrameData(const FunctionCallbackInfo<Value>& args) {
+    Isolate* isolate = args.GetIsolate();
+    Local<Context> context = isolate->GetCurrentContext();
+    
+    // Эта функция будет вызываться из JavaScript для получения последнего видео фрейма
+    // В реальной реализации здесь нужно будет:
+    // 1. Получить CVImageBuffer из последнего фрейма
+    // 2. Конвертировать в RGB/YUV формат
+    // 3. Передать как ArrayBuffer в JavaScript
+    
+    Local<Object> frameInfo = Object::New(isolate);
+    frameInfo->Set(context,
+        String::NewFromUtf8(isolate, "timestamp").ToLocalChecked(),
+        Number::New(isolate, g_video_frame_count.load())).ToChecked();
+    frameInfo->Set(context,
+        String::NewFromUtf8(isolate, "width").ToLocalChecked(),
+        Number::New(isolate, 1920)).ToChecked(); // Заглушка
+    frameInfo->Set(context,
+        String::NewFromUtf8(isolate, "height").ToLocalChecked(),
+        Number::New(isolate, 1080)).ToChecked(); // Заглушка
+    
+    args.GetReturnValue().Set(frameInfo);
+}
+
+// Функция для получения аудио данных в формате PCM
+void GetAudioFrameData(const FunctionCallbackInfo<Value>& args) {
+    Isolate* isolate = args.GetIsolate();
+    Local<Context> context = isolate->GetCurrentContext();
+    
+    // Эта функция будет вызываться из JavaScript для получения аудио данных
+    // В реальной реализации здесь нужно будет:
+    // 1. Получить CMSampleBuffer из последнего аудио фрейма
+    // 2. Извлечь PCM данные
+    // 3. Передать как Float32Array в JavaScript
+    
+    Local<Object> audioInfo = Object::New(isolate);
+    audioInfo->Set(context,
+        String::NewFromUtf8(isolate, "timestamp").ToLocalChecked(),
+        Number::New(isolate, g_audio_frame_count.load())).ToChecked();
+    audioInfo->Set(context,
+        String::NewFromUtf8(isolate, "sampleRate").ToLocalChecked(),
+        Number::New(isolate, 48000)).ToChecked();
+    audioInfo->Set(context,
+        String::NewFromUtf8(isolate, "channels").ToLocalChecked(),
+        Number::New(isolate, 2)).ToChecked();
+    
+    args.GetReturnValue().Set(audioInfo);
+}
+
 // Update your Init function to export the new methods
 void Init(Local<Object> exports, Local<Value> module, void* context) {
     NODE_SET_METHOD(exports, "testMethod", TestMethod);
@@ -573,6 +710,11 @@ void Init(Local<Object> exports, Local<Value> module, void* context) {
     NODE_SET_METHOD(exports, "forwardAudioFrame", ForwardAudioFrame);
 
     NODE_SET_METHOD(exports, "getAvailableSources", GetAvailableSources);
+
+    // Новые методы для MediaStream
+    NODE_SET_METHOD(exports, "createVirtualStream", CreateVirtualStream);
+    NODE_SET_METHOD(exports, "getVideoFrameData", GetVideoFrameData);
+    NODE_SET_METHOD(exports, "getAudioFrameData", GetAudioFrameData);
 }
 
 NODE_MODULE(NODE_GYP_MODULE_NAME, Init)
