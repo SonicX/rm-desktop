@@ -26,6 +26,7 @@
     "lint-css": "stylelint \"app/**/*.css\"",
     "lint-html": "htmlhint \"app/**/*.html\"",
     "lint-js": "xo",
+    "lint": "eslint \"**/*.{ts,tsx,js,jsx}\" --max-warnings 0",
     "prettier-non-js": "prettier --check --log-level=warn . \"!**/*.{js,ts}\"",
     "test": "tsc && npm run lint-html && npm run lint-css && npm run lint-js && npm run prettier-non-js",
     "test-e2e": "vite build && tape \"tests/**/*.js\"",
