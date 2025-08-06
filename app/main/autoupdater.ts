@@ -29,6 +29,11 @@ export async function appUpdater(updateFromMenu = true): Promise<UpdateCheckResu
     return null;
   }
 
+  if (!app.isPackaged) {
+    autoUpdater.forceDevUpdateConfig = true;
+    log.info("Dev mode: forceDevUpdateConfig enabled for update testing");
+  }
+
   let updateAvailable = false;
 
   const updateLogger = log.create({ logId: "updates" });

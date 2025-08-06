@@ -832,7 +832,7 @@ export class ServerManagerView {
         context.ellipse(64, 64, 64, 64, 0, 0, 2 * Math.PI);
         context.fill();
         context.textAlign = "center";
-        context.fillStyle = "white";
+        context.fillStyle = "#FFF";
         if (messageCount > 99) {
           context.font = "65px Helvetica";
           context.fillText("99+", 64, 85);
@@ -922,6 +922,10 @@ window.addEventListener("load", async () => {
           <div class="action-button" id="settings-action">
             <i class="material-icons md-48">settings</i>
             <span id="setting-tooltip" style="display: none">${t.__("Настройки")}</span>
+          </div>
+          <div class="action-button hidden" id="update-action">
+            <i class="material-icons md-48">update</i>
+            <span id="update-tooltip" style="display: none">${t.__("Обновить")}</span>
           </div>
           <div class="version-label">${appVersion}</div>
         </div>

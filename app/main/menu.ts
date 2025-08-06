@@ -59,14 +59,6 @@ function getHelpSubmenu(): MenuItemConstructorOptions[] {
           sendAction("open-about");
         }
       },
-    },
-    {
-      label: t.__("Help Center"),
-      click(focusedWindow) {
-        if (focusedWindow) {
-          sendAction("open-help");
-        }
-      },
     }
   ];
 }
@@ -342,11 +334,4 @@ function getPreviousServer(tabs: TabData[], activeTabIndex: number): number {
   return activeTabIndex;
 }
 
-export function setMenu(properties: MenuProperties): void {
-  const tpl =
-    process.platform === "darwin"
-      ? getDarwinTpl(properties)
-      : getOtherTpl(properties);
-  const menu = Menu.buildFromTemplate(tpl);
-  Menu.setApplicationMenu(menu);
-}
+export function setMenu(properties: MenuProperties): void { }

@@ -1,78 +1,78 @@
 Debugger attached.
 [33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
 
-  [32m[1mVITE[22m v5.4.19[39m  [2mready in [0m[1m410[22m[2m[0m ms[22m
+  VITE v5.4.19  ready in 274 ms
 
-  [32m➜[39m  [1mLocal[22m:   [36mhttp://localhost:[1m5173[22m/[39m
-[2m  [32m➜[39m  [1mNetwork[22m[2m: use [22m[1m--host[22m[2m to expose[22m
-[2m[32m  ➜[39m[22m[2m  press [22m[1mh + enter[22m[2m to show help[22m
-[36mvite v5.4.19 [32mbuilding SSR bundle for development...[36m[39m
-[36m
-watching for file changes...[39m
-[36mvite v5.4.19 [32mbuilding for development...[36m[39m
-[36m
-watching for file changes...[39m
-[36mvite v5.4.19 [32mbuilding for development...[36m[39m
-[36m
-watching for file changes...[39m
-[36m
-build started...[39m
-[36m
-build started...[39m
-[36m
-build started...[39m
+  ➜  Local:   http://localhost:5173/
+  ➜  Network: use --host to expose
+  ➜  press h + enter to show help
+vite v5.4.19 building SSR bundle for development...
+
+watching for file changes...
+vite v5.4.19 building for development...
+
+watching for file changes...
+vite v5.4.19 building for development...
+
+watching for file changes...
+
+build started...
+
+build started...
+
+build started...
 transforming...
 transforming...
 transforming...
-[32m✓[39m 6 modules transformed.
+✓ 6 modules transformed.
 rendering chunks...
 computing gzip size...
-[2mdist-electron/[22m[36mpreload.js  [39m[1m[2m38.34 kB[22m[1m[22m[2m │ gzip: 12.63 kB[22m[2m │ map: 21.11 kB[22m
-[36mbuilt in 1185ms.[39m
-[32m✓[39m 406 modules transformed.
+dist-electron/preload.js  38.34 kB │ gzip: 12.37 kB │ map: 21.11 kB
+built in 1601ms.
+✓ 406 modules transformed.
+✓ 1478 modules transformed.
 rendering chunks...
 computing gzip size...
-[2mdist-electron/[22m[36mrenderer.js  [39m[1m[33m790.72 kB[39m[22m[2m │ gzip: 169.06 kB[22m[2m │ map: 1,684.20 kB[22m
-[36mbuilt in 4460ms.[39m
-[32m✓[39m 1551 modules transformed.
 rendering chunks...
-[2mdist-electron/[22m[36mindex.js  [39m[1m[33m1,680.89 kB[39m[22m[2m │ map: 4,145.90 kB[22m
-[36mbuilt in 10512ms.[39m
-
+dist-electron/index.js  1,483.45 kB │ map: 3,728.49 kB
+built in 6110ms.
+dist-electron/renderer.js  790.95 kB │ gzip: 168.82 kB │ map: 1,684.49 kB
+built in 6342ms.
 Debugger attached.
-🖼 Создаём окно...
-mainUrl: file://C:\Users\User\Documents\IDE\zulip-desktop\zulip-desktop\dist-electron\app\renderer\main.html
+mainUrl: file:///Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron/app/renderer/main.html
+[80352:0731/143023.047258:ERROR:node_bindings.cc(378)] Most NODE_OPTIONs are not supported in packaged apps. See documentation for more details.
+[80352:0731/143023.047294:ERROR:node_bindings.cc(378)] Most NODE_OPTIONs are not supported in packaged apps. See documentation for more details.
+[80352:0731/143023.047299:ERROR:node_bindings.cc(378)] Most NODE_OPTIONs are not supported in packaged apps. See documentation for more details.
+[80352:0731/143023.047304:ERROR:node_bindings.cc(378)] Most NODE_OPTIONs are not supported in packaged apps. See documentation for more details.
+[80352:0731/143023.047308:ERROR:node_bindings.cc(378)] Most NODE_OPTIONs are not supported in packaged apps. See documentation for more details.
+[80353:0731/143023.333990:ERROR:system_services.cc(34)] SetApplicationIsDaemon: Error Domain=NSOSStatusErrorDomain Code=-50 "paramErr: error in user parameter list" (-50)
 ✅ Окно создано!
-✅ Окно создано!
-✅ Окно создано!-1
-✅ Окно создано!-2
-09:15:39.502 > Skip checkForUpdates because application is not packed and dev update config is not forced
-[09:15:39] Main: WebView будет создан с preload: C:\Users\User\Documents\IDE\zulip-desktop\zulip-desktop\dist-electron\preload.js, URL: https://connectrm-svz.ru/
-[09:15:40] Preload Log: ✅ Preload: Начало выполнения
+[14:30:23] Main: WebView будет создан с preload: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron/preload.js, URL: https://connectrm-svz.ru/
+[14:30:28] Preload Log: ✅ Preload: Начало выполнения
 Preload Log: ✅ Preload: Начало выполнения
-[09:15:40] Preload Log: ✅ Preload: Загружен для URL: https://connectrm-svz.ru/
+[14:30:28] Preload Log: ✅ Preload: Загружен для URL: https://connectrm-svz.ru/
 Preload Log: ✅ Preload: Загружен для URL: https://connectrm-svz.ru/
-[09:15:40] Preload Log: ✅ Preload: ipcRenderer.send: function, ipcRenderer.invoke: function
+[14:30:28] Preload Log: ✅ Preload: ipcRenderer.send: function, ipcRenderer.invoke: function
 Preload Log: ✅ Preload: ipcRenderer.send: function, ipcRenderer.invoke: function
-[09:15:40] Preload Log: ✅ Preload: Регистрация обработчика toggle-walkie-talkie
+[14:30:28] Preload Log: ✅ Preload: Регистрация обработчика toggle-walkie-talkie
 Preload Log: ✅ Preload: Регистрация обработчика toggle-walkie-talkie
-[09:15:41] Preload Log: Bridge: Установка слушателя события: logout
+[14:30:32] Preload Log: Bridge: Отправлено событие: total_unread_count [1]
+Preload Log: Bridge: Отправлено событие: total_unread_count [1]
+[14:30:32] Preload Log: Bridge: Установка слушателя события: logout
 Preload Log: Bridge: Установка слушателя события: logout
-[09:15:41] Preload Log: Bridge: Установка слушателя события: show-keyboard-shortcuts
+[14:30:32] Preload Log: Bridge: Установка слушателя события: show-keyboard-shortcuts
 Preload Log: Bridge: Установка слушателя события: show-keyboard-shortcuts
-[09:15:41] Preload Log: Bridge: Установка слушателя события: show-notification-settings
+[14:30:32] Preload Log: Bridge: Установка слушателя события: show-notification-settings
 Preload Log: Bridge: Установка слушателя события: show-notification-settings
-[09:15:41] Preload Log: Bridge: Установка слушателя события: open-desktop-picker
+[14:30:32] Preload Log: Bridge: Установка слушателя события: open-desktop-picker
 Preload Log: Bridge: Установка слушателя события: open-desktop-picker
-[09:15:41] Preload Log: Bridge: Установка слушателя события: requestDesktopSources
+[14:30:32] Preload Log: Bridge: Установка слушателя события: requestDesktopSources
 Preload Log: Bridge: Установка слушателя события: requestDesktopSources
-[09:15:41] Preload Log: Bridge: Установка слушателя события: walkie-talkie-status
+[14:30:32] Preload Log: Bridge: Установка слушателя события: walkie-talkie-status
 Preload Log: Bridge: Установка слушателя события: walkie-talkie-status
-[09:15:41] Preload Log: Bridge: Установка слушателя события: toggle-walkie-talkie
+[14:30:32] Preload Log: Bridge: Установка слушателя события: toggle-walkie-talkie
 Preload Log: Bridge: Установка слушателя события: toggle-walkie-talkie
-[09:15:41] Preload Log: Bridge: Установка слушателя события: send_notification_reply_message
+[14:30:32] Preload Log: Bridge: Установка слушателя события: send_notification_reply_message
 Preload Log: Bridge: Установка слушателя события: send_notification_reply_message
-[09:16:02] Main: Получено событие quit-app, закрытие приложения...
 Waiting for the debugger to disconnect...
-�訡��: �� 㤠���� ���� ����� "19244".
 Waiting for the debugger to disconnect...

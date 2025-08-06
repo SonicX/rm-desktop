@@ -1,10 +1,10 @@
 import { clipboard } from "electron/common";
 import {
   BrowserWindow,
-  globalShortcut,
   type IpcMainEvent,
   type WebContents,
   app,
+  Menu,
   dialog,
   powerMonitor,
   session,
@@ -30,7 +30,6 @@ import * as t from "../common/translation-util.js";
 import type { MenuProperties } from "../common/types.js";
 import type { RendererMessage, DesktopSource, JitsiLogData, WalkieTalkieStatus } from "../common/typed-ipc.js";
 
-import { appUpdater, shouldQuitForUpdate } from "./autoupdater.js";
 import * as BadgeSettings from "./badge-settings.js";
 import handleExternalLink from "./handle-external-link.js";
 import * as AppMenu from "./menu.js";
@@ -201,6 +200,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
     backgroundColor: '#333',
   });
 
+  Menu.setApplicationMenu(null);
   remoteMain.enable(win.webContents);
 
   win.webContents.on('preload-error', (event, preloadPath, error) => {
@@ -227,7 +227,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
       app.quit();
     }
 
-    if (!isQuitting && !shouldQuitForUpdate()) {
+    if (!isQuitting) {
       event.preventDefault();
 
       if (process.platform === "darwin") {
@@ -442,17 +442,12 @@ async function createMainWindow(): Promise<BrowserWindow> {
       mainWindow.show();
     }
   });
-
-  console.log("🖼 Создаём окно...");
   mainWindow = await createMainWindow();
-  console.log("✅ Окно создано!");
-  console.log("✅ Окно создано!-1");
-  console.log("✅ Окно создано!-2");
 
   ipcMain.on("forward-message", (event, channel, ...args) => {
-    log.info(`Main: Получено forward-message с каналом: ${channel}`);
+  log.info(`Main: Получено forward-message с каналом: ${channel}`);
     webContents.getAllWebContents().forEach(content => {
-      content.send("forward-message", channel, ...args);
+      content.send(channel, ...args);  // Измените здесь: channel вместо "forward-message"
     });
   });
 
@@ -522,12 +517,6 @@ async function createMainWindow(): Promise<BrowserWindow> {
     console.log(`Jitsi Log [${logData.level}]: ${logData.message}`);
   });
 
-  if (process.platform !== "darwin") {
-    const shouldHideMenu = ConfigUtil.getConfigItem("autoHideMenubar", false);
-    mainWindow.autoHideMenuBar = shouldHideMenu;
-    mainWindow.setMenuBarVisibility(!shouldHideMenu);
-  }
-
   const page = mainWindow.webContents;
 
   page.on("dom-ready", () => {
@@ -538,14 +527,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
     }
   });
 
-  page.once("did-frame-finish-load", () => {
-    if (ConfigUtil.getConfigItem("autoUpdate", true)) {
-      appUpdater().catch((error) => {
-        log.error("Ошибка при проверке обновлений:", error);
-      });
-    }
-  });
-
+  page.once("did-frame-finish-load", () => { });
 })();
 
 app.on("before-quit", () => {
@@ -555,41 +537,4 @@ app.on("before-quit", () => {
     keyboard.stopListener();
     log.info(`Main: Горячая клавиша ${currentHotkey} удалена при выходе`);
   }
-});
-
-autoUpdater.on("checking-for-update", () => {
-  log.info("Проверка обновлений...");
-});
-
-autoUpdater.on("update-available", (info) => {
-  log.info(`Доступно обновление: v${info.version}`);
-  mainWindow?.webContents.send("update_available", info.version);
-});
-
-autoUpdater.on("update-not-available", () => {
-  log.info("Обновлений нет.");
-});
-
-autoUpdater.on("download-progress", (progress) => {
-  log.info(`Прогресс загрузки: ${progress.percent}%`);
-  mainWindow?.webContents.send("update_progress", progress.percent);
-});
-
-autoUpdater.on("update-downloaded", () => {
-  log.info("Обновление загружено.");
-  mainWindow?.webContents.send("update_downloaded");
-});
-
-autoUpdater.on("error", (err) => {
-  log.error("Ошибка обновления:", err);
-  mainWindow?.webContents.send("update_error", err.message);
-});
-
-ipcMain.on("restart_app", () => {
-  autoUpdater.quitAndInstall();
-});
-
-process.on("uncaughtException", (error) => {
-  console.error(error);
-  console.error(error.stack);
 });
