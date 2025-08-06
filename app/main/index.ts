@@ -501,6 +501,218 @@ async function createMainWindow(): Promise<BrowserWindow> {
     });
   }
 
+  ipcMain.handle("trigger-native-stream-in-webview", async () => {
+    log.info("🎯[Jitsi] Triggering native stream injection...");
+    
+    try {
+        // Находим webContents с Zulip
+        const allContents = webContents.getAllWebContents();
+        let zulipContent = null;
+        
+        for (const content of allContents) {
+            const url = content.getURL();
+            if (url && url.includes('localhost:9991')) {
+                zulipContent = content;
+                log.info(`🎯[Jitsi] Found Zulip webContents: ${content.id}`);
+                break;
+            }
+        }
+        
+        if (!zulipContent) {
+            throw new Error('Zulip webContents not found');
+        }
+        
+        // Инжектируем код создания потока НАПРЯМУЮ в страницу
+        const injectionCode = `
+            (function() {
+                console.log('[Injected] 🎯 Starting native stream creation...');
+                
+                // Проверяем контекст
+                console.log('[Injected] Context check:');
+                console.log('  - URL:', window.location.href);
+                console.log('  - Has electron_bridge:', !!window.electron_bridge);
+                console.log('  - Has Jitsi iframe:', !!document.querySelector('iframe[id*="jitsi"]'));
+                
+                // Создаем MediaStream
+                const canvas = document.createElement('canvas');
+                canvas.width = 1920;
+                canvas.height = 1080;
+                const ctx = canvas.getContext('2d');
+                
+                if (!ctx) {
+                    console.error('[Injected] Failed to get canvas context');
+                    return { success: false, error: 'No canvas context' };
+                }
+                
+                let frame = 0;
+                let animationActive = true;
+                
+                function animate() {
+                    if (!animationActive) return;
+                    
+                    frame++;
+                    
+                    // Красивый градиент
+                    const gradient = ctx.createRadialGradient(960, 540, 0, 960, 540, 800);
+                    gradient.addColorStop(0, 'hsl(' + (frame % 360) + ', 100%, 50%)');
+                    gradient.addColorStop(0.5, 'hsl(' + ((frame + 120) % 360) + ', 100%, 40%)');
+                    gradient.addColorStop(1, 'hsl(' + ((frame + 240) % 360) + ', 100%, 30%)');
+                    ctx.fillStyle = gradient;
+                    ctx.fillRect(0, 0, 1920, 1080);
+                    
+                    // Основной текст
+                    ctx.fillStyle = 'white';
+                    ctx.font = 'bold 120px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.shadowColor = 'rgba(0,0,0,0.8)';
+                    ctx.shadowBlur = 20;
+                    ctx.fillText('🎯 ELECTRON NATIVE', 960, 400);
+                    
+                    ctx.font = 'bold 80px Arial';
+                    ctx.fillText('STREAM ACTIVE', 960, 520);
+                    
+                    ctx.font = 'bold 50px Arial';
+                    ctx.fillText('Frame: ' + frame, 960, 650);
+                    
+                    ctx.font = '40px Arial';
+                    const time = new Date().toLocaleTimeString();
+                    ctx.fillText(time, 960, 750);
+                    
+                    // Индикатор активности
+                    ctx.beginPath();
+                    ctx.arc(100, 100, 40, 0, 2 * Math.PI);
+                    ctx.fillStyle = (frame % 60 < 30) ? '#4CAF50' : '#FF5722';
+                    ctx.fill();
+                    
+                    requestAnimationFrame(animate);
+                }
+                animate();
+                
+                const stream = canvas.captureStream(30);
+                console.log('[Injected] ✅ Stream created:', stream.id);
+                console.log('[Injected] Video tracks:', stream.getVideoTracks().length);
+                
+                // Сохраняем глобально
+                window.electronNativeStream = stream;
+                
+                // Останавливаем через 60 секунд
+                setTimeout(() => {
+                    animationActive = false;
+                    stream.getTracks().forEach(track => track.stop());
+                    console.log('[Injected] Stream stopped after timeout');
+                }, 60000);
+                
+                // Ищем кнопку из paste.txt и кликаем
+                const buttons = document.querySelectorAll('button');
+                let foundButton = false;
+                
+                buttons.forEach(btn => {
+                    const onclick = btn.getAttribute('onclick');
+                    const text = btn.textContent;
+                    
+                    if ((onclick && onclick.includes('shareNativeStream')) || 
+                        (text && text.includes('Native Stream'))) {
+                        console.log('[Injected] ✅ Found native stream button:', text);
+                        btn.click();
+                        foundButton = true;
+                    }
+                });
+                
+                if (!foundButton) {
+                    console.log('[Injected] Native button not found, trying direct call...');
+                    
+                    // Пробуем вызвать функцию напрямую если она есть
+                    if (typeof window.shareNativeStream === 'function') {
+                        console.log('[Injected] Calling shareNativeStream()');
+                        window.shareNativeStream();
+                    }
+                    
+                    // Пробуем найти Jitsi API в iframe
+                    const jitsiFrame = document.querySelector('iframe[id*="jitsi"]');
+                    if (jitsiFrame && jitsiFrame.contentWindow) {
+                        console.log('[Injected] Found Jitsi iframe, posting message...');
+                        
+                        // Отправляем команду в iframe
+                        jitsiFrame.contentWindow.postMessage({
+                            type: 'shareExternalStream',
+                            stream: stream
+                        }, '*');
+                    }
+                }
+                
+                // Если есть electron_bridge, используем его
+                if (window.electron_bridge && window.electron_bridge.send_event) {
+                    console.log('[Injected] Sending via electron_bridge...');
+                    window.electron_bridge.send_event('native-stream-ready', {
+                        streamId: stream.id,
+                        hasStream: true
+                    });
+                }
+                
+                // Показываем уведомление
+                const notification = document.createElement('div');
+                notification.style.cssText = \`
+                    position: fixed;
+                    top: 50%;
+                    left: 50%;
+                    transform: translate(-50%, -50%);
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    color: white;
+                    padding: 40px 60px;
+                    border-radius: 20px;
+                    font-size: 24px;
+                    font-weight: bold;
+                    z-index: 1000000;
+                    text-align: center;
+                    box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+                    animation: slideIn 0.5s ease-out;
+                \`;
+                
+                notification.innerHTML = \`
+                    <div style="font-size: 60px; margin-bottom: 20px;">🚀</div>
+                    <div>Native Stream Created!</div>
+                    <div style="font-size: 16px; opacity: 0.9; margin-top: 10px;">Stream ID: \${stream.id}</div>
+                    <div style="font-size: 14px; opacity: 0.7; margin-top: 5px;">Check console for details</div>
+                \`;
+                
+                const style = document.createElement('style');
+                style.textContent = \`
+                    @keyframes slideIn {
+                        from { 
+                            transform: translate(-50%, -50%) scale(0.8); 
+                            opacity: 0; 
+                        }
+                        to { 
+                            transform: translate(-50%, -50%) scale(1); 
+                            opacity: 1; 
+                        }
+                    }
+                \`;
+                document.head.appendChild(style);
+                document.body.appendChild(notification);
+                
+                setTimeout(() => notification.remove(), 5000);
+                
+                return { 
+                    success: true, 
+                    streamId: stream.id,
+                    foundButton: foundButton,
+                    hasElectronBridge: !!window.electron_bridge
+                };
+            })();
+        `;
+        
+        const result = await zulipContent.executeJavaScript(injectionCode);
+        log.info(`🎯[Jitsi] Injection result: ${JSON.stringify(result)}`);
+        
+        return { success: true, injectionResult: result };
+        
+    } catch (error: any) {
+        log.error(`🎯[Jitsi] Error: ${error.message}`);
+        return { success: false, error: error.message };
+    }
+  });
+
   // Обработчик для тестирования Swift addon отдельно
   ipcMain.handle("get-swift-sources-direct", async () => {
     try {

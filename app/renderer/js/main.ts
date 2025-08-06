@@ -269,7 +269,7 @@ export class ServerManagerView {
 
   async initTabs(): Promise<void> {
     const server = {
-      url: "https://joinrm-svz.ru",
+      url: "http://localhost:9991",
       alias: "Цифровые технологии РМ",
       icon: "https://disk.yandex.ru/i/m2aj56OOhsJfyw",
       zulipVersion: app.getVersion()
@@ -1757,5 +1757,958 @@ window.addEventListener("load", async () => {
 
   // Добавить в конец window.addEventListener("load", ...) функции в main.ts:
   createTestButtons();
+
+
+
+
+
+  // === 2. Добавить в main.ts (в конец функции window.addEventListener("load", ...)) ===
+
+  // === ИСПРАВЛЕННАЯ ВЕРСИЯ ДЛЯ main.ts ===
+  // Замените функцию createJitsiNativeStreamTest() на эту версию
+
+  function createJitsiNativeStreamTest() {
+      console.log('🎯 Creating Jitsi Native Stream test button...');
+      
+      const testContainer = document.createElement('div');
+      testContainer.style.cssText = `
+          position: fixed;
+          top: 60px;
+          left: 20px;
+          z-index: 10000;
+          background: linear-gradient(45deg, #FF5722, #4CAF50);
+          padding: 2px;
+          border-radius: 10px;
+          box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+      `;
+      
+      const innerContainer = document.createElement('div');
+      innerContainer.style.cssText = `
+          background: rgba(0, 0, 0, 0.85);
+          padding: 15px;
+          border-radius: 8px;
+      `;
+      
+      const title = document.createElement('h3');
+      title.innerHTML = '🎯 Test New Jitsi API';
+      title.style.cssText = `
+          color: white;
+          margin: 0 0 15px 0;
+          font-size: 16px;
+          font-family: Arial, sans-serif;
+          text-align: center;
+      `;
+      innerContainer.appendChild(title);
+      
+      const statusDiv = document.createElement('div');
+      statusDiv.id = 'jitsi-stream-status';
+      statusDiv.innerHTML = '⚪ Ready';
+      statusDiv.style.cssText = `
+          color: white;
+          margin-bottom: 15px;
+          font-size: 14px;
+          text-align: center;
+          font-weight: bold;
+      `;
+      innerContainer.appendChild(statusDiv);
+      
+      const testButton = document.createElement('button');
+      testButton.innerHTML = '🚀 Start Native Stream';
+      testButton.style.cssText = `
+          width: 100%;
+          padding: 12px 20px;
+          background: linear-gradient(45deg, #4CAF50, #8BC34A);
+          color: white;
+          border: none;
+          border-radius: 6px;
+          cursor: pointer;
+          font-size: 14px;
+          font-weight: bold;
+          transition: all 0.3s ease;
+          box-shadow: 0 3px 6px rgba(76, 175, 80, 0.3);
+      `;
+      
+      testButton.onmouseover = () => {
+          testButton.style.transform = 'scale(1.05)';
+          testButton.style.boxShadow = '0 5px 10px rgba(76, 175, 80, 0.5)';
+      };
+      
+      testButton.onmouseout = () => {
+          testButton.style.transform = 'scale(1)';
+          testButton.style.boxShadow = '0 3px 6px rgba(76, 175, 80, 0.3)';
+      };
+      
+      let currentStream = null;
+      let isStreaming = false;
+      
+      testButton.onclick = async () => {
+          console.log('🎯 Test button clicked!');
+          
+          if (!isStreaming) {
+              testButton.disabled = true;
+              testButton.innerHTML = '⏳ Creating Stream...';
+              statusDiv.innerHTML = '🟡 Creating native stream...';
+              
+              try {
+                  // Шаг 1: Создаем тестовый MediaStream
+                  console.log('🎯 Step 1: Creating test MediaStream...');
+                  
+                  const canvas = document.createElement('canvas');
+                  canvas.width = 1920;
+                  canvas.height = 1080;
+                  const ctx = canvas.getContext('2d');
+                  
+                  if (!ctx) throw new Error('Failed to get canvas context');
+                  
+                  // Анимированный контент
+                  let frame = 0;
+                  const animate = () => {
+                      if (!isStreaming) return;
+                      
+                      frame++;
+                      
+                      // Градиентный фон
+                      const gradient = ctx.createRadialGradient(960, 540, 0, 960, 540, 600);
+                      gradient.addColorStop(0, `hsl(${frame % 360}, 70%, 50%)`);
+                      gradient.addColorStop(1, `hsl(${(frame + 180) % 360}, 60%, 30%)`);
+                      ctx.fillStyle = gradient;
+                      ctx.fillRect(0, 0, canvas.width, canvas.height);
+                      
+                      // Большой заголовок
+                      ctx.fillStyle = 'white';
+                      ctx.font = 'bold 120px Arial';
+                      ctx.textAlign = 'center';
+                      ctx.shadowColor = 'rgba(0,0,0,0.8)';
+                      ctx.shadowBlur = 20;
+                      ctx.fillText('🎯 ELECTRON → JITSI', 960, 450);
+                      
+                      // URL
+                      ctx.font = 'bold 60px Arial';
+                      ctx.fillText('Native Stream Active', 960, 550);
+                      
+                      // Счетчик кадров
+                      ctx.font = 'bold 40px Arial';
+                      ctx.fillText(`Frame: ${frame}`, 960, 650);
+                      
+                      // Время
+                      ctx.font = 'bold 35px Arial';
+                      const time = new Date().toLocaleTimeString();
+                      ctx.fillText(time, 960, 720);
+                      
+                      // Индикатор активности
+                      ctx.beginPath();
+                      ctx.arc(100, 100, 30, 0, 2 * Math.PI);
+                      ctx.fillStyle = frame % 60 < 30 ? '#4CAF50' : '#FF5722';
+                      ctx.fill();
+                      
+                      requestAnimationFrame(animate);
+                  };
+                  
+                  currentStream = canvas.captureStream(30);
+                  isStreaming = true;
+                  animate();
+                  
+                  console.log(`✅ MediaStream created: ${currentStream.id}`);
+                  console.log(`   Video tracks: ${currentStream.getVideoTracks().length}`);
+                  console.log(`   Audio tracks: ${currentStream.getAudioTracks().length}`);
+                  
+                  statusDiv.innerHTML = '🟡 Sending to Jitsi...';
+                  testButton.innerHTML = '📡 Sending Stream...';
+                  
+                  // Шаг 2: Находим webview и отправляем поток
+                  console.log('🎯 Step 2: Finding Zulip/Jitsi webview...');
+                  
+                  const webviews = document.querySelectorAll('webview');
+                  let jitsiWebview = null;
+                  
+                  for (const webview of webviews) {
+                      // Используем getAttribute вместо getURL
+                      const src = webview.getAttribute('src');
+                      console.log(`Checking webview src: ${src}`);
+                      
+                      if (src && (src.includes('localhost:9991') || src.includes('connectrm-svz.ru') || src.includes('joinrm-svz.ru'))) {
+                          jitsiWebview = webview;
+                          console.log('✅ Found target webview!');
+                          break;
+                      }
+                  }
+                  
+                  if (jitsiWebview) {
+                      console.log('🎯 Step 3: Injecting stream handler into webview...');
+                      
+                      // Инжектируем код для передачи потока в Jitsi
+                      const injectionCode = `
+                          (function() {
+                              console.log('[Injected] 🎯 Looking for Jitsi API and creating stream...');
+                              
+                              // Создаем canvas прямо в контексте webview
+                              const canvas = document.createElement('canvas');
+                              canvas.width = 1920;
+                              canvas.height = 1080;
+                              const ctx = canvas.getContext('2d');
+                              
+                              let frame = 0;
+                              function animate() {
+                                  frame++;
+                                  
+                                  // Градиент
+                                  const gradient = ctx.createRadialGradient(960, 540, 0, 960, 540, 600);
+                                  gradient.addColorStop(0, 'hsl(' + (frame % 360) + ', 70%, 50%)');
+                                  gradient.addColorStop(1, 'hsl(' + ((frame + 180) % 360) + ', 60%, 30%)');
+                                  ctx.fillStyle = gradient;
+                                  ctx.fillRect(0, 0, 1920, 1080);
+                                  
+                                  // Текст
+                                  ctx.fillStyle = 'white';
+                                  ctx.font = 'bold 120px Arial';
+                                  ctx.textAlign = 'center';
+                                  ctx.fillText('🎯 NATIVE STREAM', 960, 500);
+                                  
+                                  ctx.font = '60px Arial';
+                                  ctx.fillText('Frame: ' + frame, 960, 650);
+                                  
+                                  requestAnimationFrame(animate);
+                              }
+                              animate();
+                              
+                              const stream = canvas.captureStream(30);
+                              console.log('[Injected] ✅ Stream created:', stream.id);
+                              
+                              // Ищем кнопку или триггерим событие для handleDesktopSourcesResponse
+                              // Проверяем, есть ли кнопка из paste.txt
+                              const testButton = document.querySelector('button[onclick*="shareNativeStream"]');
+                              if (testButton) {
+                                  console.log('[Injected] 🎯 Found native stream button, clicking...');
+                                  testButton.click();
+                                  return { success: true, method: 'button_click' };
+                              }
+                              
+                              // Если есть глобальная функция shareNativeStream
+                              if (typeof window.shareNativeStream === 'function') {
+                                  console.log('[Injected] 🎯 Calling shareNativeStream directly...');
+                                  window.shareNativeStream();
+                                  return { success: true, method: 'direct_call' };
+                              }
+                              
+                              // Пробуем найти API напрямую в iframe
+                              const iframes = document.querySelectorAll('iframe[id*="jitsi"]');
+                              for (const iframe of iframes) {
+                                  try {
+                                      if (iframe.contentWindow && iframe.contentWindow.postMessage) {
+                                          console.log('[Injected] 🎯 Sending stream via postMessage to iframe');
+                                          iframe.contentWindow.postMessage({
+                                              type: 'shareExternalStream',
+                                              stream: stream
+                                          }, '*');
+                                          return { success: true, method: 'postMessage' };
+                                      }
+                                  } catch (e) {
+                                      console.log('[Injected] Cannot access iframe:', e);
+                                  }
+                              }
+                              
+                              // Создаем событие для electron_bridge если он есть
+                              if (window.electron_bridge && window.electron_bridge.send_event) {
+                                  console.log('[Injected] 🎯 Sending via electron_bridge');
+                                  window.electron_bridge.send_event('jitsi-share-external-stream', {
+                                      stream: stream,
+                                      streamId: stream.id
+                                  });
+                                  return { success: true, method: 'electron_bridge' };
+                              }
+                              
+                              return { success: false, error: 'No suitable method found' };
+                          })();
+                      `;
+                      
+                      try {
+                          const result = await jitsiWebview.executeJavaScript(injectionCode);
+                          console.log('✅ Injection result:', result);
+                          
+                          if (result && result.success) {
+                              statusDiv.innerHTML = '🟢 Stream Active!';
+                              testButton.innerHTML = '⏹️ Stop Stream';
+                              testButton.style.background = 'linear-gradient(45deg, #f44336, #d32f2f)';
+                              
+                              // Показываем уведомление
+                              showNotification('🎉 Native Stream Active!', `Stream shared via ${result.method}`);
+                          } else {
+                              throw new Error(result?.error || 'Failed to share stream');
+                          }
+                          
+                      } catch (error) {
+                          console.error('❌ Injection error:', error);
+                          throw error;
+                      }
+                      
+                  } else {
+                      throw new Error('Target webview not found. Please make sure Zulip is loaded.');
+                  }
+                  
+              } catch (error) {
+                  console.error('❌ Error:', error);
+                  statusDiv.innerHTML = `❌ Error: ${error.message}`;
+                  testButton.innerHTML = '🚀 Start Native Stream';
+                  testButton.style.background = 'linear-gradient(45deg, #4CAF50, #8BC34A)';
+                  isStreaming = false;
+                  
+                  if (currentStream) {
+                      currentStream.getTracks().forEach(track => track.stop());
+                      currentStream = null;
+                  }
+                  
+                  alert(`❌ Failed to start native stream:\n\n${error.message}`);
+              }
+              
+          } else {
+              // Останавливаем поток
+              console.log('⏹️ Stopping stream...');
+              isStreaming = false;
+              
+              if (currentStream) {
+                  currentStream.getTracks().forEach(track => track.stop());
+                  currentStream = null;
+              }
+              
+              statusDiv.innerHTML = '🔴 Stopped';
+              testButton.innerHTML = '🚀 Start Native Stream';
+              testButton.style.background = 'linear-gradient(45deg, #4CAF50, #8BC34A)';
+          }
+          
+          testButton.disabled = false;
+      };
+      
+      // Функция показа уведомления
+      function showNotification(title, message) {
+          const notification = document.createElement('div');
+          notification.style.cssText = `
+              position: fixed;
+              top: 50%;
+              left: 50%;
+              transform: translate(-50%, -50%);
+              background: linear-gradient(45deg, #4CAF50, #8BC34A);
+              color: white;
+              padding: 30px 50px;
+              border-radius: 20px;
+              font-family: Arial, sans-serif;
+              font-size: 20px;
+              font-weight: bold;
+              z-index: 1000000;
+              text-align: center;
+              box-shadow: 0 15px 35px rgba(76, 175, 80, 0.5);
+              animation: pulse 2s ease infinite;
+          `;
+          
+          const style = document.createElement('style');
+          style.textContent = `
+              @keyframes pulse {
+                  0%, 100% { transform: translate(-50%, -50%) scale(1); }
+                  50% { transform: translate(-50%, -50%) scale(1.05); }
+              }
+          `;
+          document.head.appendChild(style);
+          
+          notification.innerHTML = `
+              <div style="font-size: 48px; margin-bottom: 15px;">🎯</div>
+              <div style="margin-bottom: 10px;">${title}</div>
+              <div style="font-size: 14px; opacity: 0.9;">${message}</div>
+          `;
+          
+          document.body.appendChild(notification);
+          
+          setTimeout(() => notification.remove(), 5000);
+      }
+      
+      innerContainer.appendChild(testButton);
+      testContainer.appendChild(innerContainer);
+      document.body.appendChild(testContainer);
+      
+      console.log('✅ Jitsi Native Stream test button created');
+  }
+
+  // Вызовите эту функцию в window.addEventListener("load", ...) после создания ServerManagerView
+
+  // Вызываем создание кнопки после загрузки
+  createJitsiNativeStreamTest();
+
+
+  function createWorkingJitsiTest() {
+      console.log('🎯 Creating working Jitsi test button...');
+      
+      const testBtn = document.createElement('button');
+      testBtn.innerHTML = '🎯 Send Stream to Jitsi';
+      testBtn.style.cssText = `
+          position: fixed;
+          bottom: 20px;
+          left: 20px;
+          z-index: 10000;
+          padding: 15px 30px;
+          background: linear-gradient(45deg, #FF5722, #4CAF50);
+          color: white;
+          border: none;
+          border-radius: 25px;
+          cursor: pointer;
+          font-size: 16px;
+          font-weight: bold;
+          box-shadow: 0 5px 15px rgba(255, 87, 34, 0.5);
+          transition: all 0.3s ease;
+      `;
+      
+      testBtn.onmouseover = () => {
+          testBtn.style.transform = 'scale(1.05)';
+          testBtn.style.boxShadow = '0 8px 20px rgba(255, 87, 34, 0.7)';
+      };
+      
+      testBtn.onmouseout = () => {
+          testBtn.style.transform = 'scale(1)';
+          testBtn.style.boxShadow = '0 5px 15px rgba(255, 87, 34, 0.5)';
+      };
+      
+      let isStreaming = false;
+      
+      testBtn.onclick = async () => {
+          console.log('🎯 Working test button clicked!');
+          
+          if (!isStreaming) {
+              testBtn.disabled = true;
+              testBtn.innerHTML = '⏳ Starting...';
+              
+              try {
+                  // Находим webview с Zulip
+                  const webviews = document.querySelectorAll('webview');
+                  let targetWebview = null;
+                  
+                  for (const webview of webviews) {
+                      const src = webview.getAttribute('src');
+                      if (src && src.includes('localhost:9991')) {
+                          targetWebview = webview;
+                          console.log('✅ Found Zulip webview');
+                          break;
+                      }
+                  }
+                  
+                  if (!targetWebview) {
+                      throw new Error('Zulip webview not found');
+                  }
+                  
+                  // Отправляем команду через webview.send
+                  console.log('📡 Sending create-and-share-native-stream command...');
+                  targetWebview.send('create-and-share-native-stream');
+                  
+                  // Также триггерим через electron_bridge если он доступен
+                  if (window.electron_bridge) {
+                      window.electron_bridge.send_event('create-and-share-native-stream');
+                  }
+                  
+                  isStreaming = true;
+                  testBtn.innerHTML = '⏹️ Stop Stream';
+                  testBtn.style.background = 'linear-gradient(45deg, #f44336, #d32f2f)';
+                  
+                  console.log('✅ Command sent to create and share native stream');
+                  
+                  // Показываем уведомление
+                  const notification = document.createElement('div');
+                  notification.style.cssText = `
+                      position: fixed;
+                      top: 50%;
+                      left: 50%;
+                      transform: translate(-50%, -50%);
+                      background: linear-gradient(45deg, #4CAF50, #8BC34A);
+                      color: white;
+                      padding: 30px 50px;
+                      border-radius: 20px;
+                      font-size: 20px;
+                      font-weight: bold;
+                      z-index: 1000000;
+                      text-align: center;
+                      box-shadow: 0 15px 35px rgba(76, 175, 80, 0.5);
+                  `;
+                  notification.innerHTML = `
+                      <div style="font-size: 48px; margin-bottom: 15px;">🚀</div>
+                      <div>Stream Command Sent!</div>
+                      <div style="font-size: 14px; opacity: 0.9; margin-top: 10px;">Check Jitsi meeting for native stream</div>
+                  `;
+                  document.body.appendChild(notification);
+                  setTimeout(() => notification.remove(), 3000);
+                  
+              } catch (error) {
+                  console.error('❌ Error:', error);
+                  alert(`Error: ${error.message}`);
+                  testBtn.innerHTML = '🎯 Send Stream to Jitsi';
+                  isStreaming = false;
+              }
+              
+          } else {
+              // Останавливаем
+              isStreaming = false;
+              testBtn.innerHTML = '🎯 Send Stream to Jitsi';
+              testBtn.style.background = 'linear-gradient(45deg, #FF5722, #4CAF50)';
+          }
+          
+          testBtn.disabled = false;
+      };
+      
+      document.body.appendChild(testBtn);
+      console.log('✅ Working Jitsi test button created');
+  }
+
+  // Добавьте вызов в window.addEventListener("load", ...)
+  createWorkingJitsiTest();
+
+
+
+  function createFinalWorkingButton() {
+    console.log('🚀 Creating final working Jitsi button...');
+    
+    const btn = document.createElement('button');
+    btn.innerHTML = '🚀 Stream to Jitsi (IPC)';
+    btn.style.cssText = `
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        z-index: 10000;
+        padding: 15px 30px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border: none;
+        border-radius: 30px;
+        cursor: pointer;
+        font-size: 16px;
+        font-weight: bold;
+        box-shadow: 0 10px 30px rgba(102, 126, 234, 0.4);
+        transition: all 0.3s ease;
+    `;
+    
+    btn.onmouseover = () => {
+        btn.style.transform = 'translateY(-2px)';
+        btn.style.boxShadow = '0 15px 40px rgba(102, 126, 234, 0.6)';
+    };
+    
+    btn.onmouseout = () => {
+        btn.style.transform = 'translateY(0)';
+        btn.style.boxShadow = '0 10px 30px rgba(102, 126, 234, 0.4)';
+    };
+    
+    let isActive = false;
+    
+    btn.onclick = async () => {
+        if (isActive) return;
+        
+        console.log('🚀 Final button clicked!');
+        btn.disabled = true;
+        btn.innerHTML = '⏳ Sending...';
+        isActive = true;
+        
+        try {
+            // Используем IPC для отправки команды в main процесс
+            const result = await ipcRenderer.invoke('trigger-native-stream-in-webview');
+            console.log('🚀 IPC result:', result);
+            
+            if (result.success) {
+                btn.innerHTML = '✅ Stream Active!';
+                btn.style.background = 'linear-gradient(135deg, #4CAF50, #8BC34A)';
+                
+                // Показываем уведомление
+                const notification = document.createElement('div');
+                notification.style.cssText = `
+                    position: fixed;
+                    top: 20px;
+                    left: 50%;
+                    transform: translateX(-50%);
+                    background: #4CAF50;
+                    color: white;
+                    padding: 15px 30px;
+                    border-radius: 10px;
+                    font-size: 16px;
+                    font-weight: bold;
+                    z-index: 100000;
+                    box-shadow: 0 5px 15px rgba(76, 175, 80, 0.3);
+                    animation: fadeIn 0.3s ease;
+                `;
+                notification.innerHTML = '🎯 Stream command sent! Check Jitsi window.';
+                
+                document.body.appendChild(notification);
+                setTimeout(() => notification.remove(), 4000);
+                
+                // Сбрасываем кнопку через 5 секунд
+                setTimeout(() => {
+                    btn.innerHTML = '🚀 Stream to Jitsi (IPC)';
+                    btn.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
+                    btn.disabled = false;
+                    isActive = false;
+                }, 5000);
+                
+            } else {
+                throw new Error(result.error || 'Unknown error');
+            }
+            
+        } catch (error) {
+            console.error('🚀 Error:', error);
+            btn.innerHTML = '❌ Error';
+            btn.style.background = 'linear-gradient(135deg, #f44336, #d32f2f)';
+            
+            setTimeout(() => {
+                btn.innerHTML = '🚀 Stream to Jitsi (IPC)';
+                btn.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
+                btn.disabled = false;
+                isActive = false;
+            }, 3000);
+        }
+    };
+    
+    document.body.appendChild(btn);
+    console.log('✅ Final working button created');
+  }
+
+  // Вызовите в main.ts
+  createFinalWorkingButton();
+
+
+  function createDebugTestButton() {
+    console.log('🔍 Creating debug test button...');
+    
+    const container = document.createElement('div');
+    container.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 10000;
+        background: rgba(0, 0, 0, 0.9);
+        color: white;
+        padding: 15px;
+        border-radius: 10px;
+        font-family: monospace;
+        font-size: 12px;
+        max-width: 400px;
+        box-shadow: 0 5px 20px rgba(0,0,0,0.5);
+    `;
+    
+    const title = document.createElement('h3');
+    title.innerHTML = '🔍 Stream Debug Panel';
+    title.style.cssText = 'margin: 0 0 10px 0; color: #4CAF50;';
+    container.appendChild(title);
+    
+    const log = document.createElement('div');
+    log.id = 'debug-log';
+    log.style.cssText = `
+        background: #111;
+        padding: 10px;
+        border-radius: 5px;
+        margin-bottom: 10px;
+        max-height: 200px;
+        overflow-y: auto;
+        white-space: pre-wrap;
+        font-size: 11px;
+        color: #0f0;
+    `;
+    log.innerHTML = '📝 Ready for testing...\n';
+    container.appendChild(log);
+    
+    function addLog(message, color = '#0f0') {
+        const timestamp = new Date().toTimeString().split(' ')[0];
+        const entry = document.createElement('div');
+        entry.style.color = color;
+        entry.innerHTML = `[${timestamp}] ${message}`;
+        log.appendChild(entry);
+        log.scrollTop = log.scrollHeight;
+    }
+    
+    // Кнопка 1: Проверка WebView
+    const checkBtn = document.createElement('button');
+    checkBtn.innerHTML = '1️⃣ Check WebView';
+    checkBtn.style.cssText = `
+        width: 100%;
+        margin: 5px 0;
+        padding: 8px;
+        background: #2196F3;
+        color: white;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        font-weight: bold;
+    `;
+    
+    checkBtn.onclick = () => {
+        addLog('Checking webviews...', '#fff');
+        const webviews = document.querySelectorAll('webview');
+        
+        webviews.forEach((wv, index) => {
+            const src = wv.getAttribute('src');
+            addLog(`WebView ${index}: ${src ? src.substring(0, 50) + '...' : 'NO SRC'}`, '#ffeb3b');
+            
+            // Проверяем доступные методы
+            if (wv.getWebContents) {
+                addLog(`  ✅ Has getWebContents()`, '#4CAF50');
+            }
+            if (wv.send) {
+                addLog(`  ✅ Has send()`, '#4CAF50');
+            }
+            if (wv.executeJavaScript) {
+                addLog(`  ✅ Has executeJavaScript()`, '#4CAF50');
+            }
+        });
+        
+        if (webviews.length === 0) {
+            addLog('❌ No webviews found!', '#f44336');
+        }
+    };
+    container.appendChild(checkBtn);
+    
+    // Кнопка 2: Создать поток локально
+    const createStreamBtn = document.createElement('button');
+    createStreamBtn.innerHTML = '2️⃣ Create Local Stream';
+    createStreamBtn.style.cssText = `
+        width: 100%;
+        margin: 5px 0;
+        padding: 8px;
+        background: #4CAF50;
+        color: white;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        font-weight: bold;
+    `;
+    
+    let localStream = null;
+    
+    createStreamBtn.onclick = () => {
+        try {
+            addLog('Creating local MediaStream...', '#fff');
+            
+            const canvas = document.createElement('canvas');
+            canvas.width = 640;
+            canvas.height = 480;
+            const ctx = canvas.getContext('2d');
+            
+            let frame = 0;
+            function draw() {
+                frame++;
+                ctx.fillStyle = `hsl(${frame % 360}, 70%, 50%)`;
+                ctx.fillRect(0, 0, 640, 480);
+                ctx.fillStyle = 'white';
+                ctx.font = '30px Arial';
+                ctx.fillText(`Frame: ${frame}`, 200, 240);
+                requestAnimationFrame(draw);
+            }
+            draw();
+            
+            localStream = canvas.captureStream(30);
+            window.debugTestStream = localStream; // Сохраняем глобально
+            
+            addLog(`✅ Stream created: ${localStream.id}`, '#4CAF50');
+            addLog(`  Video tracks: ${localStream.getVideoTracks().length}`, '#4CAF50');
+            addLog(`  Audio tracks: ${localStream.getAudioTracks().length}`, '#4CAF50');
+            
+        } catch (error) {
+            addLog(`❌ Error: ${error.message}`, '#f44336');
+        }
+    };
+    container.appendChild(createStreamBtn);
+    
+    // Кнопка 3: Отправить через IPC
+    const sendIPCBtn = document.createElement('button');
+    sendIPCBtn.innerHTML = '3️⃣ Send via IPC';
+    sendIPCBtn.style.cssText = `
+        width: 100%;
+        margin: 5px 0;
+        padding: 8px;
+        background: #FF9800;
+        color: white;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        font-weight: bold;
+    `;
+    
+    sendIPCBtn.onclick = async () => {
+        addLog('Sending IPC command...', '#fff');
+        
+        try {
+            const result = await ipcRenderer.invoke('trigger-native-stream-in-webview');
+            addLog(`✅ IPC Result: ${JSON.stringify(result)}`, '#4CAF50');
+        } catch (error) {
+            addLog(`❌ IPC Error: ${error.message}`, '#f44336');
+        }
+    };
+    container.appendChild(sendIPCBtn);
+    
+    // Кнопка 4: Проверить Jitsi API
+    const checkJitsiBtn = document.createElement('button');
+    checkJitsiBtn.innerHTML = '4️⃣ Check Jitsi in WebView';
+    checkJitsiBtn.style.cssText = `
+        width: 100%;
+        margin: 5px 0;
+        padding: 8px;
+        background: #9C27B0;
+        color: white;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        font-weight: bold;
+    `;
+    
+    checkJitsiBtn.onclick = async () => {
+        addLog('Checking Jitsi API in webview...', '#fff');
+        
+        const webviews = document.querySelectorAll('webview');
+        for (const wv of webviews) {
+            const src = wv.getAttribute('src');
+            if (src && src.includes('localhost:9991')) {
+                addLog('Found Zulip webview, checking...', '#ffeb3b');
+                
+                // Пробуем получить webContents через remote
+                try {
+                    if (wv.getWebContents && typeof wv.getWebContents === 'function') {
+                        const webContents = wv.getWebContents();
+                        addLog('✅ Got webContents', '#4CAF50');
+                        
+                        // Пробуем выполнить код
+                        const code = `
+                            (function() {
+                                const result = {
+                                    hasElectronBridge: !!window.electron_bridge,
+                                    hasNativeStream: !!window.nativeTestStream,
+                                    hasDebugStream: !!window.debugTestStream,
+                                    hasJitsiAPI: !!window.api,
+                                    hasShareExternalStream: !!(window.api && window.api.shareExternalStream)
+                                };
+                                return result;
+                            })()
+                        `;
+                        
+                        const result = await webContents.executeJavaScript(code);
+                        addLog(`WebView context check:`, '#fff');
+                        addLog(`  electron_bridge: ${result.hasElectronBridge}`, result.hasElectronBridge ? '#4CAF50' : '#f44336');
+                        addLog(`  nativeTestStream: ${result.hasNativeStream}`, result.hasNativeStream ? '#4CAF50' : '#f44336');
+                        addLog(`  debugTestStream: ${result.hasDebugStream}`, result.hasDebugStream ? '#4CAF50' : '#f44336');
+                        addLog(`  Jitsi API: ${result.hasJitsiAPI}`, result.hasJitsiAPI ? '#4CAF50' : '#f44336');
+                        addLog(`  shareExternalStream: ${result.hasShareExternalStream}`, result.hasShareExternalStream ? '#4CAF50' : '#f44336');
+                        
+                    } else {
+                        addLog('❌ No getWebContents method', '#f44336');
+                    }
+                } catch (error) {
+                    addLog(`❌ Check error: ${error.message}`, '#f44336');
+                }
+            }
+        }
+    };
+    container.appendChild(checkJitsiBtn);
+    
+    // Кнопка 5: Прямая отправка в WebView
+    const directSendBtn = document.createElement('button');
+    directSendBtn.innerHTML = '5️⃣ Direct WebView Message';
+    directSendBtn.style.cssText = `
+        width: 100%;
+        margin: 5px 0;
+        padding: 8px;
+        background: #FF5722;
+        color: white;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        font-weight: bold;
+    `;
+    
+    directSendBtn.onclick = () => {
+        addLog('Trying direct message to webview...', '#fff');
+        
+        // Используем ipcRenderer для отправки в main, а оттуда в webview
+        ipcRenderer.send('forward-message', 'create-native-stream-for-jitsi');
+        addLog('✅ Sent forward-message', '#4CAF50');
+    };
+    container.appendChild(directSendBtn);
+    
+    document.body.appendChild(container);
+    console.log('✅ Debug panel created');
+  }
+
+  // Вызовите эту функцию в main.ts
+  createDebugTestButton();
+
+  function createSimpleFinalButton() {
+    console.log('💎 Creating simple final test button...');
+    
+    const btn = document.createElement('button');
+    btn.innerHTML = '💎 Inject Stream to Zulip';
+    btn.style.cssText = `
+        position: fixed;
+        bottom: 80px;
+        right: 20px;
+        z-index: 10000;
+        padding: 15px 30px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border: none;
+        border-radius: 30px;
+        cursor: pointer;
+        font-size: 16px;
+        font-weight: bold;
+        box-shadow: 0 10px 30px rgba(102, 126, 234, 0.4);
+        transition: all 0.3s ease;
+    `;
+    
+    btn.onmouseover = () => {
+        btn.style.transform = 'translateY(-2px) scale(1.05)';
+        btn.style.boxShadow = '0 15px 40px rgba(102, 126, 234, 0.6)';
+    };
+    
+    btn.onmouseout = () => {
+        btn.style.transform = 'translateY(0) scale(1)';
+        btn.style.boxShadow = '0 10px 30px rgba(102, 126, 234, 0.4)';
+    };
+    
+    btn.onclick = async () => {
+        console.log('💎 Injecting stream to Zulip...');
+        btn.disabled = true;
+        btn.innerHTML = '⏳ Injecting...';
+        
+        try {
+            const result = await ipcRenderer.invoke('trigger-native-stream-in-webview');
+            console.log('💎 Result:', result);
+            
+            if (result.success) {
+                btn.innerHTML = '✅ Stream Injected!';
+                btn.style.background = 'linear-gradient(135deg, #4CAF50, #8BC34A)';
+                
+                // Показать детали
+                if (result.injectionResult) {
+                    const details = result.injectionResult;
+                    console.log('💎 Injection details:', details);
+                    
+                    alert(`✅ Stream Successfully Injected!\n\n` +
+                          `Stream ID: ${details.streamId || 'N/A'}\n` +
+                          `Found Button: ${details.foundButton ? 'Yes' : 'No'}\n` +
+                          `Has electron_bridge: ${details.hasElectronBridge ? 'Yes' : 'No'}\n\n` +
+                          `Check Jitsi meeting window!`);
+                }
+                
+            } else {
+                throw new Error(result.error || 'Unknown error');
+            }
+            
+        } catch (error: any) {
+            console.error('💎 Error:', error);
+            btn.innerHTML = '❌ Failed';
+            btn.style.background = 'linear-gradient(135deg, #f44336, #d32f2f)';
+            alert(`Error: ${error.message}`);
+        }
+        
+        // Reset button
+        setTimeout(() => {
+            btn.innerHTML = '💎 Inject Stream to Zulip';
+            btn.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
+            btn.disabled = false;
+        }, 5000);
+    };
+    
+    document.body.appendChild(btn);
+    console.log('✅ Simple final button created');
+  }
+
+  // Вызовите в main.ts
+  setTimeout(() => {
+    createSimpleFinalButton();
+  }, 2000);
 
 });
