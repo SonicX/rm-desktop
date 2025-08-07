@@ -1,7 +1,7 @@
 # Десктопный клиент РМ  
 
-[![Чат Телеграмм](https://t.me/DMVoise)]
-[![Чат ВК](https://vk.com/only_my_link)]
+Чат Телеграмм - (https://t.me/DMVoise)
+Страничка ВК - (https://vk.com/only_my_link)
 
 Десктопный клиент для РМ. Доступен для Mac, Linux и Windows.  
 
