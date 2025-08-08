@@ -555,3 +555,26 @@ function createNativeStreamForJitsi() {
         ipcRenderer.send("preload-log", `❌ Error: ${error.message}`);
     }
 }
+
+electron_bridge.on_event("jitsi-conference-started", async (data: {
+    roomName: string;
+    jwt?: string;
+    userInfo?: {
+        displayName: string;
+        email: string;
+        avatarUrl: string;
+    }
+}) => {
+    ipcRenderer.send("preload-log", `🎯 Jitsi conference started in Zulip: ${data.roomName}`);
+
+    const fullRoomUrl = `https://jitsi-connectrm.ru/${data.roomName}`;
+    
+    const result = await ipcRenderer.invoke("create-jitsi-sdk-from-zulip", {
+        roomUrl: fullRoomUrl,
+        roomName: data.roomName,      // передаём всегда
+        jwt: data.jwt || "",
+        userInfo: data.userInfo || {} // тоже пробрасываем
+    });
+
+    ipcRenderer.send("preload-log", `🎯 Conference window created: ${result.success}`);
+});

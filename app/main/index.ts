@@ -38,8 +38,33 @@ import { _getServerSettings, _isOnline, _saveServerIcon } from "./request.js";
 import { sentryInit } from "./sentry.js";
 import { setAutoLaunch } from "./startup.js";
 import { ipcMain, send } from "./typed-ipc-main.js";
+const { setupScreenSharingMain } = require('@jitsi/electron-sdk');
+
+if (typeof setupScreenSharingMain === 'function') {
+  log.info('✅ setupScreenSharingMain доступна и является функцией');
+} else {
+  log.error('❌ setupScreenSharingMain не доступна! Проверьте установку пакета @jitsi/electron-sdk');
+}
 
 
+
+// const { JitsiMeetElectron } = require('@jitsi/electron-sdk');
+
+// Глобальная переменная для Jitsi окна
+
+let JitsiMeetElectron: any;
+try {
+    const jitsiModule = require('@jitsi/electron-sdk');
+    JitsiMeetElectron = jitsiModule.default || jitsiModule.JitsiMeetElectron || jitsiModule;
+    log.info(`🎯[Jitsi SDK] Module loaded:`, typeof JitsiMeetElectron);
+} catch (error: any) {
+    log.error(`🎯[Jitsi SDK] Failed to load module:`, error.message);
+}
+
+const JWT_SECRET = "HguV/8QBrJdCih2Ycpoz0g5q5m85apT3Nu6E+lDvufg=";
+        
+
+let jitsiWindow: BrowserWindow | null = null;
 
 
 
@@ -69,11 +94,6 @@ ipcMain.on("preload-log", (event, message: string) => {
   // И в electron-log
   log.info(`Preload Log: ${message}`);
 });
-
-
-
-
-
 
 // Настройка логирования
 if (process.env.NODE_ENV === "development") {
@@ -210,57 +230,234 @@ function setFeaturesApp() {
 }
 
 async function createMainWindow(): Promise<BrowserWindow> {
-  setFeaturesApp();
-  mainWindowState = windowStateKeeper({
-    defaultWidth: 1100,
-    defaultHeight: 720,
-    path: `${app.getPath("userData")}/config`,
-  });
+    setFeaturesApp();
+    mainWindowState = windowStateKeeper({
+        defaultWidth: 1100,
+        defaultHeight: 720,
+        path: `${app.getPath("userData")}/config`,
+    });
 
-  let icon = iconPath();
+    let icon = iconPath();
 
-  const win = new BrowserWindow({
-    title: "RM",
-    icon: icon,
-    x: mainWindowState.x,
-    y: mainWindowState.y,
-    width: mainWindowState.width,
-    height: mainWindowState.height,
-    minWidth: 500,
-    minHeight: 400,
-    webPreferences: {
-      preload: path.join(bundlePath, "renderer.js"),
-      sandbox: false,
-      webviewTag: true
-    },
-    show: false,
-    backgroundColor: '#333',
-  });
+    const win = new BrowserWindow({
+        title: "RM",
+        icon: icon,
+        x: mainWindowState.x,
+        y: mainWindowState.y,
+        width: mainWindowState.width,
+        height: mainWindowState.height,
+        minWidth: 500,
+        minHeight: 400,
+        webPreferences: {
+            preload: path.join(bundlePath, "renderer.js"),
+            sandbox: false,
+            webviewTag: true,
+            nodeIntegration: false,
+            contextIsolation: true
+        },
+        show: false,
+        backgroundColor: '#333',
+    });
 
-  remoteMain.enable(win.webContents);
+    remoteMain.enable(win.webContents);
 
-  win.webContents.on('preload-error', (event, preloadPath, error) => {
-    console.error('Ошибка загрузки preload:', preloadPath, error);
-    log.error('Ошибка загрузки preload:', preloadPath, error);
-  });
+    // КРИТИЧНО: Устанавливаем preload для ВСЕХ webContents включая Zulip
+    win.webContents.on('will-attach-webview', (event: Electron.Event, webPreferences: Electron.WebPreferences, params: any) => {
+        log.info(`Main: WebView создается с URL: ${params.src}`);
+        
+        // ИСПРАВЛЕНИЕ: Устанавливаем preload для всех webview
+        const preloadPath = path.join(bundlePath, "preload.js");
+        webPreferences.preload = preloadPath;
+        webPreferences.nodeIntegration = false;
+        webPreferences.contextIsolation = true;
+        
+        // КРИТИЧНО: Добавляем для Zulip
+        if (params.src && params.src.includes('localhost:9991')) {
+            log.info(`Main: Устанавливаем preload для Zulip: ${preloadPath}`);
+            webPreferences.preload = preloadPath;
+        }
+        
+        log.info(`Main: Webview preload установлен: ${preloadPath}`);
+    });
 
-  const mainHtmlPath = path.join(__dirname, 'app/renderer/main.html');
-  const mainUrl = `file://${mainHtmlPath}`;
+    // НОВОЕ: Слушаем создание новых webContents
+    app.on('web-contents-created', (event, contents) => {
+        const url = contents.getURL();
+        log.info(`Main: Новый webContents создан: ${url}`);
+        
+        // Если это Zulip, инжектируем наши API
+        if (url.includes('localhost:9991')) {
+            log.info(`Main: Обнаружен Zulip webContents, инжектируем API...`);
+            
+            contents.once('dom-ready', () => {
+                // Инжектируем electron_bridge и ipcRenderer в Zulip
+                const injectionCode = `
+                    (function() {
+                        console.log('[Injection] 🎯 Injecting Electron APIs into Zulip...');
+                        
+                        // Создаем electron_bridge API
+                        if (typeof window.electron_bridge === 'undefined') {
+                            window.electron_bridge = {
+                                events: new Map(),
+                                
+                                send_event: function(eventName, data) {
+                                    console.log('[electron_bridge] Sending event:', eventName, data);
+                                    
+                                    // Отправляем в main process
+                                    if (window.__ELECTRON_IPC__) {
+                                        window.__ELECTRON_IPC__.send('electron-bridge-event', {
+                                            event: eventName,
+                                            data: data
+                                        });
+                                    }
+                                },
+                                
+                                on_event: function(eventName, callback) {
+                                    console.log('[electron_bridge] Listening for event:', eventName);
+                                    
+                                    if (!this.events.has(eventName)) {
+                                        this.events.set(eventName, []);
+                                    }
+                                    this.events.get(eventName).push(callback);
+                                },
+                                
+                                emit_event: function(eventName, data) {
+                                    console.log('[electron_bridge] Emitting event:', eventName, data);
+                                    
+                                    if (this.events.has(eventName)) {
+                                        this.events.get(eventName).forEach(callback => {
+                                            try {
+                                                callback(data);
+                                            } catch (error) {
+                                                console.error('[electron_bridge] Event callback error:', error);
+                                            }
+                                        });
+                                    }
+                                }
+                            };
+                            
+                            console.log('[Injection] ✅ electron_bridge created');
+                        }
+                        
+                        // Создаем ipcRenderer API
+                        if (typeof window.ipcRenderer === 'undefined') {
+                            window.ipcRenderer = {
+                                invoke: async function(channel, ...args) {
+                                    console.log('[ipcRenderer] Invoke:', channel, args);
+                                    
+                                    return new Promise((resolve, reject) => {
+                                        const requestId = Date.now() + Math.random();
+                                        
+                                        // Слушаем ответ
+                                        const responseHandler = (event, response) => {
+                                            if (response.requestId === requestId) {
+                                                window.removeEventListener('ipc-response', responseHandler);
+                                                if (response.error) {
+                                                    reject(new Error(response.error));
+                                                } else {
+                                                    resolve(response.data);
+                                                }
+                                            }
+                                        };
+                                        
+                                        window.addEventListener('ipc-response', responseHandler);
+                                        
+                                        // Отправляем запрос
+                                        if (window.__ELECTRON_IPC__) {
+                                            window.__ELECTRON_IPC__.send('ipc-invoke', {
+                                                requestId: requestId,
+                                                channel: channel,
+                                                args: args
+                                            });
+                                        } else {
+                                            reject(new Error('Electron IPC not available'));
+                                        }
+                                        
+                                        // Таймаут
+                                        setTimeout(() => {
+                                            window.removeEventListener('ipc-response', responseHandler);
+                                            reject(new Error('IPC timeout'));
+                                        }, 10000);
+                                    });
+                                },
+                                
+                                send: function(channel, ...args) {
+                                    console.log('[ipcRenderer] Send:', channel, args);
+                                    
+                                    if (window.__ELECTRON_IPC__) {
+                                        window.__ELECTRON_IPC__.send('ipc-send', {
+                                            channel: channel,
+                                            args: args
+                                        });
+                                    }
+                                },
+                                
+                                on: function(channel, listener) {
+                                    console.log('[ipcRenderer] On:', channel);
+                                    // Базовая реализация для совместимости
+                                }
+                            };
+                            
+                            console.log('[Injection] ✅ ipcRenderer created');
+                        }
+                        
+                        // Создаем __ELECTRON_IPC__ bridge
+                        if (typeof window.__ELECTRON_IPC__ === 'undefined') {
+                            window.__ELECTRON_IPC__ = {
+                                send: function(type, data) {
+                                    // Отправляем через postMessage в main process
+                                    try {
+                                        window.postMessage({
+                                            type: 'ELECTRON_IPC',
+                                            subType: type,
+                                            data: data
+                                        }, '*');
+                                    } catch (error) {
+                                        console.error('[__ELECTRON_IPC__] Send error:', error);
+                                    }
+                                }
+                            };
+                            
+                            console.log('[Injection] ✅ __ELECTRON_IPC__ created');
+                        }
+                        
+                        return {
+                            hasElectronBridge: typeof window.electron_bridge !== 'undefined',
+                            hasIpcRenderer: typeof window.ipcRenderer !== 'undefined',
+                            hasElectronIPC: typeof window.__ELECTRON_IPC__ !== 'undefined'
+                        };
+                    })();
+                `;
+                
+                contents.executeJavaScript(injectionCode).then(result => {
+                    log.info(`Main: API injection result: ${JSON.stringify(result)}`);
+                }).catch(error => {
+                    log.error(`Main: API injection error: ${error.message}`);
+                });
+            });
+            
+            // Слушаем postMessage от Zulip
+            contents.on('ipc-message', (event, channel, ...args) => {
+                log.info(`Main: IPC message from Zulip: ${channel}`);
+            });
+        }
+    });
 
-  console.log('mainUrl:', mainUrl);
+    const mainHtmlPath = path.join(__dirname, 'app/renderer/main.html');
+    const mainUrl = `file://${mainHtmlPath}`;
 
-  await win.loadURL(mainUrl).then(() => {
-    console.log('✅ Окно создано!');
-    if (ConfigUtil.getConfigItem('startMinimized', false)) {
-      win.hide();
-    } else {
-      win.show();
-    }
-  });
+    await win.loadURL(mainUrl).then(() => {
+        console.log('✅ Окно создано!');
+        if (ConfigUtil.getConfigItem('startMinimized', false)) {
+            win.hide();
+        } else {
+            win.show();
+        }
+    });
 
-  win.on("close", (event) => {
-    if (ConfigUtil.getConfigItem("quitOnClose", false)) {
-      app.quit();
+    win.on("close", (event) => {
+      if (ConfigUtil.getConfigItem("quitOnClose", false)) {
+        app.quit();
     }
 
     if (!isQuitting && !shouldQuitForUpdate()) {
@@ -387,9 +584,6 @@ async function createMainWindow(): Promise<BrowserWindow> {
     _isOnline(url, ses),
   );
 
-
-
-
   function createSwiftSourceThumbnail(source: any): string {
     // Цвета и иконки по типу
     const styles: { [key: string]: { color: string; icon: string } } = {
@@ -501,216 +695,633 @@ async function createMainWindow(): Promise<BrowserWindow> {
     });
   }
 
-  ipcMain.handle("trigger-native-stream-in-webview", async () => {
-    log.info("🎯[Jitsi] Triggering native stream injection...");
-    
+  async function createJitsiWindow(options: {
+    roomName: string;
+    serverUrl?: string;
+    displayName?: string;
+    email?: string;
+    avatarUrl?: string;
+    jwt?: string;
+}): Promise<{ success: boolean; error?: string; roomName?: string; server?: string; fallbackNeeded?: boolean }> {
     try {
-        // Находим webContents с Zulip
-        const allContents = webContents.getAllWebContents();
-        let zulipContent = null;
+        const server = options.serverUrl || 'https://jitsi-connectrm.ru';
+        const roomName = options.roomName.replace(/[^a-zA-Z0-9-_]/g, '');
+        const displayName = options.displayName || 'Guest';
         
-        for (const content of allContents) {
-            const url = content.getURL();
-            if (url && url.includes('localhost:9991')) {
-                zulipContent = content;
-                log.info(`🎯[Jitsi] Found Zulip webContents: ${content.id}`);
-                break;
+        log.info(`🎯[Jitsi] Creating Jitsi window: ${server}/${roomName}`);
+        
+        // Проверяем, загружен ли SDK и как его использовать
+        let useSDK = false;
+        let jitsiApi: any = null;
+        
+        if (JitsiMeetElectron) {
+            log.info(`🎯[Jitsi SDK] SDK available, type: ${typeof JitsiMeetElectron}`);
+            
+            // Проверяем разные способы использования SDK
+            if (typeof JitsiMeetElectron === 'function') {
+                useSDK = true;
+                log.info('🎯[Jitsi SDK] SDK is a function/constructor');
+            } else if (JitsiMeetElectron.setupRenderer || JitsiMeetElectron.init) {
+                useSDK = true;
+                log.info('🎯[Jitsi SDK] SDK has setup methods');
+            } else {
+                log.warn('🎯[Jitsi SDK] SDK loaded but unknown format');
+            }
+        } else {
+            log.warn('🎯[Jitsi SDK] SDK not loaded, will use web version');
+        }
+        
+        // Закрываем предыдущее окно если есть
+        if (jitsiWindow && !jitsiWindow.isDestroyed()) {
+            jitsiWindow.close();
+            jitsiWindow = null;
+        }
+        
+        // Создаем окно
+        jitsiWindow = new BrowserWindow({
+            width: 1200,
+            height: 800,
+            minWidth: 800,
+            minHeight: 600,
+            title: `Конференция: ${roomName}`,
+            icon: iconPath(),
+            webPreferences: {
+                nodeIntegration: useSDK,      // true для SDK, false для web
+                contextIsolation: !useSDK,    // false для SDK, true для web
+                sandbox: false,
+                webSecurity: false  // Может потребоваться для SDK
+            },
+            show: true,
+            center: true
+        });
+        
+        if (useSDK) {
+            // Пробуем использовать SDK
+            try {
+                log.info('🎯[Jitsi SDK] Attempting to use SDK...');
+                
+                // Вариант 1: SDK требует загрузки HTML страницы с SDK
+                if (JitsiMeetElectron.setupRenderer) {
+                    // Загружаем специальную HTML страницу для SDK
+                    const sdkHtmlPath = path.join(__dirname, 'jitsi-sdk.html');
+                    await jitsiWindow.loadFile(sdkHtmlPath);
+                    
+                    // Инициализируем SDK в renderer процессе
+                    jitsiWindow.webContents.executeJavaScript(`
+                        const { JitsiMeetElectron } = require('@jitsi/electron-sdk');
+                        JitsiMeetElectron.setupRenderer();
+                    `);
+                    
+                } 
+                
+                log.info('🎯[Jitsi SDK] SDK initialized successfully');
+                
+            } catch (sdkError: any) {
+                log.error(`🎯[Jitsi SDK] SDK initialization failed: ${sdkError.message}`);
+                useSDK = false;
+                // Продолжаем с web-версией
             }
         }
         
-        if (!zulipContent) {
-            throw new Error('Zulip webContents not found');
+        if (!useSDK) {
+            // Web-версия без SDK
+            log.info('🎯[Jitsi Web] Using web-based Jitsi (no SDK)');
+            
+            // Базовый URL
+            let conferenceUrl = `${server}/${roomName}`;
+            
+            // Query params (только jwt)
+            const queryParams = new URLSearchParams();
+            if (options.jwt) queryParams.append('jwt', options.jwt);
+            if (queryParams.toString()) {
+                conferenceUrl += '?' + queryParams.toString();
+            }
+            
+            // Hash params для config и userInfo
+            const hashParams = new URLSearchParams();
+            
+            // Config overrides
+            hashParams.append('config.prejoinPageEnabled', 'false');
+            hashParams.append('config.prejoinConfig.enabled', 'false');
+            hashParams.append('config.startWithAudioMuted', 'false');
+            hashParams.append('config.startWithVideoMuted', 'true');
+            hashParams.append('config.enableWelcomePage', 'false');
+            
+            // User info
+            if (options.displayName) hashParams.append('userInfo.displayName', options.displayName);
+            if (options.email) hashParams.append('userInfo.email', options.email);
+            if (options.avatarUrl) hashParams.append('userInfo.avatar', options.avatarUrl);
+            
+            if (hashParams.toString()) {
+                conferenceUrl += '#' + hashParams.toString();
+            }
+            
+            log.info(`🎯[Jitsi Web] Loading URL: ${conferenceUrl}`);
+            
+            await jitsiWindow.loadURL(conferenceUrl);
+
+            const jwtParam = options.jwt || ''; 
+
+            // Замените существующий setTimeout блок на этот код с перехватом desktop picker:
+
+            // Замените существующий setTimeout блок на этот улучшенный код:
+
+            // Замените существующий setTimeout блок на этот код для многоразового использования:
+
+            setTimeout(async () => {
+                try {
+                  const injectionResult = await jitsiWindow.webContents.executeJavaScript(`
+                    (async function() {
+                      console.log('[TestStream] Installing reusable stream injection...');
+                      
+                      // Глобальные переменные для управления потоками
+                      let currentStream = null;
+                      let currentCanvas = null;
+                      let currentAnimationFrame = null;
+                      let streamCounter = 0;
+                      
+                      // Функция создания нового тестового потока
+                      function createTestStream() {
+                        // Останавливаем предыдущий поток если есть
+                        if (currentStream) {
+                          currentStream.getTracks().forEach(track => track.stop());
+                          if (currentAnimationFrame) {
+                            cancelAnimationFrame(currentAnimationFrame);
+                          }
+                          if (currentCanvas && currentCanvas.parentNode) {
+                            currentCanvas.remove();
+                          }
+                        }
+                        
+                        streamCounter++;
+                        console.log('[TestStream] Creating new test stream #' + streamCounter);
+                        
+                        // Создаем новый canvas
+                        const canvas = document.createElement('canvas');
+                        canvas.width = 1920;
+                        canvas.height = 1080;
+                        canvas.style.display = 'none';
+                        document.body.appendChild(canvas);
+                        
+                        const ctx = canvas.getContext('2d');
+                        if (!ctx) throw new Error('Canvas context failed');
+                        
+                        let frame = 0;
+                        let isActive = true;
+                        
+                        function animate() {
+                          if (!isActive) return;
+                          frame++;
+                          
+                          // Градиентный фон с изменением цвета
+                          const hue = (frame * 2 + streamCounter * 60) % 360;
+                          const gradient = ctx.createRadialGradient(960, 540, 0, 960, 540, 800);
+                          gradient.addColorStop(0, 'hsl(' + hue + ', 100%, 50%)');
+                          gradient.addColorStop(1, 'hsl(' + ((hue + 180) % 360) + ', 100%, 30%)');
+                          ctx.fillStyle = gradient;
+                          ctx.fillRect(0, 0, 1920, 1080);
+                          
+                          // Текст с номером потока
+                          ctx.fillStyle = 'white';
+                          ctx.font = 'bold 100px Arial';
+                          ctx.textAlign = 'center';
+                          ctx.shadowColor = 'rgba(0,0,0,0.8)';
+                          ctx.shadowBlur = 20;
+                          ctx.fillText('🎯 NATIVE STREAM #' + streamCounter, 960, 400);
+                          
+                          ctx.font = '60px Arial';
+                          ctx.fillText('Frame: ' + frame, 960, 540);
+                          ctx.fillText(new Date().toLocaleTimeString(), 960, 640);
+                          
+                          // Индикатор активности
+                          const pulseSize = 30 + Math.sin(frame * 0.1) * 10;
+                          ctx.beginPath();
+                          ctx.arc(100, 100, pulseSize, 0, 2 * Math.PI);
+                          ctx.fillStyle = '#4CAF50';
+                          ctx.fill();
+                          
+                          currentAnimationFrame = requestAnimationFrame(animate);
+                        }
+                        
+                        animate();
+                        
+                        const stream = canvas.captureStream(30);
+                        currentStream = stream;
+                        currentCanvas = canvas;
+                        
+                        console.log('[TestStream] New stream created with id:', stream.id);
+                        
+                        // Автоматическая остановка через 5 минут
+                        setTimeout(() => {
+                          if (currentStream && currentStream.id === stream.id) {
+                            isActive = false;
+                            stream.getTracks().forEach(track => track.stop());
+                            if (canvas.parentNode) {
+                              canvas.remove();
+                            }
+                            console.log('[TestStream] Stream #' + streamCounter + ' auto-stopped after 5 minutes');
+                          }
+                        }, 300000); // 5 минут
+                        
+                        return stream;
+                      }
+                      
+                      // Сохраняем оригинальные функции
+                      const originalFunctions = {
+                        openDesktopPicker: null,
+                        obtainDesktopStream: null,
+                        createLocalTracks: null,
+                        getDisplayMedia: null,
+                        getUserMedia: null
+                      };
+                      
+                      // Флаг для отслеживания активного шаринга
+                      let isSharingActive = false;
+                      
+                      // Перехват JitsiMeetScreenObtainer
+                      if (window.JitsiMeetScreenObtainer) {
+                        console.log('[TestStream] Setting up JitsiMeetScreenObtainer interceptors');
+                        
+                        originalFunctions.openDesktopPicker = window.JitsiMeetScreenObtainer.openDesktopPicker;
+                        
+                        window.JitsiMeetScreenObtainer.openDesktopPicker = function(options, callback) {
+                          console.log('[TestStream] openDesktopPicker intercepted');
+                          
+                          // Создаем новый поток при каждом вызове
+                          createTestStream();
+                          
+                          setTimeout(() => {
+                            const sourceId = 'screen:' + streamCounter + ':0';
+                            const sourceOptions = {
+                              audio: false,
+                              screenShareAudio: false
+                            };
+                            
+                            console.log('[TestStream] Returning sourceId:', sourceId);
+                            if (callback) {
+                              callback(sourceId, sourceOptions);
+                            }
+                          }, 100);
+                        };
+                        
+                        if (window.JitsiMeetScreenObtainer.obtainDesktopStream) {
+                          originalFunctions.obtainDesktopStream = window.JitsiMeetScreenObtainer.obtainDesktopStream;
+                          
+                          window.JitsiMeetScreenObtainer.obtainDesktopStream = function(sourceId, callback, errorCallback) {
+                            console.log('[TestStream] obtainDesktopStream intercepted');
+                            
+                            setTimeout(() => {
+                              if (currentStream) {
+                                console.log('[TestStream] Returning current stream');
+                                if (callback) {
+                                  callback(currentStream);
+                                }
+                              } else {
+                                console.error('[TestStream] No current stream available');
+                                if (errorCallback) {
+                                  errorCallback(new Error('No stream available'));
+                                }
+                              }
+                            }, 100);
+                          };
+                        }
+                      }
+                      
+                      // Перехват JitsiMeetJS.createLocalTracks
+                      if (window.JitsiMeetJS && window.JitsiMeetJS.createLocalTracks) {
+                        originalFunctions.createLocalTracks = window.JitsiMeetJS.createLocalTracks;
+                        
+                        window.JitsiMeetJS.createLocalTracks = async function(options) {
+                          console.log('[TestStream] createLocalTracks intercepted');
+                          
+                          if (options && options.devices && options.devices.includes('desktop')) {
+                            console.log('[TestStream] Desktop track requested');
+                            
+                            // Если нет активного потока, создаем новый
+                            if (!currentStream || !currentStream.active) {
+                              createTestStream();
+                            }
+                            
+                            try {
+                              // Временно подменяем getUserMedia и getDisplayMedia
+                              const tempGetUserMedia = navigator.mediaDevices.getUserMedia;
+                              const tempGetDisplayMedia = navigator.mediaDevices.getDisplayMedia;
+                              
+                              navigator.mediaDevices.getUserMedia = async function(constraints) {
+                                if (constraints && constraints.video && 
+                                    constraints.video.mandatory && 
+                                    constraints.video.mandatory.chromeMediaSource === 'desktop') {
+                                  console.log('[TestStream] Returning current stream for desktop getUserMedia');
+                                  return currentStream;
+                                }
+                                return tempGetUserMedia.call(this, constraints);
+                              };
+                              
+                              navigator.mediaDevices.getDisplayMedia = async function() {
+                                console.log('[TestStream] Returning current stream for getDisplayMedia');
+                                return currentStream;
+                              };
+                              
+                              // Вызываем оригинальную функцию
+                              const tracks = await originalFunctions.createLocalTracks.call(this, options);
+                              
+                              // Восстанавливаем
+                              navigator.mediaDevices.getUserMedia = tempGetUserMedia;
+                              navigator.mediaDevices.getDisplayMedia = tempGetDisplayMedia;
+                              
+                              if (tracks && tracks.length > 0) {
+                                isSharingActive = true;
+                                console.log('[TestStream] JitsiLocalTrack created successfully');
+                                
+                                // Добавляем обработчик остановки трека
+                                const originalDispose = tracks[0].dispose;
+                                tracks[0].dispose = function() {
+                                  console.log('[TestStream] Track dispose called');
+                                  isSharingActive = false;
+                                  if (originalDispose) {
+                                    return originalDispose.call(this);
+                                  }
+                                };
+                              }
+                              
+                              return tracks;
+                              
+                            } catch (e) {
+                              console.error('[TestStream] Error in createLocalTracks:', e);
+                              throw e;
+                            }
+                          }
+                          
+                          // Для других типов треков вызываем оригинальную функцию
+                          return originalFunctions.createLocalTracks.call(this, options);
+                        };
+                      }
+                      
+                      // Постоянные перехваты getDisplayMedia и getUserMedia
+                      originalFunctions.getDisplayMedia = navigator.mediaDevices.getDisplayMedia;
+                      navigator.mediaDevices.getDisplayMedia = async function(constraints) {
+                        console.log('[TestStream] getDisplayMedia intercepted');
+                        if (!currentStream || !currentStream.active) {
+                          createTestStream();
+                        }
+                        return currentStream;
+                      };
+                      
+                      originalFunctions.getUserMedia = navigator.mediaDevices.getUserMedia;
+                      navigator.mediaDevices.getUserMedia = async function(constraints) {
+                        if (constraints && constraints.video && 
+                            constraints.video.mandatory && 
+                            constraints.video.mandatory.chromeMediaSource === 'desktop') {
+                          console.log('[TestStream] getUserMedia for desktop intercepted');
+                          if (!currentStream || !currentStream.active) {
+                            createTestStream();
+                          }
+                          return currentStream;
+                        }
+                        return originalFunctions.getUserMedia.call(this, constraints);
+                      };
+                      
+                      // Мониторинг состояния шаринга
+                      setInterval(() => {
+                        const state = window.APP && window.APP.store && window.APP.store.getState();
+                        const tracks = state && state['features/base/tracks'];
+                        const desktopTrack = tracks && tracks.find(t => t.videoType === 'desktop');
+                        
+                        if (desktopTrack && !isSharingActive) {
+                          isSharingActive = true;
+                          console.log('[TestStream] Desktop sharing started');
+                        } else if (!desktopTrack && isSharingActive) {
+                          isSharingActive = false;
+                          console.log('[TestStream] Desktop sharing stopped');
+                          // Останавливаем текущий поток при остановке шаринга
+                          if (currentStream) {
+                            currentStream.getTracks().forEach(track => track.stop());
+                            if (currentCanvas && currentCanvas.parentNode) {
+                              currentCanvas.remove();
+                            }
+                            currentStream = null;
+                            currentCanvas = null;
+                          }
+                        }
+                      }, 1000);
+                      
+                      // Функция для полной очистки (можно вызвать из консоли)
+                      window.cleanupTestStream = function() {
+                        console.log('[TestStream] Cleaning up...');
+                        
+                        // Останавливаем поток
+                        if (currentStream) {
+                          currentStream.getTracks().forEach(track => track.stop());
+                        }
+                        if (currentAnimationFrame) {
+                          cancelAnimationFrame(currentAnimationFrame);
+                        }
+                        if (currentCanvas && currentCanvas.parentNode) {
+                          currentCanvas.remove();
+                        }
+                        
+                        // Восстанавливаем оригинальные функции
+                        if (window.JitsiMeetScreenObtainer) {
+                          if (originalFunctions.openDesktopPicker) {
+                            window.JitsiMeetScreenObtainer.openDesktopPicker = originalFunctions.openDesktopPicker;
+                          }
+                          if (originalFunctions.obtainDesktopStream) {
+                            window.JitsiMeetScreenObtainer.obtainDesktopStream = originalFunctions.obtainDesktopStream;
+                          }
+                        }
+                        if (window.JitsiMeetJS && originalFunctions.createLocalTracks) {
+                          window.JitsiMeetJS.createLocalTracks = originalFunctions.createLocalTracks;
+                        }
+                        if (originalFunctions.getDisplayMedia) {
+                          navigator.mediaDevices.getDisplayMedia = originalFunctions.getDisplayMedia;
+                        }
+                        if (originalFunctions.getUserMedia) {
+                          navigator.mediaDevices.getUserMedia = originalFunctions.getUserMedia;
+                        }
+                        
+                        console.log('[TestStream] Cleanup complete');
+                      };
+                      
+                      console.log('[TestStream] Reusable stream injection installed successfully');
+                      console.log('[TestStream] You can now click the share screen button multiple times');
+                      console.log('[TestStream] To cleanup, run: window.cleanupTestStream()');
+                      
+                      return { 
+                        success: true, 
+                        message: 'Reusable stream injection ready',
+                        features: {
+                          multipleStreams: true,
+                          autoCleanup: true,
+                          streamLifetime: '5 minutes',
+                          manualCleanup: 'window.cleanupTestStream()'
+                        }
+                      };
+                    })();
+                  `);
+                  
+                  log.info(`[TestStream] Injection result: ${JSON.stringify(injectionResult)}`);
+                } catch (error) {
+                  log.error(`[TestStream] Error injecting stream: ${error.message}`);
+                }
+              }, 4000); // 4 секунды для загрузки Jitsi
         }
         
-        // Инжектируем код создания потока НАПРЯМУЮ в страницу
-        const injectionCode = `
-            (function() {
-                console.log('[Injected] 🎯 Starting native stream creation...');
-                
-                // Проверяем контекст
-                console.log('[Injected] Context check:');
-                console.log('  - URL:', window.location.href);
-                console.log('  - Has electron_bridge:', !!window.electron_bridge);
-                console.log('  - Has Jitsi iframe:', !!document.querySelector('iframe[id*="jitsi"]'));
-                
-                // Создаем MediaStream
-                const canvas = document.createElement('canvas');
-                canvas.width = 1920;
-                canvas.height = 1080;
-                const ctx = canvas.getContext('2d');
-                
-                if (!ctx) {
-                    console.error('[Injected] Failed to get canvas context');
-                    return { success: false, error: 'No canvas context' };
-                }
-                
-                let frame = 0;
-                let animationActive = true;
-                
-                function animate() {
-                    if (!animationActive) return;
-                    
-                    frame++;
-                    
-                    // Красивый градиент
-                    const gradient = ctx.createRadialGradient(960, 540, 0, 960, 540, 800);
-                    gradient.addColorStop(0, 'hsl(' + (frame % 360) + ', 100%, 50%)');
-                    gradient.addColorStop(0.5, 'hsl(' + ((frame + 120) % 360) + ', 100%, 40%)');
-                    gradient.addColorStop(1, 'hsl(' + ((frame + 240) % 360) + ', 100%, 30%)');
-                    ctx.fillStyle = gradient;
-                    ctx.fillRect(0, 0, 1920, 1080);
-                    
-                    // Основной текст
-                    ctx.fillStyle = 'white';
-                    ctx.font = 'bold 120px Arial';
-                    ctx.textAlign = 'center';
-                    ctx.shadowColor = 'rgba(0,0,0,0.8)';
-                    ctx.shadowBlur = 20;
-                    ctx.fillText('🎯 ELECTRON NATIVE', 960, 400);
-                    
-                    ctx.font = 'bold 80px Arial';
-                    ctx.fillText('STREAM ACTIVE', 960, 520);
-                    
-                    ctx.font = 'bold 50px Arial';
-                    ctx.fillText('Frame: ' + frame, 960, 650);
-                    
-                    ctx.font = '40px Arial';
-                    const time = new Date().toLocaleTimeString();
-                    ctx.fillText(time, 960, 750);
-                    
-                    // Индикатор активности
-                    ctx.beginPath();
-                    ctx.arc(100, 100, 40, 0, 2 * Math.PI);
-                    ctx.fillStyle = (frame % 60 < 30) ? '#4CAF50' : '#FF5722';
-                    ctx.fill();
-                    
-                    requestAnimationFrame(animate);
-                }
-                animate();
-                
-                const stream = canvas.captureStream(30);
-                console.log('[Injected] ✅ Stream created:', stream.id);
-                console.log('[Injected] Video tracks:', stream.getVideoTracks().length);
-                
-                // Сохраняем глобально
-                window.electronNativeStream = stream;
-                
-                // Останавливаем через 60 секунд
-                setTimeout(() => {
-                    animationActive = false;
-                    stream.getTracks().forEach(track => track.stop());
-                    console.log('[Injected] Stream stopped after timeout');
-                }, 60000);
-                
-                // Ищем кнопку из paste.txt и кликаем
-                const buttons = document.querySelectorAll('button');
-                let foundButton = false;
-                
-                buttons.forEach(btn => {
-                    const onclick = btn.getAttribute('onclick');
-                    const text = btn.textContent;
-                    
-                    if ((onclick && onclick.includes('shareNativeStream')) || 
-                        (text && text.includes('Native Stream'))) {
-                        console.log('[Injected] ✅ Found native stream button:', text);
-                        btn.click();
-                        foundButton = true;
-                    }
-                });
-                
-                if (!foundButton) {
-                    console.log('[Injected] Native button not found, trying direct call...');
-                    
-                    // Пробуем вызвать функцию напрямую если она есть
-                    if (typeof window.shareNativeStream === 'function') {
-                        console.log('[Injected] Calling shareNativeStream()');
-                        window.shareNativeStream();
-                    }
-                    
-                    // Пробуем найти Jitsi API в iframe
-                    const jitsiFrame = document.querySelector('iframe[id*="jitsi"]');
-                    if (jitsiFrame && jitsiFrame.contentWindow) {
-                        console.log('[Injected] Found Jitsi iframe, posting message...');
-                        
-                        // Отправляем команду в iframe
-                        jitsiFrame.contentWindow.postMessage({
-                            type: 'shareExternalStream',
-                            stream: stream
-                        }, '*');
-                    }
-                }
-                
-                // Если есть electron_bridge, используем его
-                if (window.electron_bridge && window.electron_bridge.send_event) {
-                    console.log('[Injected] Sending via electron_bridge...');
-                    window.electron_bridge.send_event('native-stream-ready', {
-                        streamId: stream.id,
-                        hasStream: true
-                    });
-                }
-                
-                // Показываем уведомление
-                const notification = document.createElement('div');
-                notification.style.cssText = \`
-                    position: fixed;
-                    top: 50%;
-                    left: 50%;
-                    transform: translate(-50%, -50%);
-                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                    color: white;
-                    padding: 40px 60px;
-                    border-radius: 20px;
-                    font-size: 24px;
-                    font-weight: bold;
-                    z-index: 1000000;
-                    text-align: center;
-                    box-shadow: 0 20px 40px rgba(0,0,0,0.3);
-                    animation: slideIn 0.5s ease-out;
-                \`;
-                
-                notification.innerHTML = \`
-                    <div style="font-size: 60px; margin-bottom: 20px;">🚀</div>
-                    <div>Native Stream Created!</div>
-                    <div style="font-size: 16px; opacity: 0.9; margin-top: 10px;">Stream ID: \${stream.id}</div>
-                    <div style="font-size: 14px; opacity: 0.7; margin-top: 5px;">Check console for details</div>
-                \`;
-                
-                const style = document.createElement('style');
-                style.textContent = \`
-                    @keyframes slideIn {
-                        from { 
-                            transform: translate(-50%, -50%) scale(0.8); 
-                            opacity: 0; 
-                        }
-                        to { 
-                            transform: translate(-50%, -50%) scale(1); 
-                            opacity: 1; 
-                        }
-                    }
-                \`;
-                document.head.appendChild(style);
-                document.body.appendChild(notification);
-                
-                setTimeout(() => notification.remove(), 5000);
-                
-                return { 
-                    success: true, 
-                    streamId: stream.id,
-                    foundButton: foundButton,
-                    hasElectronBridge: !!window.electron_bridge
-                };
-            })();
-        `;
+        // Фокусируем окно
+        jitsiWindow.focus();
         
-        const result = await zulipContent.executeJavaScript(injectionCode);
-        log.info(`🎯[Jitsi] Injection result: ${JSON.stringify(result)}`);
+        // Обработчик закрытия окна
+        jitsiWindow.on('closed', () => {
+            log.info(`🎯[Jitsi] Window closed`);
+            jitsiWindow = null;
+            
+            // Уведомляем Zulip
+            sendEventToZulip('jitsi-window-closed', {
+                roomName: roomName
+            });
+        });
         
-        return { success: true, injectionResult: result };
+        // Отправляем событие об успешном создании
+        sendEventToZulip('jitsi-window-opened', {
+            success: true,
+            roomName: roomName,
+            server: server,
+            usingSDK: useSDK
+        });
+        
+        return {
+            success: true,
+            roomName: roomName,
+            server: server
+        };
         
     } catch (error: any) {
-        log.error(`🎯[Jitsi] Error: ${error.message}`);
-        return { success: false, error: error.message };
+        log.error(`🎯[Jitsi] Error creating window: ${error.message}`);
+        
+        // Если не удалось создать окно в Electron, отправляем сигнал для запуска в браузере
+        sendEventToZulip('jitsi-electron-failed', {
+            error: error.message,
+            fallbackNeeded: true
+        });
+        
+        return {
+            success: false,
+            error: error.message,
+            fallbackNeeded: true  // Сигнал для Zulip запустить браузерную версию
+        };
     }
+  }
+
+  function sendEventToZulip(eventName: string, data: any): void {
+      const allContents = webContents.getAllWebContents();
+      for (const content of allContents) {
+          const url = content.getURL();
+          if (url && url.includes('localhost:9991')) {
+              content.executeJavaScript(`
+                  if (window.electron_bridge && window.electron_bridge.emit_event) {
+                      window.electron_bridge.emit_event('${eventName}', ${JSON.stringify(data)});
+                      console.log('[Electron->Zulip] Sent event: ${eventName}');
+                  }
+              `).catch(err => {
+                  log.error(`Failed to send event to Zulip: ${err.message}`);
+              });
+              break;
+          }
+      }
+  }
+
+
+  // Передача нативного потока в Jitsi
+  ipcMain.handle("share-stream-to-jitsi-sdk", async () => {
+      log.info("🎯[Jitsi SDK] Sharing native stream...");
+      
+      try {
+          if (!jitsiWindow || jitsiWindow.isDestroyed()) {
+              throw new Error('Jitsi window not found. Create a meeting first.');
+          }
+          
+          // Создаем тестовый поток прямо в контексте Jitsi окна
+          const streamCreationCode = `
+              (function() {
+                  console.log('[Stream] Creating test stream...');
+                  
+                  // Создаем canvas с анимацией
+                  const canvas = document.createElement('canvas');
+                  canvas.width = 1920;
+                  canvas.height = 1080;
+                  const ctx = canvas.getContext('2d');
+                  
+                  let frame = 0;
+                  let isActive = true;
+                  
+                  function animate() {
+                      if (!isActive) return;
+                      frame++;
+                      
+                      // Красивый градиент
+                      const gradient = ctx.createRadialGradient(960, 540, 0, 960, 540, 800);
+                      gradient.addColorStop(0, 'hsl(' + (frame % 360) + ', 100%, 50%)');
+                      gradient.addColorStop(0.5, 'hsl(' + ((frame + 120) % 360) + ', 100%, 40%)');
+                      gradient.addColorStop(1, 'hsl(' + ((frame + 240) % 360) + ', 100%, 30%)');
+                      ctx.fillStyle = gradient;
+                      ctx.fillRect(0, 0, 1920, 1080);
+                      
+                      // Текст
+                      ctx.fillStyle = 'white';
+                      ctx.font = 'bold 120px Arial';
+                      ctx.textAlign = 'center';
+                      ctx.shadowColor = 'rgba(0,0,0,0.8)';
+                      ctx.shadowBlur = 20;
+                      ctx.fillText('🎯 ELECTRON SDK', 960, 400);
+                      ctx.fillText('NATIVE STREAM', 960, 520);
+                      
+                      ctx.font = '60px Arial';
+                      ctx.fillText('Frame: ' + frame, 960, 650);
+                      ctx.fillText(new Date().toLocaleTimeString(), 960, 750);
+                      
+                      requestAnimationFrame(animate);
+                  }
+                  animate();
+                  
+                  // Создаем MediaStream
+                  const stream = canvas.captureStream(30);
+                  window.externalStream = stream;
+                  
+                  console.log('[Stream] Stream created:', stream.id);
+                  
+                  // Останавливаем через минуту
+                  setTimeout(() => {
+                      isActive = false;
+                      stream.getTracks().forEach(track => track.stop());
+                      console.log('[Stream] Stream stopped');
+                  }, 60000);
+                  
+                  // Пробуем передать в Jitsi
+                  if (window.receiveExternalStream) {
+                      const result = window.receiveExternalStream(stream.id);
+                      return {
+                          success: result,
+                          streamId: stream.id,
+                          message: result ? 'Stream shared' : 'Failed to share'
+                      };
+                  }
+                  
+                  return {
+                      success: false,
+                      streamId: stream.id,
+                      message: 'receiveExternalStream not found'
+                  };
+              })();
+          `;
+          
+          const result = await jitsiWindow.webContents.executeJavaScript(streamCreationCode);
+          log.info(`🎯[Jitsi SDK] Stream result: ${JSON.stringify(result)}`);
+          
+          return result;
+          
+      } catch (error: any) {
+          log.error(`🎯[Jitsi SDK] Error: ${error.message}`);
+          return { success: false, error: error.message };
+      }
   });
 
   // Обработчик для тестирования Swift addon отдельно
@@ -831,27 +1442,6 @@ async function createMainWindow(): Promise<BrowserWindow> {
     testSwiftAddon().catch(err => log.error(`🔬[Swift Test] Fatal error: ${err}`));
   }, 3000);
 
-  function createTestSourceThumbnail(type: string): string {
-    const styles = {
-      screen: { color: '#4CAF50', icon: '🖥' },
-      window: { color: '#2196F3', icon: '🪟' }
-    };
-    
-    const style = styles[type] || { color: '#9E9E9E', icon: '❓' };
-    
-    const svg = `<svg width="300" height="300" xmlns="http://www.w3.org/2000/svg">
-      <rect width="300" height="300" fill="${style.color}"/>
-      <text x="150" y="120" font-size="60" text-anchor="middle" fill="white">${style.icon}</text>
-      <text x="150" y="180" font-family="Arial" font-size="16" text-anchor="middle" fill="white" font-weight="bold">
-        Test ${type.charAt(0).toUpperCase() + type.slice(1)}
-      </text>
-      <text x="150" y="210" font-family="Arial" font-size="12" text-anchor="middle" fill="white" opacity="0.8">
-        Fallback Source
-      </text>
-    </svg>`;
-    
-    return `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
-  }
 
   // Добавьте эту функцию где-нибудь в index.ts, например, рядом с другими вспомогательными функциями
   function createTestSourceThumbnailAsPngBase64(): string {
@@ -1014,36 +1604,128 @@ async function createMainWindow(): Promise<BrowserWindow> {
     }
   });
 
-  // Добавить функцию создания тестовых thumbnail
-  
-
-  // Добавить обработчик для тестирования стандартного Electron
-  ipcMain.handle("test-electron-sources", async () => {
-    try {
-      log.info("🧪[TEST] Testing standard Electron desktopCapturer...");
-      
-      const sources = await desktopCapturer.getSources({
-        types: ['screen', 'window'],
-        thumbnailSize: { width: 150, height: 150 }
-      });
-      
-      log.info(`🧪[TEST] ✅ Electron desktopCapturer returned ${sources.length} sources`);
-      
-      const result = sources.map((source, index) => ({
-        id: source.id,
-        name: source.name,
-        display_id: source.display_id,
-        appIcon: source.appIcon ? 'Yes' : 'No',
-        thumbnail: source.thumbnail ? 'Yes' : 'No'
-      }));
-      
-      return { success: true, sources: result };
-      
-    } catch (error: any) {
-      log.error(`🧪[TEST] ❌ Electron test failed: ${error.message}`);
-      return { success: false, error: error.message };
-    }
+  ipcMain.handle("jitsi-direct-connect", async (event, options) => {
+      return createJitsiWindow(options);
   });
+
+  ipcMain.handle("jitsi-connect-with-zulip-config", async (event, options) => {
+      log.info("🎯[Jitsi] Connecting with Zulip config...");
+      log.info(`🎯[Jitsi] Options received: ${JSON.stringify(options)}`);
+
+      try {
+          // Проверяем обязательные параметры
+          const roomUrl = options.roomUrl || '';
+          const roomName = options.roomName || '';
+          const jwt = options.jwt || '';
+          
+          if (!roomName && !roomUrl) {
+              throw new Error('Room name or URL is required');
+          }
+          
+          // Извлекаем roomName из URL если не передан
+          let finalRoomName = roomName;
+          if (!finalRoomName && roomUrl) {
+              const urlParts = roomUrl.split('/');
+              finalRoomName = urlParts[urlParts.length - 1].split('?')[0];
+          }
+          
+          // Определяем server URL
+          let serverUrl = options.serverUrl || 'https://jitsi-connectrm.ru';
+          if (roomUrl && roomUrl.startsWith('http')) {
+              const url = new URL(roomUrl);
+              serverUrl = url.origin;
+          }
+          
+          // Создаем окно Jitsi
+          const result = await createJitsiWindow({
+              roomName: finalRoomName,
+              serverUrl: serverUrl,
+              displayName: options.userInfo?.displayName || 'Guest',
+              email: options.userInfo?.email || '',
+              avatarUrl: options.userInfo?.avatarUrl || '',
+              jwt: jwt
+          });
+          
+          // Если нужен fallback на браузер
+          if (result.fallbackNeeded) {
+              log.info(`🎯[Jitsi] Fallback needed, sending signal to Zulip`);
+              return {
+                  success: false,
+                  error: result.error,
+                  fallbackToBrowser: true  // Сигнал для Zulip
+              };
+          }
+          
+          if (result.success) {
+              log.info(`🎯[Jitsi] Conference window created successfully`);
+              
+              // Отправляем подтверждение обратно в Zulip
+              setTimeout(() => {
+                  sendEventToZulip('jitsi-conference-ready', {
+                      success: true,
+                      roomName: result.roomName,
+                      server: result.server
+                  });
+                  const appName = 'RM App';  // Имя для индикатора, например "RM App is sharing your screen"
+                  const osxBundleId = process.platform === 'darwin' ? 'ru.rm.desktop' : undefined;  // Ваш bundle ID из package.json или Info.plist
+
+                  try {
+                    setupScreenSharingMain(jitsiWindow, appName, osxBundleId);
+                    log.info('✅ setupScreenSharingMain вызвана успешно без ошибок');
+                  } catch (error) {
+                    log.error(`❌ Ошибка при вызове setupScreenSharingMain: ${error.message}`);
+                    // Если ошибка, возможно, проблема с разрешениями или версией Electron — проверьте стек
+                  }
+              }, 1000);
+          }
+          
+          return result;
+          
+      } catch (error: any) {
+          log.error(`🎯[Jitsi] Error: ${error.message}`);
+          
+          // Отправляем сигнал для fallback на браузер
+          return { 
+              success: false, 
+              error: error.message,
+              fallbackToBrowser: true
+          };
+      }
+  });
+
+
+
+  // Добавить функцию создания тестовых thumbnail
+
+  ipcMain.handle("create-jitsi-sdk-from-zulip", async (event, options) => {
+      log.info("🎯[Jitsi] Creating from Zulip (redirecting to main handler)...");
+      // Просто перенаправляем на основной обработчик
+      return ipcMain.handle("jitsi-connect-with-zulip-config", event, options);
+  });
+
+
+
+
+
+  // Обработчики событий от Jitsi окна
+  ipcMain.on('jitsi-api-ready', (event, data) => {
+      log.info(`🎯[Jitsi] API ready in window: ${JSON.stringify(data)}`);
+      sendEventToZulip('jitsi-api-ready', data);
+  });
+
+  ipcMain.on('jitsi-conference-joined', () => {
+      log.info(`🎯[Jitsi] User joined conference`);
+      sendEventToZulip('jitsi-conference-joined', {});
+  });
+
+  ipcMain.on('jitsi-conference-left', () => {
+      log.info(`🎯[Jitsi] User left conference`);
+      sendEventToZulip('jitsi-conference-left', {});
+  });
+
+
+
+
 
   // Добавить простой обработчик для прямого тестирования
   ipcMain.handle("get-electron-sources-raw", async () => {
@@ -1079,27 +1761,354 @@ async function createMainWindow(): Promise<BrowserWindow> {
     });
   });
 
-  // Функция форматирования Swift источников
-  function formatSwiftSources(sources: any[]): any[] {
-    if (!Array.isArray(sources)) {
-      log.warn(`🎯[NativeCapture] formatSwiftSources: not an array: ${typeof sources}`);
-      return [];
-    }
-    
-    log.info(`🎯[NativeCapture] Formatting ${sources.length} Swift sources`);
-    
-    return sources.map((source: any, index: number) => {
-      log.info(`🎯[NativeCapture] Source ${index}: ${JSON.stringify(source)}`);
+  ipcMain.on('electron-bridge-event', (event, data) => {
+      log.info(`Main: electron_bridge event: ${data.event}`);
       
-      return {
-        id: source.id || `swift:${index}`,
-        name: source.name || `Source ${index}`,
-        thumbnail: {
-          dataUrl: createSwiftSourceThumbnail(source)
-        }
+      if (data.event === 'jitsi-initialized') {
+          log.info('Main: Jitsi initialized in Zulip, triggering integration...');
+          
+          // Отправляем событие обратно в Zulip через electron_bridge
+          setTimeout(() => {
+              webContents.getAllWebContents().forEach(content => {
+                  const url = content.getURL();
+                  if (url.includes('localhost:9991')) {
+                      content.executeJavaScript(`
+                          if (window.electron_bridge && window.electron_bridge.emit_event) {
+                              window.electron_bridge.emit_event('jitsi-initialized', {});
+                          }
+                      `);
+                  }
+              });
+          }, 1000);
+      }
+  });
+
+  ipcMain.on('ipc-invoke', async (event, data) => {
+      log.info(`Main: Synthetic IPC invoke: ${data.channel}`);
+      
+      try {
+          let result;
+          
+          // Роутинг к существующим обработчикам
+          if (data.channel === 'jitsi-connect-with-zulip-config') {
+              result = await ipcMain.handle(data.channel, event, ...data.args);
+          } else if (data.channel === 'test-zulip-bridge') {
+              result = await ipcMain.handle(data.channel, event, ...data.args);
+          } else {
+              throw new Error(`Unknown channel: ${data.channel}`);
+          }
+          
+          // Отправляем ответ обратно
+          event.sender.executeJavaScript(`
+              window.dispatchEvent(new CustomEvent('ipc-response', {
+                  detail: {
+                      requestId: ${data.requestId},
+                      data: ${JSON.stringify(result)},
+                      error: null
+                  }
+              }));
+          `);
+          
+      } catch (error) {
+          log.error(`Main: IPC invoke error: ${error.message}`);
+          
+          event.sender.executeJavaScript(`
+              window.dispatchEvent(new CustomEvent('ipc-response', {
+                  detail: {
+                      requestId: ${data.requestId},
+                      data: null,
+                      error: "${error.message}"
+                  }
+              }));
+          `);
+      }
+  });
+
+
+  ipcMain.handle("share-native-stream-to-jitsi", async () => {
+      log.info("🎯[NativeStream] Sharing native stream to Jitsi...");
+      
+      if (!jitsiWindow || jitsiWindow.isDestroyed()) {
+          return { success: false, error: 'No active Jitsi window' };
+      }
+      
+      try {
+          const result = await jitsiWindow.webContents.executeJavaScript(`
+              (function() {
+                  if (typeof window.receiveNativeStream === 'function') {
+                      return window.receiveNativeStream({ type: 'electron-native' });
+                  } else {
+                      return { success: false, error: 'receiveNativeStream not ready yet' };
+                  }
+              })();
+          `);
+          
+          log.info(`🎯[NativeStream] Result: ${JSON.stringify(result)}`);
+          return result;
+          
+      } catch (error: any) {
+          log.error(`🎯[NativeStream] Error: ${error.message}`);
+          return { success: false, error: error.message };
+      }
+  });
+
+  // Тестовый обработчик для проверки связи с Zulip
+  ipcMain.handle("test-zulip-bridge", async () => {
+      log.info("🧪[Test] Testing Zulip bridge...");
+      
+      const result = {
+          zulipFound: false,
+          currentUserName: 'Unknown',
+          currentUserEmail: 'Unknown', 
+          hasElectronBridge: false,
+          hasIpcRenderer: false,
+          totalWebContents: 0,
+          zulipUrl: '',
+          error: null
       };
-    });
-  }
+      
+      try {
+          const allContents = webContents.getAllWebContents();
+          result.totalWebContents = allContents.length;
+          
+          for (const content of allContents) {
+              const url = content.getURL();
+              
+              if (url && url.includes('localhost:9991')) {
+                  result.zulipFound = true;
+                  result.zulipUrl = url;
+                  log.info(`🧪[Test] Found Zulip at: ${url}`);
+                  
+                  try {
+                      const testResult = await content.executeJavaScript(`
+                          (function() {
+                              const hasElectronBridge = typeof window.electron_bridge !== 'undefined';
+                              const hasIpcRenderer = typeof window.ipcRenderer !== 'undefined';
+                              
+                              let userName = 'Unknown';
+                              let userEmail = 'Unknown';
+                              
+                              if (typeof current_user !== 'undefined' && current_user) {
+                                  userName = String(current_user.full_name || 'Unknown');
+                                  userEmail = String(current_user.email || 'Unknown');
+                              }
+                              
+                              return {
+                                  hasElectronBridge: hasElectronBridge,
+                                  hasIpcRenderer: hasIpcRenderer,
+                                  userName: userName,
+                                  userEmail: userEmail,
+                                  location: window.location.href,
+                                  
+                                  // Детали API
+                                  electronBridgeOk: hasElectronBridge && 
+                                      typeof window.electron_bridge.on_event === 'function' &&
+                                      typeof window.electron_bridge.send_event === 'function',
+                                      
+                                  ipcRendererOk: hasIpcRenderer &&
+                                      typeof window.ipcRenderer.invoke === 'function' &&
+                                      typeof window.ipcRenderer.send === 'function'
+                              };
+                          })();
+                      `);
+                      
+                      result.currentUserName = testResult.userName;
+                      result.currentUserEmail = testResult.userEmail;
+                      result.hasElectronBridge = testResult.electronBridgeOk;
+                      result.hasIpcRenderer = testResult.ipcRendererOk;
+                      
+                      log.info(`🧪[Test] User: ${testResult.userName}, Bridge: ${testResult.electronBridgeOk}, IPC: ${testResult.ipcRendererOk}`);
+                      
+                  } catch (execError: any) {
+                      log.error(`🧪[Test] Error executing in Zulip: ${execError.message}`);
+                      result.error = execError.message;
+                  }
+                  break;
+              }
+          }
+          
+          log.info(`🧪[Test] Final result: ${JSON.stringify(result)}`);
+          return result;
+          
+      } catch (error: any) {
+          log.error(`🧪[Test] Error: ${error.message}`);
+          result.error = error.message;
+          return result;
+      }
+  });
+
+
+  ipcMain.handle("start-native-stream-in-jitsi", async () => {
+      log.info("🎯[NativeStream] Starting native stream in Jitsi window...");
+      
+      try {
+          // Проверяем, что Jitsi окно открыто
+          if (!jitsiWindow || jitsiWindow.isDestroyed()) {
+              throw new Error("Jitsi window not found. Open conference first.");
+          }
+          
+          // Проверяем наличие native addon
+          if (!screenCaptureAddon) {
+              throw new Error("Native addon not loaded");
+          }
+          
+          // Инжектируем код создания native stream в Jitsi окно
+          const result = await jitsiWindow.webContents.executeJavaScript(`
+              (async function() {
+                  console.log('[NativeStream] Starting native stream injection...');
+                  
+                  // Создаем тестовый MediaStream с красивой анимацией
+                  const canvas = document.createElement('canvas');
+                  canvas.width = 1920;
+                  canvas.height = 1080;
+                  const ctx = canvas.getContext('2d');
+                  
+                  if (!ctx) {
+                      throw new Error('Failed to get canvas context');
+                  }
+                  
+                  let frame = 0;
+                  let isActive = true;
+                  
+                  function animate() {
+                      if (!isActive) return;
+                      frame++;
+                      
+                      // Градиентный фон
+                      const gradient = ctx.createRadialGradient(960, 540, 0, 960, 540, 800);
+                      gradient.addColorStop(0, 'hsl(' + (frame % 360) + ', 100%, 50%)');
+                      gradient.addColorStop(0.5, 'hsl(' + ((frame + 120) % 360) + ', 100%, 40%)');
+                      gradient.addColorStop(1, 'hsl(' + ((frame + 240) % 360) + ', 100%, 30%)');
+                      ctx.fillStyle = gradient;
+                      ctx.fillRect(0, 0, 1920, 1080);
+                      
+                      // Основной текст
+                      ctx.fillStyle = 'white';
+                      ctx.font = 'bold 100px Arial';
+                      ctx.textAlign = 'center';
+                      ctx.shadowColor = 'rgba(0,0,0,0.8)';
+                      ctx.shadowBlur = 20;
+                      ctx.fillText('🎯 NATIVE STREAM', 960, 400);
+                      
+                      ctx.font = 'bold 60px Arial';
+                      ctx.fillText('Изоляция звука активна', 960, 500);
+                      
+                      ctx.font = '40px Arial';
+                      ctx.fillText('Frame: ' + frame, 960, 600);
+                      ctx.fillText(new Date().toLocaleTimeString(), 960, 680);
+                      
+                      // Индикатор активности
+                      ctx.beginPath();
+                      ctx.arc(100, 100, 40, 0, 2 * Math.PI);
+                      ctx.fillStyle = (frame % 60 < 30) ? '#4CAF50' : '#FF5722';
+                      ctx.fill();
+                      
+                      requestAnimationFrame(animate);
+                  }
+                  animate();
+                  
+                  const stream = canvas.captureStream(30);
+                  console.log('[NativeStream] Stream created:', stream.id);
+                  
+                  // Останавливаем через 60 секунд
+                  setTimeout(() => {
+                      isActive = false;
+                      stream.getTracks().forEach(track => track.stop());
+                      console.log('[NativeStream] Stream stopped after timeout');
+                  }, 60000);
+                  
+                  // Пробуем передать stream в Jitsi через различные API
+                  try {
+                      // Метод 1: Через APP.conference API
+                      if (window.APP && window.APP.conference) {
+                          // Останавливаем текущую трансляцию если есть
+                          if (window.APP.conference.isLocalVideoMuted && !window.APP.conference.isLocalVideoMuted()) {
+                              await window.APP.conference.muteVideo(true);
+                          }
+                          
+                          // Пробуем переключить на desktop sharing с нашим stream
+                          if (typeof window.APP.conference.toggleScreenSharing === 'function') {
+                              // Сохраняем оригинальный getUserMedia
+                              const originalGetUserMedia = navigator.mediaDevices.getUserMedia;
+                              const originalGetDisplayMedia = navigator.mediaDevices.getDisplayMedia;
+                              
+                              // Подменяем getDisplayMedia чтобы вернуть наш stream
+                              navigator.mediaDevices.getDisplayMedia = async function(constraints) {
+                                  console.log('[NativeStream] Intercepted getDisplayMedia, returning custom stream');
+                                  return stream;
+                              };
+                              
+                              // Включаем screen sharing
+                              await window.APP.conference.toggleScreenSharing();
+                              
+                              // Восстанавливаем оригинальные функции через 100ms
+                              setTimeout(() => {
+                                  navigator.mediaDevices.getDisplayMedia = originalGetDisplayMedia;
+                                  console.log('[NativeStream] Restored original getDisplayMedia');
+                              }, 100);
+                              
+                              return { success: true, method: 'toggleScreenSharing with override' };
+                          }
+                          
+                          // Метод 2: Прямая замена треков
+                          if (window.APP.conference.room && window.APP.conference.room.replaceTrack) {
+                              const videoTrack = stream.getVideoTracks()[0];
+                              if (videoTrack) {
+                                  await window.APP.conference.room.replaceTrack(null, videoTrack);
+                                  console.log('[NativeStream] Replaced track directly');
+                                  return { success: true, method: 'replaceTrack' };
+                              }
+                          }
+                          
+                          // Метод 3: Через JitsiMeetJS если доступен
+                          if (window.JitsiMeetJS && window.JitsiMeetJS.createLocalTracks) {
+                              console.log('[NativeStream] Trying JitsiMeetJS approach...');
+                              // Этот метод сложнее и требует более глубокой интеграции
+                          }
+                          
+                          return { success: false, error: 'No suitable API method found' };
+                      } else {
+                          // Если конференция еще не готова, ждем и пробуем снова
+                          console.log('[NativeStream] Conference not ready, waiting...');
+                          
+                          return new Promise((resolve) => {
+                              let attempts = 0;
+                              const checkInterval = setInterval(() => {
+                                  attempts++;
+                                  if (window.APP && window.APP.conference) {
+                                      clearInterval(checkInterval);
+                                      // Рекурсивно вызываем себя
+                                      resolve({ success: false, error: 'Retry needed', retry: true });
+                                  } else if (attempts > 20) {
+                                      clearInterval(checkInterval);
+                                      resolve({ success: false, error: 'Conference not initialized after 10 seconds' });
+                                  }
+                              }, 500);
+                          });
+                      }
+                  } catch (error) {
+                      console.error('[NativeStream] Error injecting stream:', error);
+                      return { success: false, error: error.message };
+                  }
+              })();
+          `);
+          
+          log.info(`🎯[NativeStream] Injection result: ${JSON.stringify(result)}`);
+          
+          // Если нужен retry, пробуем еще раз
+          if (result && result.retry) {
+              log.info("🎯[NativeStream] Retrying after conference initialization...");
+              await new Promise(resolve => setTimeout(resolve, 1000));
+              return ipcMain.handle("start-native-stream-in-jitsi", null);
+          }
+          
+          return result;
+          
+      } catch (error: any) {
+          log.error(`🎯[NativeStream] Error: ${error.message}`);
+          return { success: false, error: error.message };
+      }
+  });
 
   // Добавьте обработчик для тестирования Swift напрямую
   ipcMain.handle("test-swift-direct", async () => {
@@ -1480,14 +2489,6 @@ async function createMainWindow(): Promise<BrowserWindow> {
     return result;
   });
 
-  log.info("🎯[NativeCapture] All IPC handlers registered");
-
-  // После регистрации всех IPC обработчиков добавьте:
-  log.info("🎯[NativeCapture] Проверка зарегистрированных обработчиков:");
-  log.info(`🎯[NativeCapture] get-desktop-sources: ${ipcMain.listenerCount('get-desktop-sources') > 0 ? '✅' : '❌'}`);
-  log.info(`🎯[NativeCapture] get-server-settings: ${ipcMain.listenerCount('get-server-settings') > 0 ? '✅' : '❌'}`);
-
-
   if (process.env.GDK_BACKEND !== GDK_BACKEND) {
     console.warn(
       "Возвращаем GDK_BACKEND для обхода проблемы https://github.com/electron/electron/issues/28436",
@@ -1516,11 +2517,6 @@ async function createMainWindow(): Promise<BrowserWindow> {
   mainWindow = await createMainWindow();
   console.log("✅ Окно создано!");
 
-  // Кэш для thumbnails
-  let thumbnailCache: { [key: string]: { dataUrl: string; timestamp: number } } = {};
-  const CACHE_TIMEOUT = 0.1 * 1000; // 1 секунд
-  const DEFAULT_THUMBNAIL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYGD4AQAA/QGOrDGjAAAAAElFTkSuQmCC";
-
   if (process.platform !== "darwin") {
     const shouldHideMenu = ConfigUtil.getConfigItem("autoHideMenubar", false);
     mainWindow.autoHideMenuBar = shouldHideMenu;
@@ -1547,43 +2543,6 @@ async function createMainWindow(): Promise<BrowserWindow> {
 
 })();
 
-
-function createNativeThumbnail(): string {
-  const svg = `
-    <svg width="300" height="300" xmlns="http://www.w3.org/2000/svg">
-      <rect width="300" height="300" fill="#2196F3"/>
-      <text x="150" y="150" font-family="Arial" font-size="24" text-anchor="middle" fill="white">
-        🎯 Native Capture Active
-      </text>
-    </svg>
-  `;
-  return `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
-}
-
-// Обновленный диалог (если еще не добавлен)
-async function showNativeCaptureDialog(): Promise<'native' | 'standard'> {
-  return new Promise((resolve) => {
-    const { dialog } = require('electron');
-    
-    dialog.showMessageBox(mainWindow, {
-      type: 'question',
-      title: 'Выбор метода захвата экрана',
-      message: 'Выберите метод захвата экрана:',
-      detail: '🎯 Native: Захват с изоляцией звука приложения\n📺 Standard: Обычный захват экрана Electron',
-      buttons: ['🎯 Native Capture', '📺 Стандартный'],
-      defaultId: 0,
-      cancelId: 1,
-      noLink: true
-    }).then(result => {
-      const choice = result.response === 0 ? 'native' : 'standard';
-      log.info(`🎯[NativeCapture] Пользователь выбрал: ${choice}`);
-      resolve(choice);
-    }).catch((error) => {
-      log.error(`🎯[NativeCapture] Ошибка диалога: ${error.message}`);
-      resolve('standard');
-    });
-  });
-}
 
 app.on("before-quit", () => {
   isQuitting = true;
@@ -1630,64 +2589,6 @@ process.on("uncaughtException", (error) => {
   console.error(error);
   console.error(error.stack);
 });
-
-// Вспомогательные функции
-function createSourceThumbnail(source: any): string {
-  // Разные цвета для разных типов
-  const colors = {
-    display: '#4CAF50',
-    screen: '#4CAF50',
-    window: '#2196F3',
-    tab: '#FF9800',
-    browser_tab: '#FF9800',
-    unknown: '#9E9E9E'
-  };
-  
-  const color = colors[source.type] || colors.unknown;
-  
-  // Разные иконки для разных типов
-  const icons = {
-    display: '🖥',
-    screen: '🖥',
-    window: '🪟',
-    tab: '🌐',
-    browser_tab: '🌐',
-    unknown: '❓'
-  };
-  
-  const icon = icons[source.type] || icons.unknown;
-  
-  const svg = `
-    <svg width="300" height="300" xmlns="http://www.w3.org/2000/svg">
-      <rect width="300" height="300" fill="${color}"/>
-      <text x="150" y="100" font-size="50" text-anchor="middle">${icon}</text>
-      <text x="150" y="160" font-family="Arial" font-size="14" text-anchor="middle" fill="white">
-        ${source.name || 'Unknown'}
-      </text>
-      <text x="150" y="185" font-family="Arial" font-size="11" text-anchor="middle" fill="white" opacity="0.8">
-        ${source.appName || source.type || 'Unknown Type'}
-      </text>
-      <text x="150" y="210" font-family="Arial" font-size="10" text-anchor="middle" fill="white" opacity="0.6">
-        ID: ${source.id}
-      </text>
-    </svg>
-  `;
-  
-  return `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
-}
-
-function formatSourceName(source: any): string {
-  // Форматируем имя в зависимости от типа
-  if (source.type === 'tab' || source.type === 'browser_tab') {
-    return `🌐 ${source.name}`;
-  } else if (source.type === 'display' || source.type === 'screen') {
-    return `🖥 ${source.name || 'Display'}`;
-  } else if (source.appName) {
-    return `${source.name} - ${source.appName}`;
-  }
-  
-  return source.name || `${source.type} ${source.id}`;
-}
 
 
 
@@ -1766,3 +2667,19 @@ Check console for full details.
   
   document.body.appendChild(testBtn);
 }, 2000);
+
+
+async function connectToJitsiWindow(options: {
+    roomName: string;
+    serverUrl?: string;
+    displayName?: string;
+}): Promise<any> {
+    const server = options.serverUrl || 'https://jitsi-connectrm.ru';
+    const roomName = options.roomName.replace(/[^a-zA-Z0-9-_]/g, '');
+    const displayName = options.displayName || 'User';
+    
+    log.info(`🎯[Jitsi] Connecting: ${server}/${roomName} as ${displayName}`);
+    
+    return { success: true, roomName, server, displayName };
+}
+

@@ -127,7 +127,9 @@
         }
       ],
       "icon": "build/icon.ico",
-      "publisherName": ["ООО Цифровые Технологии Рм"],
+      "publisherName": [
+        "ООО Цифровые Технологии Рм"
+      ],
       "sign": "scripts/sign.js"
     },
     "nsis": {
@@ -148,6 +150,8 @@
     "InstantMessaging"
   ],
   "dependencies": {
+    "@jitsi/electron-sdk": "^7.0.9",
+    "@jitsi/js-utils": "^2.4.6",
     "node-global-key-listener": "^0.3.0",
     "uuid": "^10.0.0"
   },
