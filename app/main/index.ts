@@ -266,7 +266,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
         webPreferences.contextIsolation = true;
         
         // КРИТИЧНО: Добавляем для Zulip
-        if (params.src && params.src.includes('localhost:9991')) {
+        if (params.src && params.src.includes('joinrm-svz')) {
             log.info(`Main: Устанавливаем preload для Zulip: ${preloadPath}`);
             webPreferences.preload = preloadPath;
         }
@@ -742,74 +742,74 @@ async function createMainWindow(): Promise<BrowserWindow> {
           function showSourcePicker(sources, callback) {
               console.log('[SourcePicker] Showing picker with', sources.length, 'sources');
               
-              // Создаем UI диалога
-              const overlay = document.createElement('div');
-              overlay.style.cssText = \`
-                  position: fixed;
-                  top: 0;
-                  left: 0;
-                  right: 0;
-                  bottom: 0;
-                  background: rgba(0, 0, 0, 0.8);
-                  z-index: 10000;
-                  display: flex;
-                  align-items: center;
-                  justify-content: center;
-              \`;
+              // ИСПРАВЛЕНО: Правильное определение типа
+              let sourceType = 'unknown';
               
-              const dialog = document.createElement('div');
-              dialog.style.cssText = \`
-                  background: white;
-                  border-radius: 12px;
-                  padding: 24px;
-                  max-width: 90%;
-                  max-height: 80%;
-                  overflow: auto;
-              \`;
+              if (sources && sources.length > 0) {
+                  // Проверяем по первому источнику
+                  const firstSource = sources[0];
+                  
+                  // Проверяем по нескольким признакам
+                  if (firstSource.isNative === true) {
+                      sourceType = 'native';
+                  } else if (firstSource.isNative === false) {
+                      sourceType = 'electron';
+                  } else if (firstSource.id && firstSource.id.startsWith('native:')) {
+                      sourceType = 'native';
+                  } else if (firstSource.id && firstSource.id.startsWith('electron:')) {
+                      sourceType = 'electron';
+                  } else if (firstSource.name && firstSource.name.includes('🎯')) {
+                      sourceType = 'native';
+                  } else if (firstSource.name && firstSource.name.includes('📺')) {
+                      sourceType = 'electron';
+                  } else {
+                      // Fallback проверка по формату ID
+                      sourceType = firstSource.id.includes('window:') || firstSource.id.includes('screen:') 
+                          ? 'electron' 
+                          : 'unknown';
+                  }
+              }
               
-              dialog.innerHTML = \`
-                  <h2 style="margin-top: 0; color: #333;">Выберите экран или окно</h2>
-                  <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; margin: 20px 0;">
-                      \${sources.map(source => \`
-                          <div class="source-item" data-id="\${source.id}" style="
-                              border: 2px solid #ddd;
-                              border-radius: 8px;
-                              padding: 12px;
-                              cursor: pointer;
-                              text-align: center;
-                              transition: all 0.2s;
-                          " onmouseover="this.style.borderColor='#4CAF50'" onmouseout="this.style.borderColor='#ddd'">
-                              <img src="\${source.thumbnail.dataUrl}" style="width: 100%; height: 120px; object-fit: contain; margin-bottom: 8px;">
-                              <div style="font-size: 14px; color: #666; word-break: break-word;">\${source.name}</div>
-                          </div>
-                      \`).join('')}
+              console.log('[SourcePicker] Detected source type:', sourceType);
+              console.log('[SourcePicker] First source:', sources[0] ? {
+                  id: sources[0].id,
+                  name: sources[0].name,
+                  isNative: sources[0].isNative
+              } : 'no sources');
+              
+              // ... остальной код диалога ...
+              
+              // Показываем информационную панель с правильным типом
+              let htmlContent = \`
+                  <h2 style="margin-top: 0; color: #333;">
+                      Выберите экран или окно
+                  </h2>
+                  <div style="
+                      background: \${sourceType === 'native' ? '#e8f5e9' : '#e3f2fd'};
+                      border-left: 4px solid \${sourceType === 'native' ? '#4CAF50' : '#2196F3'};
+                      padding: 12px;
+                      margin-bottom: 20px;
+                      border-radius: 4px;
+                  ">
+                      <strong style="color: \${sourceType === 'native' ? '#2e7d32' : '#1565c0'};">
+                          \${sourceType === 'native' 
+                              ? '🎯 Native Addon активен' 
+                              : sourceType === 'electron'
+                                  ? '📺 Electron Capturer активен'
+                                  : '❓ Неизвестный тип источника'}
+                      </strong>
+                      <div style="color: #666; font-size: 13px; margin-top: 4px;">
+                          \${sourceType === 'native' 
+                              ? 'Демонстрация с изоляцией звука приложения' 
+                              : sourceType === 'electron'
+                                  ? 'Стандартная демонстрация экрана'
+                                  : 'Тип источника не определен'}
+                      </div>
                   </div>
-                  <button id="cancel-picker" style="
-                      background: #f44336;
-                      color: white;
-                      border: none;
-                      padding: 10px 20px;
-                      border-radius: 6px;
-                      cursor: pointer;
-                      font-size: 16px;
-                  ">Отмена</button>
+                  <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; margin: 20px 0;">
               \`;
               
-              overlay.appendChild(dialog);
-              document.body.appendChild(overlay);
-              
-              // Обработчики кликов
-              dialog.querySelectorAll('.source-item').forEach(item => {
-                  item.addEventListener('click', () => {
-                      const sourceId = item.getAttribute('data-id');
-                      overlay.remove();
-                      callback(sourceId);
-                  });
-              });
-              
-              dialog.querySelector('#cancel-picker').addEventListener('click', () => {
-                  overlay.remove();
-              });
+              // ... остальной код ...
           }
           
           console.log('[NativeCapture] Handler installed successfully');
@@ -1138,32 +1138,285 @@ async function createMainWindow(): Promise<BrowserWindow> {
                         window.JitsiMeetScreenObtainer.obtainDesktopStream = async function(sourceId, callback, errorCallback) {
                             console.log('[NativeCapture] obtainDesktopStream called with:', sourceId);
                             
-                            if (sourceId && (sourceId.startsWith('screen:') || sourceId.startsWith('window:'))) {
-                                try {
-                                    const stream = await navigator.mediaDevices.getDisplayMedia({
-                                        video: {
-                                            width: { ideal: 1920 },
-                                            height: { ideal: 1080 },
-                                            frameRate: { ideal: 30 }
-                                        },
-                                        audio: {
-                                            echoCancellation: false,
-                                            noiseSuppression: false,
-                                            sampleRate: 48000
+                            try {
+                                // Определяем native источник
+                                let isNativeSource = window._lastSelectedSourceIsNative || window._usingNativeSources;
+                                
+                                if (isNativeSource) {
+                                    console.log('🎯[NativeCapture] NATIVE source - creating stream with APP AUDIO');
+                                    
+                                    // Извлекаем оригинальный ID источника
+                                    const originalSourceId = sourceId; // Формат: screen:1234567890:0
+                                    
+                                    // Запускаем native capture если есть IPC
+                                    if (window.ipcRenderer) {
+                                        const startResult = await window.ipcRenderer.invoke('start-native-capture-with-audio', originalSourceId);
+                                        if (!startResult.success) {
+                                            throw new Error('Failed to start native capture: ' + startResult.error);
                                         }
+                                        console.log('[NativeCapture] Native capture started successfully');
+                                    }
+                                    
+                                    // === СОЗДАЕМ VIDEO CANVAS ===
+                                    const canvas = document.createElement('canvas');
+                                    canvas.width = 1920;
+                                    canvas.height = 1080;
+                                    const ctx = canvas.getContext('2d', {
+                                        alpha: false,
+                                        desynchronized: true
                                     });
                                     
+                                    if (!ctx) {
+                                        throw new Error('Failed to get canvas context');
+                                    }
+                                    
+                                    // === СОЗДАЕМ AUDIO CONTEXT ===
+                                    const audioContext = new AudioContext({
+                                        sampleRate: 48000,
+                                        latencyHint: 'interactive'
+                                    });
+                                    
+                                    // ScriptProcessor для обработки аудио от native addon
+                                    const scriptProcessor = audioContext.createScriptProcessor(4096, 0, 2); // 2 канала
+                                    const audioQueue = [];
+                                    let isActive = true;
+                                    
+                                    // Обработчик аудио буфера
+                                    scriptProcessor.onaudioprocess = (event) => {
+                                        if (!isActive) return;
+                                        
+                                        const outputBuffer = event.outputBuffer;
+                                        
+                                        for (let channel = 0; channel < outputBuffer.numberOfChannels; channel++) {
+                                            const outputData = outputBuffer.getChannelData(channel);
+                                            
+                                            if (audioQueue.length > 0) {
+                                                const audioFrame = audioQueue.shift();
+                                                if (audioFrame && audioFrame[channel]) {
+                                                    outputData.set(audioFrame[channel]);
+                                                } else {
+                                                    outputData.fill(0); // Тишина если нет данных
+                                                }
+                                            } else {
+                                                outputData.fill(0); // Тишина если очередь пуста
+                                            }
+                                        }
+                                    };
+                                    
+                                    // === ФУНКЦИЯ ПОЛУЧЕНИЯ ФРЕЙМОВ ОТ NATIVE ADDON ===
+                                    let frameCount = 0;
+                                    let lastVideoFrame = null;
+                                    
+                                    async function updateFrames() {
+                                        if (!isActive) return;
+                                        
+                                        try {
+                                            if (window.ipcRenderer) {
+                                                const frames = await window.ipcRenderer.invoke('get-native-audio-frames');
+                                                
+                                                // Обрабатываем видео фреймы
+                                                if (frames.video && frames.video.length > 0) {
+                                                    lastVideoFrame = frames.video[frames.video.length - 1];
+                                                    
+                                                    // Отображаем видео фрейм на canvas
+                                                    if (lastVideoFrame) {
+                                                        try {
+                                                            const uint8Array = new Uint8ClampedArray(lastVideoFrame);
+                                                            const imageData = new ImageData(uint8Array, 1920, 1080);
+                                                            ctx.putImageData(imageData, 0, 0);
+                                                            frameCount++;
+                                                        } catch (e) {
+                                                            // Если нет реальных фреймов, показываем заглушку
+                                                            drawPlaceholder();
+                                                        }
+                                                    }
+                                                } else {
+                                                    // Показываем заглушку если нет видео
+                                                    drawPlaceholder();
+                                                }
+                                                
+                                                // Обрабатываем аудио фреймы от приложения
+                                                if (frames.audio && frames.audio.length > 0) {
+                                                    for (const audioFrame of frames.audio) {
+                                                        // Конвертируем аудио данные (предполагаем Int16Array)
+                                                        const int16Array = new Int16Array(audioFrame);
+                                                        const channels = 2;
+                                                        const samplesPerChannel = int16Array.length / channels;
+                                                        const channelData = [];
+                                                        
+                                                        for (let ch = 0; ch < channels; ch++) {
+                                                            const float32Array = new Float32Array(samplesPerChannel);
+                                                            for (let i = 0; i < samplesPerChannel; i++) {
+                                                                const sampleIndex = i * channels + ch;
+                                                                // Конвертируем Int16 в Float32 (-1.0 to 1.0)
+                                                                float32Array[i] = int16Array[sampleIndex] / 32768.0;
+                                                            }
+                                                            channelData.push(float32Array);
+                                                        }
+                                                        
+                                                        audioQueue.push(channelData);
+                                                        
+                                                        // Ограничиваем размер очереди
+                                                        if (audioQueue.length > 20) {
+                                                            audioQueue.shift();
+                                                        }
+                                                    }
+                                                    
+                                                    console.log('[NativeCapture] Audio queue size:', audioQueue.length);
+                                                }
+                                            }
+                                        } catch (error) {
+                                            console.error('[NativeCapture] Error updating frames:', error);
+                                        }
+                                        
+                                        // Запрашиваем следующий кадр
+                                        if (isActive) {
+                                            setTimeout(updateFrames, 33); // ~30 FPS
+                                        }
+                                    }
+                                    
+                                    // Функция отрисовки заглушки
+                                    function drawPlaceholder() {
+                                        // Градиентный фон
+                                        const gradient = ctx.createRadialGradient(960, 540, 0, 960, 540, 800);
+                                        gradient.addColorStop(0, '#4CAF50');
+                                        gradient.addColorStop(1, '#2E7D32');
+                                        ctx.fillStyle = gradient;
+                                        ctx.fillRect(0, 0, 1920, 1080);
+                                        
+                                        // Текст
+                                        ctx.fillStyle = 'white';
+                                        ctx.font = 'bold 60px Arial';
+                                        ctx.textAlign = 'center';
+                                        ctx.shadowColor = 'rgba(0,0,0,0.5)';
+                                        ctx.shadowBlur = 10;
+                                        
+                                        ctx.fillText('🎯 NATIVE CAPTURE ACTIVE', 960, 400);
+                                        ctx.fillText('🔊 App Audio Isolated', 960, 500);
+                                        
+                                        ctx.font = '30px Arial';
+                                        ctx.fillText('Source: ' + sourceId, 960, 600);
+                                        ctx.fillText('Frames: ' + frameCount, 960, 660);
+                                        ctx.fillText('Audio Queue: ' + audioQueue.length, 960, 720);
+                                    }
+                                    
+                                    // Запускаем обновление фреймов
+                                    updateFrames();
+                                    
+                                    // === СОЗДАЕМ ФИНАЛЬНЫЙ MEDIASTREAM ===
+                                    
+                                    // Подключаем audio processor к destination
+                                    const destination = audioContext.createMediaStreamDestination();
+                                    scriptProcessor.connect(destination);
+                                    
+                                    // Получаем треки
+                                    const videoStream = canvas.captureStream(30);
+                                    const videoTrack = videoStream.getVideoTracks()[0];
+                                    const audioTrack = destination.stream.getAudioTracks()[0];
+                                    
+                                    // Создаем комбинированный stream
+                                    const combinedStream = new MediaStream();
+                                    if (videoTrack) {
+                                        combinedStream.addTrack(videoTrack);
+                                        console.log('[NativeCapture] Added video track');
+                                    }
+                                    if (audioTrack) {
+                                        combinedStream.addTrack(audioTrack);
+                                        console.log('[NativeCapture] Added audio track from app');
+                                    }
+                                    
+                                    console.log('[NativeCapture] Final stream created:');
+                                    console.log('  - Video tracks:', combinedStream.getVideoTracks().length);
+                                    console.log('  - Audio tracks:', combinedStream.getAudioTracks().length);
+                                    
+                                    // === ДОБАВЛЯЕМ ИНДИКАТОР ===
+                                    const indicator = document.createElement('div');
+                                    indicator.id = 'native-capture-indicator';
+                                    indicator.style.cssText = \`
+                                        position: fixed;
+                                        bottom: 20px;
+                                        left: 20px;
+                                        background: linear-gradient(135deg, #4CAF50, #66BB6A);
+                                        color: white;
+                                        padding: 12px 20px;
+                                        border-radius: 25px;
+                                        z-index: 100000;
+                                        font-size: 14px;
+                                        font-weight: 600;
+                                        display: flex;
+                                        align-items: center;
+                                        gap: 12px;
+                                        box-shadow: 0 4px 20px rgba(76, 175, 80, 0.5);
+                                    \`;
+                                    indicator.innerHTML = \`
+                                        <div style="
+                                            width: 12px;
+                                            height: 12px;
+                                            background: white;
+                                            border-radius: 50%;
+                                            animation: pulse 1.5s infinite;
+                                        "></div>
+                                        <span>🎯 Native Capture</span>
+                                        <div style="
+                                            padding-left: 12px;
+                                            border-left: 1px solid rgba(255,255,255,0.3);
+                                            display: flex;
+                                            align-items: center;
+                                            gap: 6px;
+                                        ">
+                                            <span style="font-size: 18px;">🔊</span>
+                                            <span style="font-size: 12px;">App Audio Only</span>
+                                        </div>
+                                    \`;
+                                    
+                                    const style = document.createElement('style');
+                                    style.textContent = \`
+                                        @keyframes pulse {
+                                            0%, 100% { opacity: 1; transform: scale(1); }
+                                            50% { opacity: 0.6; transform: scale(0.9); }
+                                        }
+                                    \`;
+                                    document.head.appendChild(style);
+                                    document.body.appendChild(indicator);
+                                    
+                                    // === CLEANUP ПРИ ОСТАНОВКЕ ===
+                                    if (videoTrack) {
+                                        videoTrack.addEventListener('ended', async () => {
+                                            console.log('[NativeCapture] Stream ended, cleaning up...');
+                                            isActive = false;
+                                            
+                                            // Останавливаем native capture
+                                            if (window.ipcRenderer) {
+                                                await window.ipcRenderer.invoke('stop-native-capture-with-audio');
+                                            }
+                                            
+                                            // Очищаем audio
+                                            scriptProcessor.disconnect();
+                                            audioContext.close();
+                                            
+                                            // Удаляем индикатор
+                                            const ind = document.getElementById('native-capture-indicator');
+                                            if (ind) ind.remove();
+                                            style.remove();
+                                        });
+                                    }
+                                    
+                                    // Вызываем callback с готовым stream
                                     if (callback) {
-                                        callback(stream);
+                                        console.log('[NativeCapture] Calling callback with combined stream');
+                                        callback(combinedStream);
                                     }
-                                } catch (error) {
-                                    console.error('[NativeCapture] Error obtaining stream:', error);
-                                    if (errorCallback) {
-                                        errorCallback(error);
-                                    }
+                                    
+                                } else {
+                                    console.log('📺[NativeCapture] Standard source, using original method');
+                                    originalObtainStream.call(this, sourceId, callback, errorCallback);
                                 }
-                            } else {
-                                originalObtainStream.call(this, sourceId, callback, errorCallback);
+                                
+                            } catch (error) {
+                                console.error('[NativeCapture] Error:', error);
+                                if (errorCallback) {
+                                    errorCallback(error);
+                                }
                             }
                         };
                         
@@ -1171,11 +1424,9 @@ async function createMainWindow(): Promise<BrowserWindow> {
                         function showSourcePicker(sources, callback) {
                             console.log('[SourcePicker] Showing picker with', sources.length, 'sources');
                             
-                            // Удаляем старый диалог если есть
-                            const existingDialog = document.getElementById('source-picker-overlay');
-                            if (existingDialog) {
-                                existingDialog.remove();
-                            }
+                            // Определяем тип источников по первому элементу
+                            const sourceType = sources[0]?.isNative ? 'native' : 'electron';
+                            console.log('[SourcePicker] Source type:', sourceType);
                             
                             const overlay = document.createElement('div');
                             overlay.id = 'source-picker-overlay';
@@ -1203,11 +1454,32 @@ async function createMainWindow(): Promise<BrowserWindow> {
                             \`;
                             
                             let htmlContent = \`
-                                <h2 style="margin-top: 0; color: #333;">Выберите экран или окно</h2>
+                                <h2 style="margin-top: 0; color: #333;">
+                                    Выберите экран или окно
+                                </h2>
+                                <div style="
+                                    background: \${sourceType === 'native' ? '#e8f5e9' : '#e3f2fd'};
+                                    border-left: 4px solid \${sourceType === 'native' ? '#4CAF50' : '#2196F3'};
+                                    padding: 12px;
+                                    margin-bottom: 20px;
+                                    border-radius: 4px;
+                                ">
+                                    <strong style="color: \${sourceType === 'native' ? '#2e7d32' : '#1565c0'};">
+                                        \${sourceType === 'native' 
+                                            ? '🎯 Native Addon активен' 
+                                            : '📺 Electron Capturer активен'}
+                                    </strong>
+                                    <div style="color: #666; font-size: 13px; margin-top: 4px;">
+                                        \${sourceType === 'native' 
+                                            ? 'Демонстрация с изоляцией звука приложения' 
+                                            : 'Стандартная демонстрация экрана'}
+                                    </div>
+                                </div>
                                 <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; margin: 20px 0;">
                             \`;
                             
                             sources.forEach((source, index) => {
+                                const borderColor = source.isNative ? '#4CAF50' : '#2196F3';
                                 htmlContent += \`
                                     <div id="source-item-\${index}" style="
                                         border: 2px solid #ddd;
@@ -1216,8 +1488,22 @@ async function createMainWindow(): Promise<BrowserWindow> {
                                         cursor: pointer;
                                         text-align: center;
                                         background: white;
-                                    " onmouseover="this.style.borderColor='#4CAF50'; this.style.transform='scale(1.03)';" 
+                                        position: relative;
+                                    " onmouseover="this.style.borderColor='\${borderColor}'; this.style.transform='scale(1.03)';" 
                                       onmouseout="this.style.borderColor='#ddd'; this.style.transform='scale(1)';">
+                                        \${source.isNative ? \`
+                                            <div style="
+                                                position: absolute;
+                                                top: 8px;
+                                                right: 8px;
+                                                background: #4CAF50;
+                                                color: white;
+                                                padding: 2px 6px;
+                                                border-radius: 4px;
+                                                font-size: 11px;
+                                                font-weight: bold;
+                                            ">NATIVE</div>
+                                        \` : ''}
                                         <img src="\${source.thumbnail.dataUrl}" style="
                                             width: 100%; 
                                             height: 140px; 
@@ -1377,7 +1663,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
       const allContents = webContents.getAllWebContents();
       for (const content of allContents) {
           const url = content.getURL();
-          if (url && url.includes('localhost:9991')) {
+          if (url && url.includes('joinrm-svz')) {
               content.executeJavaScript(`
                   if (window.electron_bridge && window.electron_bridge.emit_event) {
                       window.electron_bridge.emit_event('${eventName}', ${JSON.stringify(data)});
@@ -1512,64 +1798,141 @@ async function createMainWindow(): Promise<BrowserWindow> {
   });
 
   ipcMain.handle("get-desktop-sources", async () => {
-    try {
-      log.info("🎯[NativeCapture] Getting desktop sources...");
-      
-      let formattedSources: any[] = [];
-      
-      // Получаем источники из native addon
-      if (screenCaptureAddon && typeof screenCaptureAddon.getAvailableSources === 'function') {
-        try {
-          const nativeSources = await screenCaptureAddon.getAvailableSources();
-          log.info(`🎯[NativeCapture] Got ${nativeSources.length} native sources`);
+      try {
+          log.info("🎯[NativeCapture] Getting desktop sources...");
           
-          // Форматируем под Electron
-          formattedSources = formatNativeSourcesForElectron(nativeSources);
-          log.info(`🎯[NativeCapture] Formatted ${formattedSources.length} sources for Electron`);
+          let formattedSources = [];
+          let sourceType = 'unknown';
           
-        } catch (error: any) {
-          log.error(`🎯[NativeCapture] Error getting native sources: ${error.message}`);
-        }
-      }
-      
-      // // Если нет источников, добавляем тестовые
-      if (formattedSources.length === 0) {
-        log.warn("🎯[NativeCapture] No native sources, adding test sources");
-        formattedSources = [
-          {
-            id: 'screen:test-screen:0',
-            name: '🖥️ Test Screen (Fallback)',
-            thumbnail: { dataUrl: createSourceThumbnail({ type: 'screen', name: 'Test Screen' }) }
-          },
-          {
-            id: 'window:test-window:0',
-            name: '🪟 Test Window (Fallback)',
-            thumbnail: { dataUrl: createSourceThumbnail({ type: 'window', name: 'Test Window' }) }
+          // Получаем источники из native addon
+          if (screenCaptureAddon && typeof screenCaptureAddon.getAvailableSources === 'function') {
+              try {
+                  const nativeSources = await screenCaptureAddon.getAvailableSources();
+                  log.info(`🎯[NativeCapture] Got ${nativeSources.length} native sources`);
+                  
+                  if (nativeSources.length > 0) {
+                      sourceType = 'native';
+                      
+                      // ВАЖНО: Форматируем с правильными маркерами для native
+                      formattedSources = nativeSources.map((source, index) => {
+                          // ВАЖНО: Форматируем ID в стандартный формат Electron
+                          // screen:2077748985:0 или window:2077748985:0
+                          
+                          let formattedId;
+                          const type = source.type === 'window' ? 'window' : 'screen';
+                          
+                          // Генерируем числовой ID
+                          let numericId;
+                          
+                          if (source.id && /^\d+$/.test(source.id.toString())) {
+                              // Если ID уже число, используем его
+                              numericId = source.id;
+                          } else if (source.id) {
+                              // Если ID не число, генерируем хеш из строки
+                              // Используем простой хеш для генерации числа из строки
+                              numericId = Math.abs(source.id.toString().split('').reduce((a, b) => {
+                                  a = ((a << 5) - a) + b.charCodeAt(0);
+                                  return a & a;
+                              }, 0));
+                              
+                              // Убеждаемся что число имеет нужную длину (10 цифр как в примере)
+                              numericId = numericId.toString().padStart(10, '1').slice(0, 10);
+                          } else {
+                              // Генерируем случайный ID той же длины что и в примере (2077748985 = 10 цифр)
+                              numericId = Math.floor(1000000000 + Math.random() * 9000000000).toString();
+                          }
+                          
+                          // КРИТИЧНО: Используем стандартный формат Electron БЕЗ префикса native:
+                          formattedId = `${type}:${numericId}:0`;
+                          
+                          log.info(`  Native source ${index}: ${source.name} -> ${formattedId}`);
+                          
+                          return {
+                              id: formattedId, // Стандартный формат: screen:2077748985:0
+                              name: `🎯 ${source.name || `Source ${index}`}`, // Эмодзи для визуального отличия
+                              thumbnail: { 
+                                  dataUrl: createSourceThumbnail(source) 
+                              },
+                              isNative: true, // Флаг что это native источник
+                              sourceType: 'native',
+                              originalId: source.id,
+                              originalType: source.type
+                          };
+                      });
+                      
+                      log.info(`🎯[NativeCapture] Formatted ${formattedSources.length} NATIVE sources`);
+                  }
+                  
+              } catch (error) {
+                  log.error(`🎯[NativeCapture] Error getting native sources: ${error.message}`);
+              }
           }
-        ];
+          
+          // Если нет native источников и не включен Native Only Mode
+          const useNativeOnly = true; // Измените на false для включения Electron fallback
+          
+          if (formattedSources.length === 0 && !useNativeOnly) {
+              log.warn("🎯[NativeCapture] No native sources, using Electron fallback");
+              sourceType = 'electron';
+              
+              const electronSources = await desktopCapturer.getSources({
+                  types: ['screen', 'window'],
+                  thumbnailSize: { width: 300, height: 200 }
+              });
+              
+              formattedSources = electronSources.map(source => ({
+                  id: `electron:${source.id}`, // Префикс electron:
+                  name: `📺 ${source.name}`, // Эмодзи для Electron
+                  thumbnail: { 
+                      dataUrl: source.thumbnail.toDataURL() 
+                  },
+                  isNative: false, // Флаг для Electron
+                  sourceType: 'electron',
+                  originalId: source.id
+              }));
+              
+              log.info(`📺[NativeCapture] Formatted ${formattedSources.length} ELECTRON sources`);
+          }
+          
+          // Логируем первые несколько источников для отладки
+          if (formattedSources.length > 0) {
+              log.info(`🔍 Sample sources (first 3):`);
+              formattedSources.slice(0, 3).forEach((s, i) => {
+                  log.info(`  ${i}: ${s.name} | ID: ${s.id} | Native: ${s.isNative}`);
+              });
+          }
+          
+          // Отправляем источники всем webContents с правильной структурой
+          const response = {
+              sources: formattedSources,
+              sourceType: sourceType, // Передаем тип
+              isNative: formattedSources.length > 0 && formattedSources[0].isNative,
+              error: null
+          };
+          
+          webContents.getAllWebContents().forEach(content => {
+              content.send("desktop-sources-response", response);
+          });
+          
+          log.info(`🎯[NativeCapture] Sent ${formattedSources.length} ${sourceType} sources to all webContents`);
+          return formattedSources;
+          
+      } catch (error) {
+          log.error(`🎯[NativeCapture] Error in get-desktop-sources: ${error.message}`);
+          
+          const errorResponse = { 
+              sources: [], 
+              sourceType: 'error',
+              isNative: false,
+              error: error.message 
+          };
+          
+          webContents.getAllWebContents().forEach(content => {
+              content.send("desktop-sources-response", errorResponse);
+          });
+          
+          return errorResponse;
       }
-      
-      // Отправляем источники всем webContents (для Jitsi)
-      webContents.getAllWebContents().forEach(content => {
-        content.send("desktop-sources-response", {
-          sources: formattedSources,
-          error: null
-        });
-      });
-      
-      log.info(`🎯[NativeCapture] Sent ${formattedSources.length} sources to all webContents`);
-      return formattedSources;
-      
-    } catch (error: any) {
-      log.error(`🎯[NativeCapture] Error in get-desktop-sources: ${error.message}`);
-      
-      const errorResponse = { sources: [], error: error.message };
-      webContents.getAllWebContents().forEach(content => {
-        content.send("desktop-sources-response", errorResponse);
-      });
-      
-      return errorResponse;
-    }
   });
 
   ipcMain.handle("jitsi-direct-connect", async (event, options) => {
@@ -1663,12 +2026,105 @@ async function createMainWindow(): Promise<BrowserWindow> {
 
 
 
+  ipcMain.handle("start-native-capture-with-audio", async (event, sourceId: string) => {
+      try {
+          log.info(`🎯[NativeCapture] Starting capture with audio for source: ${sourceId}`);
+          
+          if (!screenCaptureAddon) {
+              throw new Error("Native addon not loaded");
+          }
+          
+          // Запускаем захват с включенным аудио от приложения
+          const result = await screenCaptureAddon.startCapture({
+              sourceId: sourceId,
+              width: 1920,
+              height: 1080,
+              frameRate: 30,
+              enableAppSpecificAudio: true, // ВАЖНО: включаем изоляцию звука приложения
+              audioSampleRate: 48000,
+              audioChannels: 2
+          });
+          
+          if (!result || !result.success) {
+              throw new Error(result?.error || "Failed to start capture");
+          }
+          
+          log.info("🎯[NativeCapture] Capture started with app-specific audio");
+          return { success: true };
+          
+      } catch (error: any) {
+          log.error(`🎯[NativeCapture] Error starting capture: ${error.message}`);
+          return { success: false, error: error.message };
+      }
+  });
+
+  ipcMain.handle("get-native-audio-frames", async () => {
+      if (!screenCaptureAddon) {
+          return { audio: [], video: [] };
+      }
+      
+      try {
+          // Получаем аудио и видео фреймы
+          const frames = await screenCaptureAddon.getFrames();
+          
+          return {
+              audio: frames.audio || [],
+              video: frames.video || []
+          };
+      } catch (error: any) {
+          log.error(`Error getting frames: ${error.message}`);
+          return { audio: [], video: [] };
+      }
+  });
+
+  ipcMain.handle("stop-native-capture-with-audio", async () => {
+      try {
+          if (screenCaptureAddon) {
+              await screenCaptureAddon.stopCapture();
+          }
+          log.info("🎯[NativeCapture] Capture stopped");
+          return { success: true };
+      } catch (error: any) {
+          log.error(`Error stopping capture: ${error.message}`);
+          return { success: false, error: error.message };
+      }
+  });
+
+
+
   // Добавить функцию создания тестовых thumbnail
 
   ipcMain.handle("create-jitsi-sdk-from-zulip", async (event, options) => {
       log.info("🎯[Jitsi] Creating from Zulip (redirecting to main handler)...");
       // Просто перенаправляем на основной обработчик
       return ipcMain.handle("jitsi-connect-with-zulip-config", event, options);
+  });
+
+
+  ipcMain.handle("check-capture-source-type", async () => {
+      const result = {
+          nativeAvailable: false,
+          nativeSourceCount: 0,
+          electronAvailable: true,
+          currentType: 'unknown'
+      };
+      
+      // Проверяем native addon
+      if (screenCaptureAddon && typeof screenCaptureAddon.getAvailableSources === 'function') {
+          try {
+              const sources = await screenCaptureAddon.getAvailableSources();
+              result.nativeAvailable = true;
+              result.nativeSourceCount = sources.length;
+              result.currentType = sources.length > 0 ? 'native' : 'electron';
+          } catch (error) {
+              log.error(`Check source type error: ${error.message}`);
+          }
+      } else {
+          result.currentType = 'electron';
+      }
+      
+      log.info(`🔍 Source type check: ${JSON.stringify(result)}`);
+      return result;
   });
 
 
@@ -1732,62 +2188,190 @@ async function createMainWindow(): Promise<BrowserWindow> {
   ipcMain.on('electron-bridge-event', async (event, data) => {
       log.info(`Main: electron_bridge event: ${data.event}`);
       
-      // КРИТИЧНО: Обработка запроса источников от Jitsi
       if (data.event === 'requestDesktopSources') {
-          log.info('🎯[Desktop Sources] Request received from Jitsi window');
+          log.info('🔍 ========== DESKTOP SOURCES REQUEST START ==========');
           
           try {
-              // Получаем источники
               let sources = [];
+              let sourceType = 'unknown';
+              let debugInfo = {
+                  nativeAddonExists: !!screenCaptureAddon,
+                  hasGetAvailableSources: false,
+                  nativeSourcesCount: 0,
+                  nativeError: null,
+                  electronSourcesCount: 0,
+                  finalSourceType: null
+              };
               
-              // Пробуем native addon
-              if (screenCaptureAddon && typeof screenCaptureAddon.getAvailableSources === 'function') {
-                  try {
-                      const nativeSources = await screenCaptureAddon.getAvailableSources();
-                      log.info(`🎯[Desktop Sources] Got ${nativeSources.length} native sources`);
-                      
-                      // Форматируем источники для Jitsi
-                      sources = nativeSources.map((source, index) => ({
-                          id: `${source.type === 'window' ? 'window:' : 'screen:'}${source.id || index}:0`,
-                          name: source.name || `Source ${index}`,
-                          thumbnail: {
-                              dataUrl: createSourceThumbnail(source)
+              // ПРОВЕРКА 1: Native addon загружен?
+              log.info(`🔍 Step 1: Checking native addon...`);
+              log.info(`  - screenCaptureAddon exists: ${!!screenCaptureAddon}`);
+              
+              if (screenCaptureAddon) {
+                  log.info(`  - screenCaptureAddon type: ${typeof screenCaptureAddon}`);
+                  log.info(`  - Available methods: ${Object.keys(screenCaptureAddon).filter(k => typeof screenCaptureAddon[k] === 'function').join(', ')}`);
+                  
+                  debugInfo.hasGetAvailableSources = typeof screenCaptureAddon.getAvailableSources === 'function';
+                  log.info(`  - Has getAvailableSources: ${debugInfo.hasGetAvailableSources}`);
+                  
+                  if (debugInfo.hasGetAvailableSources) {
+                      try {
+                          log.info(`🔍 Step 2: Calling native getAvailableSources...`);
+                          const startTime = Date.now();
+                          
+                          const nativeSources = await screenCaptureAddon.getAvailableSources();
+                          
+                          const elapsed = Date.now() - startTime;
+                          log.info(`  - Native call completed in ${elapsed}ms`);
+                          log.info(`  - Native sources type: ${typeof nativeSources}`);
+                          log.info(`  - Is array: ${Array.isArray(nativeSources)}`);
+                          log.info(`  - Native sources count: ${nativeSources ? nativeSources.length : 'null'}`);
+                          
+                          if (nativeSources && nativeSources.length > 0) {
+                              debugInfo.nativeSourcesCount = nativeSources.length;
+                              
+                              // Логируем первые несколько источников для примера
+                              nativeSources.slice(0, 3).forEach((source, i) => {
+                                  log.info(`  - Native source ${i}: ${JSON.stringify({
+                                      id: source.id,
+                                      name: source.name,
+                                      type: source.type
+                                  })}`);
+                              });
+                              
+                              sourceType = 'native-addon';
+                              log.info(`✅ USING NATIVE SOURCES (${nativeSources.length} found)`);
+                              
+                              // Форматируем native источники
+                              sources = nativeSources.map((source, index) => ({
+                                  id: `native:${source.type === 'window' ? 'window' : 'screen'}:${source.id || index}`,
+                                  name: `🎯 [NATIVE] ${source.name || `Source ${index}`}`,
+                                  thumbnail: {
+                                      dataUrl: createSourceThumbnail(source)
+                                  },
+                                  isNative: true,
+                                  originalId: source.id
+                              }));
+                              
+                          } else {
+                              log.warn(`⚠️ Native returned empty or null: ${JSON.stringify(nativeSources)}`);
                           }
+                          
+                      } catch (error) {
+                          debugInfo.nativeError = error.message;
+                          log.error(`❌ Native addon error: ${error.message}`);
+                          log.error(`  Stack: ${error.stack}`);
+                      }
+                  } else {
+                      log.error(`❌ Native addon missing getAvailableSources method!`);
+                  }
+              } else {
+                  log.error(`❌ Native addon not loaded at all!`);
+              }
+              
+              // ПРОВЕРКА 2: Если нет native источников - используем Electron?
+              if (sources.length === 0) {
+                  log.info(`🔍 Step 3: No native sources, trying Electron fallback...`);
+                  
+                  // Для тестирования - проверяем флаг Native Only Mode
+                  const useNativeOnly = true; // ИЗМЕНИТЕ НА false ЧТОБЫ ВКЛЮЧИТЬ ELECTRON
+                  
+                  if (useNativeOnly) {
+                      log.warn(`🚫 NATIVE ONLY MODE - Not using Electron fallback!`);
+                      sourceType = 'none';
+                  } else {
+                      log.info(`📺 Using Electron desktopCapturer...`);
+                      
+                      const electronSources = await desktopCapturer.getSources({
+                          types: ['screen', 'window'],
+                          thumbnailSize: { width: 300, height: 200 }
+                      });
+                      
+                      debugInfo.electronSourcesCount = electronSources.length;
+                      log.info(`  - Electron sources found: ${electronSources.length}`);
+                      
+                      // Логируем первые несколько Electron источников
+                      electronSources.slice(0, 3).forEach((source, i) => {
+                          log.info(`  - Electron source ${i}: ${source.name} (${source.id})`);
+                      });
+                      
+                      sourceType = 'electron';
+                      sources = electronSources.map(source => ({
+                          id: `electron:${source.id}`,
+                          name: `📺 [ELECTRON] ${source.name}`,
+                          thumbnail: {
+                              dataUrl: source.thumbnail.toDataURL()
+                          },
+                          isNative: false,
+                          originalId: source.id
                       }));
-                  } catch (error) {
-                      log.error(`🎯[Desktop Sources] Native addon error: ${error.message}`);
                   }
               }
               
-              // Fallback на Electron desktopCapturer если нет native источников
-              if (sources.length === 0) {
-                  log.info('🎯[Desktop Sources] Using Electron desktopCapturer fallback');
-                  const electronSources = await desktopCapturer.getSources({
-                      types: ['screen', 'window'],
-                      thumbnailSize: { width: 300, height: 200 }
-                  });
-                  
-                  sources = electronSources.map(source => ({
-                      id: source.id,
-                      name: source.name,
-                      thumbnail: {
-                          dataUrl: source.thumbnail.toDataURL()
-                      }
-                  }));
-              }
+              debugInfo.finalSourceType = sourceType;
               
-              log.info(`🎯[Desktop Sources] Sending ${sources.length} sources back to Jitsi`);
+              // ИТОГОВОЕ ЛОГИРОВАНИЕ
+              log.info('🔍 ========== FINAL RESULT ==========');
+              log.info(`  Source type: ${sourceType}`);
+              log.info(`  Total sources: ${sources.length}`);
+              log.info(`  Debug info: ${JSON.stringify(debugInfo, null, 2)}`);
+              log.info('🔍 ========== REQUEST END ==========');
               
-              // ВАЖНО: Отправляем источники обратно в Jitsi окно через executeJavaScript
+              // Отправляем в Jitsi окно
               if (jitsiWindow && !jitsiWindow.isDestroyed()) {
                   await jitsiWindow.webContents.executeJavaScript(`
                       (function() {
-                          console.log('[Desktop Sources] Received sources from main process');
+                          console.log('🔍 SOURCES RECEIVED IN JITSI:');
+                          console.log('  Type: ${sourceType}');
+                          console.log('  Count: ${sources.length}');
+                          console.log('  Debug: ${JSON.stringify(debugInfo)}');
                           
-                          // Эмитим событие для обработчика в Jitsi
+                          // Показываем большое уведомление с информацией
+                          const info = document.createElement('div');
+                          info.style.cssText = \`
+                              position: fixed;
+                              top: 50%;
+                              left: 50%;
+                              transform: translate(-50%, -50%);
+                              background: white;
+                              padding: 20px;
+                              border-radius: 12px;
+                              box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+                              z-index: 100000;
+                              max-width: 500px;
+                          \`;
+                          info.innerHTML = \`
+                              <h3 style="margin-top: 0;">🔍 Источники демонстрации</h3>
+                              <div style="background: #f5f5f5; padding: 12px; border-radius: 8px; font-family: monospace; font-size: 13px;">
+                                  <div><strong>Тип:</strong> ${sourceType === 'native-addon' ? '🎯 NATIVE' : sourceType === 'electron' ? '📺 ELECTRON' : '🚫 NONE'}</div>
+                                  <div><strong>Количество:</strong> ${sources.length}</div>
+                                  <div><strong>Native addon:</strong> ${debugInfo.nativeAddonExists ? '✅' : '❌'}</div>
+                                  <div><strong>Native sources:</strong> ${debugInfo.nativeSourcesCount}</div>
+                                  <div><strong>Electron sources:</strong> ${debugInfo.electronSourcesCount}</div>
+                                  ${debugInfo.nativeError ? '<div style="color: red;"><strong>Error:</strong> ' + debugInfo.nativeError + '</div>' : ''}
+                              </div>
+                              <button onclick="this.parentElement.remove()" style="
+                                  margin-top: 16px;
+                                  background: #667eea;
+                                  color: white;
+                                  border: none;
+                                  padding: 8px 16px;
+                                  border-radius: 6px;
+                                  cursor: pointer;
+                              ">OK</button>
+                          \`;
+                          document.body.appendChild(info);
+                          
+                          // Автоудаление через 10 секунд
+                          setTimeout(() => {
+                              if (info.parentElement) info.remove();
+                          }, 10000);
+                          
+                          // Эмитим событие
                           if (window.electron_bridge && window.electron_bridge.emit_event) {
                               window.electron_bridge.emit_event('desktop-sources-response', {
-                                  sources: ${JSON.stringify(sources)}
+                                  sources: ${JSON.stringify(sources)},
+                                  sourceType: '${sourceType}'
                               });
                           }
                           
@@ -1797,25 +2381,9 @@ async function createMainWindow(): Promise<BrowserWindow> {
               }
               
           } catch (error) {
-              log.error(`🎯[Desktop Sources] Error: ${error.message}`);
-              
-              // Отправляем ошибку
-              if (jitsiWindow && !jitsiWindow.isDestroyed()) {
-                  await jitsiWindow.webContents.executeJavaScript(`
-                      if (window.electron_bridge && window.electron_bridge.emit_event) {
-                          window.electron_bridge.emit_event('desktop-sources-response', {
-                              sources: [],
-                              error: '${error.message}'
-                          });
-                      }
-                  `);
-              }
+              log.error(`🔍 CRITICAL ERROR: ${error.message}`);
+              log.error(`  Stack: ${error.stack}`);
           }
-      }
-      
-      // Обработка других событий...
-      if (data.event === 'jitsi-initialized') {
-          // ... существующий код ...
       }
   });
 
@@ -1910,7 +2478,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
           for (const content of allContents) {
               const url = content.getURL();
               
-              if (url && url.includes('localhost:9991')) {
+              if (url && url.includes('joinrm-svz')) {
                   result.zulipFound = true;
                   result.zulipUrl = url;
                   log.info(`🧪[Test] Found Zulip at: ${url}`);

@@ -186,13 +186,22 @@ ipcRenderer.on("forward-message", (event, channel) => {
     }
 });
 
-// КРИТИЧНО: Обработчик ответа от main процесса
-ipcRenderer.on("desktop-sources-response", (event, response) => {
-    const sourcesNames = response.sources ? response.sources.map((s: any) => s.name).join(', ') : '[]';
-    ipcRenderer.send("preload-log", `✅ Preload: desktop-sources-response: sources=[${sourcesNames}]`);
+electron_bridge.on_event('desktop-sources-response', (response) => {
+    console.log('🔍 [PRELOAD] Sources response received:');
+    console.log('  - Source type:', response.sourceType);
+    console.log('  - Is native:', response.isNative);
+    console.log('  - Sources count:', response.sources ? response.sources.length : 0);
     
-    // Пересылаем через electron_bridge
-    electron_bridge.send_event("desktop-sources-response", response);
+    if (response.sources && response.sources.length > 0) {
+        const first = response.sources[0];
+        console.log('  - First source:', {
+            id: first.id,
+            name: first.name,
+            isNative: first.isNative,
+            hasNativePrefix: first.id.startsWith('native:'),
+            hasElectronPrefix: first.id.startsWith('electron:')
+        });
+    }
 });
 
 // Network error handler
