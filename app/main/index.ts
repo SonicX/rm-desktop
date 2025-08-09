@@ -40,12 +40,6 @@ import { setAutoLaunch } from "./startup.js";
 import { ipcMain, send } from "./typed-ipc-main.js";
 const { setupScreenSharingMain } = require('@jitsi/electron-sdk');
 
-if (typeof setupScreenSharingMain === 'function') {
-  log.info('✅ setupScreenSharingMain доступна и является функцией');
-} else {
-  log.error('❌ setupScreenSharingMain не доступна! Проверьте установку пакета @jitsi/electron-sdk');
-}
-
 
 
 // const { JitsiMeetElectron } = require('@jitsi/electron-sdk');
@@ -557,6 +551,8 @@ async function createMainWindow(): Promise<BrowserWindow> {
     } else {
       log.warn("⚠️ Native addon missing getAvailableSources method");
     }
+
+    
     
   } catch (error) {
     log.error(`❌ Failed to load native addon: ${error}`);
@@ -571,6 +567,12 @@ async function createMainWindow(): Promise<BrowserWindow> {
 
   // 3. РЕГИСТРИРУЕМ ВСЕ IPC ОБРАБОТЧИКИ ДО СОЗДАНИЯ ОКНА
   log.info("🎯[NativeCapture] Registering IPC handlers BEFORE window creation...");
+
+  let currentNativeCaptureId: string | null = null;
+  let isNativeCapturing: boolean = false;
+  let nativeVideoFrames: ArrayBuffer[] = [];
+  let nativeAudioFrames: ArrayBuffer[] = [];
+  let frameCollectionInterval: NodeJS.Timeout | null = null;
 
   ipcMain.handle("get-server-settings", async (event, domain: string) =>
     _getServerSettings(domain, ses),
@@ -643,6 +645,61 @@ async function createMainWindow(): Promise<BrowserWindow> {
     return `data:image/svg+xml;base64,${base64}`;
   }
 
+  // Функция для форматирования источников из Swift в формат Electron
+  function formatNativeSourcesForElectron(nativeSources: any[]): Electron.DesktopCapturerSource[] {
+    return nativeSources.map((source, index) => {
+      // Определяем тип и префикс
+      const sourceType = (source.type || 'screen').toString().toLowerCase();
+      const prefix = sourceType === 'window' || sourceType === 'application' ? 'window:' : 'screen:';
+      
+      // Формируем ID в формате Electron
+      const formattedId = `${prefix}${source.id || index}:0`;
+      
+      // Создаем thumbnail (простая заглушка или SVG)
+      const thumbnail = createSourceThumbnail(source);
+      
+      return {
+        id: formattedId,
+        name: source.name || `Source ${index + 1}`,
+        thumbnail: {
+          dataUrl: thumbnail
+        },
+        display_id: '', // Electron compatibility
+        appIcon: null   // Electron compatibility
+      } as any;
+    });
+  }
+
+  // Функция создания thumbnail для источника
+  function createSourceThumbnail(source: any): string {
+    const colors: { [key: string]: string } = {
+      screen: '#4CAF50',
+      display: '#4CAF50', 
+      window: '#2196F3',
+      application: '#FF9800'
+    };
+    
+    const color = colors[source.type] || '#9E9E9E';
+    const icon = source.type === 'screen' || source.type === 'display' ? '🖥️' : '🪟';
+    
+    const svg = `<svg width="300" height="200" xmlns="http://www.w3.org/2000/svg">
+      <rect width="300" height="200" fill="${color}"/>
+      <text x="150" y="80" font-size="50" text-anchor="middle" fill="white">${icon}</text>
+      <text x="150" y="130" font-size="16" text-anchor="middle" fill="white" font-weight="bold">
+        ${(source.name || 'Unknown').replace(/[<>&"']/g, '')}
+      </text>
+      ${source.appName ? `
+        <text x="150" y="155" font-size="14" text-anchor="middle" fill="white" opacity="0.9">
+          ${source.appName.replace(/[<>&"']/g, '')}
+        </text>
+      ` : ''}
+      <rect x="20" y="180" width="260" height="3" rx="1.5" fill="white" opacity="0.2"/>
+      <rect x="20" y="180" width="130" height="3" rx="1.5" fill="white" opacity="0.6"/>
+    </svg>`;
+    
+    return `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
+  }
+
   async function getSwiftSourcesSafe(): Promise<any[]> {
     if (!screenCaptureAddon || typeof screenCaptureAddon.getAvailableSources !== 'function') {
       throw new Error('Swift addon not available');
@@ -695,520 +752,523 @@ async function createMainWindow(): Promise<BrowserWindow> {
     });
   }
 
+  // Функция сбора фреймов от native addon
+  function startFrameCollection() {
+    log.info("🎯[NativeCapture] Starting frame collection");
+    
+    // Сбор видео фреймов
+    const collectVideoFrames = async () => {
+      if (!isNativeCapturing || !screenCaptureAddon) return;
+      
+      try {
+        const frame = await screenCaptureAddon.getVideoFrame();
+        if (frame && frame.data) {
+          // Сохраняем последние 10 фреймов
+          nativeVideoFrames.push(frame.data);
+          if (nativeVideoFrames.length > 10) {
+            nativeVideoFrames.shift();
+          }
+        }
+      } catch (error) {
+        log.error(`🎯[NativeCapture] Error collecting video frame: ${error}`);
+      }
+      
+      if (isNativeCapturing) {
+        setTimeout(collectVideoFrames, 33); // ~30 FPS
+      }
+    };
+    
+    // Сбор аудио фреймов
+    const collectAudioFrames = async () => {
+      if (!isNativeCapturing || !screenCaptureAddon) return;
+      
+      try {
+        const frame = await screenCaptureAddon.getAudioFrame();
+        if (frame && frame.data) {
+          // Сохраняем последние 20 аудио фреймов
+          nativeAudioFrames.push(frame.data);
+          if (nativeAudioFrames.length > 20) {
+            nativeAudioFrames.shift();
+          }
+        }
+      } catch (error) {
+        log.error(`🎯[NativeCapture] Error collecting audio frame: ${error}`);
+      }
+      
+      if (isNativeCapturing) {
+        setTimeout(collectAudioFrames, 10); // ~100 раз в секунду для аудио
+      }
+    };
+    
+    // Запускаем сбор
+    collectVideoFrames();
+    collectAudioFrames();
+  }
+
+  // Полная функция createJitsiWindow с использованием стандартного Electron picker
+
   async function createJitsiWindow(options: {
-    roomName: string;
-    serverUrl?: string;
-    displayName?: string;
-    email?: string;
-    avatarUrl?: string;
-    jwt?: string;
-}): Promise<{ success: boolean; error?: string; roomName?: string; server?: string; fallbackNeeded?: boolean }> {
-    try {
-        const server = options.serverUrl || 'https://jitsi-connectrm.ru';
-        const roomName = options.roomName.replace(/[^a-zA-Z0-9-_]/g, '');
-        const displayName = options.displayName || 'Guest';
-        
-        log.info(`🎯[Jitsi] Creating Jitsi window: ${server}/${roomName}`);
-        
-        // Проверяем, загружен ли SDK и как его использовать
-        let useSDK = false;
-        let jitsiApi: any = null;
-        
-        if (JitsiMeetElectron) {
-            log.info(`🎯[Jitsi SDK] SDK available, type: ${typeof JitsiMeetElectron}`);
-            
-            // Проверяем разные способы использования SDK
-            if (typeof JitsiMeetElectron === 'function') {
-                useSDK = true;
-                log.info('🎯[Jitsi SDK] SDK is a function/constructor');
-            } else if (JitsiMeetElectron.setupRenderer || JitsiMeetElectron.init) {
-                useSDK = true;
-                log.info('🎯[Jitsi SDK] SDK has setup methods');
-            } else {
-                log.warn('🎯[Jitsi SDK] SDK loaded but unknown format');
-            }
-        } else {
-            log.warn('🎯[Jitsi SDK] SDK not loaded, will use web version');
-        }
-        
-        // Закрываем предыдущее окно если есть
-        if (jitsiWindow && !jitsiWindow.isDestroyed()) {
-            jitsiWindow.close();
-            jitsiWindow = null;
-        }
-        
-        // Создаем окно
-        jitsiWindow = new BrowserWindow({
-            width: 1200,
-            height: 800,
-            minWidth: 800,
-            minHeight: 600,
-            title: `Конференция: ${roomName}`,
-            icon: iconPath(),
-            webPreferences: {
-                nodeIntegration: useSDK,      // true для SDK, false для web
-                contextIsolation: !useSDK,    // false для SDK, true для web
-                sandbox: false,
-                webSecurity: false  // Может потребоваться для SDK
-            },
-            show: true,
-            center: true
-        });
-        
-        if (useSDK) {
-            // Пробуем использовать SDK
-            try {
-                log.info('🎯[Jitsi SDK] Attempting to use SDK...');
-                
-                // Вариант 1: SDK требует загрузки HTML страницы с SDK
-                if (JitsiMeetElectron.setupRenderer) {
-                    // Загружаем специальную HTML страницу для SDK
-                    const sdkHtmlPath = path.join(__dirname, 'jitsi-sdk.html');
-                    await jitsiWindow.loadFile(sdkHtmlPath);
-                    
-                    // Инициализируем SDK в renderer процессе
-                    jitsiWindow.webContents.executeJavaScript(`
-                        const { JitsiMeetElectron } = require('@jitsi/electron-sdk');
-                        JitsiMeetElectron.setupRenderer();
-                    `);
-                    
-                } 
-                
-                log.info('🎯[Jitsi SDK] SDK initialized successfully');
-                
-            } catch (sdkError: any) {
-                log.error(`🎯[Jitsi SDK] SDK initialization failed: ${sdkError.message}`);
-                useSDK = false;
-                // Продолжаем с web-версией
-            }
-        }
-        
-        if (!useSDK) {
-            // Web-версия без SDK
-            log.info('🎯[Jitsi Web] Using web-based Jitsi (no SDK)');
-            
-            // Базовый URL
-            let conferenceUrl = `${server}/${roomName}`;
-            
-            // Query params (только jwt)
-            const queryParams = new URLSearchParams();
-            if (options.jwt) queryParams.append('jwt', options.jwt);
-            if (queryParams.toString()) {
-                conferenceUrl += '?' + queryParams.toString();
-            }
-            
-            // Hash params для config и userInfo
-            const hashParams = new URLSearchParams();
-            
-            // Config overrides
-            hashParams.append('config.prejoinPageEnabled', 'false');
-            hashParams.append('config.prejoinConfig.enabled', 'false');
-            hashParams.append('config.startWithAudioMuted', 'false');
-            hashParams.append('config.startWithVideoMuted', 'true');
-            hashParams.append('config.enableWelcomePage', 'false');
-            
-            // User info
-            if (options.displayName) hashParams.append('userInfo.displayName', options.displayName);
-            if (options.email) hashParams.append('userInfo.email', options.email);
-            if (options.avatarUrl) hashParams.append('userInfo.avatar', options.avatarUrl);
-            
-            if (hashParams.toString()) {
-                conferenceUrl += '#' + hashParams.toString();
-            }
-            
-            log.info(`🎯[Jitsi Web] Loading URL: ${conferenceUrl}`);
-            
-            await jitsiWindow.loadURL(conferenceUrl);
+      roomName: string;
+      serverUrl?: string;
+      displayName?: string;
+      email?: string;
+      avatarUrl?: string;
+      jwt?: string;
+  }): Promise<{ success: boolean; error?: string; roomName?: string; server?: string; fallbackNeeded?: boolean }> {
+      try {
+          const server = options.serverUrl || 'https://jitsi-connectrm.ru';
+          const roomName = options.roomName.replace(/[^a-zA-Z0-9-_]/g, '');
+          const displayName = options.displayName || 'Guest';
+          
+          log.info(`🎯[Jitsi] Creating Jitsi window: ${server}/${roomName}`);
+          
+          // Закрываем предыдущее окно если есть
+          if (jitsiWindow && !jitsiWindow.isDestroyed()) {
+              jitsiWindow.close();
+              jitsiWindow = null;
+          }
+          
+          // Создаем окно
+          jitsiWindow = new BrowserWindow({
+              width: 1200,
+              height: 800,
+              minWidth: 800,
+              minHeight: 600,
+              title: `Конференция: ${roomName}`,
+              icon: iconPath(),
+              webPreferences: {
+                  nodeIntegration: false,
+                  contextIsolation: true,
+                  sandbox: false,
+                  webSecurity: false,
+                  preload: path.join(bundlePath, "preload.js")
+              },
+              show: true,
+              center: true
+          });
+          
+          // URL конференции
+          let conferenceUrl = `${server}/${roomName}`;
+          
+          // Query params (только jwt)
+          const queryParams = new URLSearchParams();
+          if (options.jwt) queryParams.append('jwt', options.jwt);
+          if (queryParams.toString()) {
+              conferenceUrl += '?' + queryParams.toString();
+          }
+          
+          // Hash params для config и userInfo
+          const hashParams = new URLSearchParams();
+          hashParams.append('config.prejoinPageEnabled', 'false');
+          hashParams.append('config.prejoinConfig.enabled', 'false');
+          hashParams.append('config.startWithAudioMuted', 'false');
+          hashParams.append('config.startWithVideoMuted', 'true');
+          hashParams.append('config.enableWelcomePage', 'false');
+          
+          if (options.displayName) hashParams.append('userInfo.displayName', options.displayName);
+          if (options.email) hashParams.append('userInfo.email', options.email);
+          if (options.avatarUrl) hashParams.append('userInfo.avatar', options.avatarUrl);
+          
+          if (hashParams.toString()) {
+              conferenceUrl += '#' + hashParams.toString();
+          }
+          
+          log.info(`🎯[Jitsi Web] Loading URL: ${conferenceUrl}`);
+          await jitsiWindow.loadURL(conferenceUrl);
 
-            const jwtParam = options.jwt || ''; 
-
-            // Замените существующий setTimeout блок на этот код с перехватом desktop picker:
-
-            // Замените существующий setTimeout блок на этот улучшенный код:
-
-            // Замените существующий setTimeout блок на этот код для многоразового использования:
-
-            setTimeout(async () => {
-                try {
+          // Инжектируем обработчик для демонстрации экрана
+          setTimeout(async () => {
+              try {
                   const injectionResult = await jitsiWindow.webContents.executeJavaScript(`
-                    (async function() {
-                      console.log('[TestStream] Installing reusable stream injection...');
-                      
-                      // Глобальные переменные для управления потоками
-                      let currentStream = null;
-                      let currentCanvas = null;
-                      let currentAnimationFrame = null;
-                      let streamCounter = 0;
-                      
-                      // Функция создания нового тестового потока
-                      function createTestStream() {
-                        // Останавливаем предыдущий поток если есть
-                        if (currentStream) {
-                          currentStream.getTracks().forEach(track => track.stop());
-                          if (currentAnimationFrame) {
-                            cancelAnimationFrame(currentAnimationFrame);
-                          }
-                          if (currentCanvas && currentCanvas.parentNode) {
-                            currentCanvas.remove();
-                          }
-                        }
-                        
-                        streamCounter++;
-                        console.log('[TestStream] Creating new test stream #' + streamCounter);
-                        
-                        // Создаем новый canvas
-                        const canvas = document.createElement('canvas');
-                        canvas.width = 1920;
-                        canvas.height = 1080;
-                        canvas.style.display = 'none';
-                        document.body.appendChild(canvas);
-                        
-                        const ctx = canvas.getContext('2d');
-                        if (!ctx) throw new Error('Canvas context failed');
-                        
-                        let frame = 0;
-                        let isActive = true;
-                        
-                        function animate() {
-                          if (!isActive) return;
-                          frame++;
+                      (async function() {
+                          console.log('[NativeCapture] Installing screen share handler...');
                           
-                          // Градиентный фон с изменением цвета
-                          const hue = (frame * 2 + streamCounter * 60) % 360;
-                          const gradient = ctx.createRadialGradient(960, 540, 0, 960, 540, 800);
-                          gradient.addColorStop(0, 'hsl(' + hue + ', 100%, 50%)');
-                          gradient.addColorStop(1, 'hsl(' + ((hue + 180) % 360) + ', 100%, 30%)');
-                          ctx.fillStyle = gradient;
-                          ctx.fillRect(0, 0, 1920, 1080);
+                          // Глобальные переменные для управления потоком
+                          let currentNativeStream = null;
+                          let currentNativeSourceId = null;
+                          let isNativeCaptureActive = false;
+                          let videoCanvas = null;
+                          let audioContext = null;
+                          let frameUpdateInterval = null;
                           
-                          // Текст с номером потока
-                          ctx.fillStyle = 'white';
-                          ctx.font = 'bold 100px Arial';
-                          ctx.textAlign = 'center';
-                          ctx.shadowColor = 'rgba(0,0,0,0.8)';
-                          ctx.shadowBlur = 20;
-                          ctx.fillText('🎯 NATIVE STREAM #' + streamCounter, 960, 400);
-                          
-                          ctx.font = '60px Arial';
-                          ctx.fillText('Frame: ' + frame, 960, 540);
-                          ctx.fillText(new Date().toLocaleTimeString(), 960, 640);
-                          
-                          // Индикатор активности
-                          const pulseSize = 30 + Math.sin(frame * 0.1) * 10;
-                          ctx.beginPath();
-                          ctx.arc(100, 100, pulseSize, 0, 2 * Math.PI);
-                          ctx.fillStyle = '#4CAF50';
-                          ctx.fill();
-                          
-                          currentAnimationFrame = requestAnimationFrame(animate);
-                        }
-                        
-                        animate();
-                        
-                        const stream = canvas.captureStream(30);
-                        currentStream = stream;
-                        currentCanvas = canvas;
-                        
-                        console.log('[TestStream] New stream created with id:', stream.id);
-                        
-                        // Автоматическая остановка через 5 минут
-                        setTimeout(() => {
-                          if (currentStream && currentStream.id === stream.id) {
-                            isActive = false;
-                            stream.getTracks().forEach(track => track.stop());
-                            if (canvas.parentNode) {
-                              canvas.remove();
-                            }
-                            console.log('[TestStream] Stream #' + streamCounter + ' auto-stopped after 5 minutes');
-                          }
-                        }, 300000); // 5 минут
-                        
-                        return stream;
-                      }
-                      
-                      // Сохраняем оригинальные функции
-                      const originalFunctions = {
-                        openDesktopPicker: null,
-                        obtainDesktopStream: null,
-                        createLocalTracks: null,
-                        getDisplayMedia: null,
-                        getUserMedia: null
-                      };
-                      
-                      // Флаг для отслеживания активного шаринга
-                      let isSharingActive = false;
-                      
-                      // Перехват JitsiMeetScreenObtainer
-                      if (window.JitsiMeetScreenObtainer) {
-                        console.log('[TestStream] Setting up JitsiMeetScreenObtainer interceptors');
-                        
-                        originalFunctions.openDesktopPicker = window.JitsiMeetScreenObtainer.openDesktopPicker;
-                        
-                        window.JitsiMeetScreenObtainer.openDesktopPicker = function(options, callback) {
-                          console.log('[TestStream] openDesktopPicker intercepted');
-                          
-                          // Создаем новый поток при каждом вызове
-                          createTestStream();
-                          
-                          setTimeout(() => {
-                            const sourceId = 'screen:' + streamCounter + ':0';
-                            const sourceOptions = {
-                              audio: false,
-                              screenShareAudio: false
-                            };
-                            
-                            console.log('[TestStream] Returning sourceId:', sourceId);
-                            if (callback) {
-                              callback(sourceId, sourceOptions);
-                            }
-                          }, 100);
-                        };
-                        
-                        if (window.JitsiMeetScreenObtainer.obtainDesktopStream) {
-                          originalFunctions.obtainDesktopStream = window.JitsiMeetScreenObtainer.obtainDesktopStream;
-                          
-                          window.JitsiMeetScreenObtainer.obtainDesktopStream = function(sourceId, callback, errorCallback) {
-                            console.log('[TestStream] obtainDesktopStream intercepted');
-                            
-                            setTimeout(() => {
-                              if (currentStream) {
-                                console.log('[TestStream] Returning current stream');
-                                if (callback) {
-                                  callback(currentStream);
-                                }
-                              } else {
-                                console.error('[TestStream] No current stream available');
-                                if (errorCallback) {
-                                  errorCallback(new Error('No stream available'));
-                                }
-                              }
-                            }, 100);
-                          };
-                        }
-                      }
-                      
-                      // Перехват JitsiMeetJS.createLocalTracks
-                      if (window.JitsiMeetJS && window.JitsiMeetJS.createLocalTracks) {
-                        originalFunctions.createLocalTracks = window.JitsiMeetJS.createLocalTracks;
-                        
-                        window.JitsiMeetJS.createLocalTracks = async function(options) {
-                          console.log('[TestStream] createLocalTracks intercepted');
-                          
-                          if (options && options.devices && options.devices.includes('desktop')) {
-                            console.log('[TestStream] Desktop track requested');
-                            
-                            // Если нет активного потока, создаем новый
-                            if (!currentStream || !currentStream.active) {
-                              createTestStream();
-                            }
-                            
-                            try {
-                              // Временно подменяем getUserMedia и getDisplayMedia
-                              const tempGetUserMedia = navigator.mediaDevices.getUserMedia;
-                              const tempGetDisplayMedia = navigator.mediaDevices.getDisplayMedia;
+                          // Функция создания MediaStream из нативных фреймов
+                          async function createStreamFromNativeSource(sourceId) {
+                              console.log('[NativeCapture] Creating stream from native source:', sourceId);
                               
-                              navigator.mediaDevices.getUserMedia = async function(constraints) {
-                                if (constraints && constraints.video && 
-                                    constraints.video.mandatory && 
-                                    constraints.video.mandatory.chromeMediaSource === 'desktop') {
-                                  console.log('[TestStream] Returning current stream for desktop getUserMedia');
-                                  return currentStream;
-                                }
-                                return tempGetUserMedia.call(this, constraints);
-                              };
-                              
-                              navigator.mediaDevices.getDisplayMedia = async function() {
-                                console.log('[TestStream] Returning current stream for getDisplayMedia');
-                                return currentStream;
-                              };
-                              
-                              // Вызываем оригинальную функцию
-                              const tracks = await originalFunctions.createLocalTracks.call(this, options);
-                              
-                              // Восстанавливаем
-                              navigator.mediaDevices.getUserMedia = tempGetUserMedia;
-                              navigator.mediaDevices.getDisplayMedia = tempGetDisplayMedia;
-                              
-                              if (tracks && tracks.length > 0) {
-                                isSharingActive = true;
-                                console.log('[TestStream] JitsiLocalTrack created successfully');
-                                
-                                // Добавляем обработчик остановки трека
-                                const originalDispose = tracks[0].dispose;
-                                tracks[0].dispose = function() {
-                                  console.log('[TestStream] Track dispose called');
-                                  isSharingActive = false;
-                                  if (originalDispose) {
-                                    return originalDispose.call(this);
+                              try {
+                                  // Запускаем нативный захват
+                                  if (window.ipcRenderer) {
+                                      const startResult = await window.ipcRenderer.invoke('start-native-capture', sourceId);
+                                      if (!startResult || !startResult.success) {
+                                          throw new Error(startResult?.error || 'Failed to start native capture');
+                                      }
                                   }
-                                };
+                                  
+                                  // Создаем canvas для видео
+                                  videoCanvas = document.createElement('canvas');
+                                  videoCanvas.width = 1920;
+                                  videoCanvas.height = 1080;
+                                  const ctx = videoCanvas.getContext('2d', {
+                                      alpha: false,
+                                      desynchronized: true
+                                  });
+                                  
+                                  if (!ctx) throw new Error('Failed to get canvas context');
+                                  
+                                  // Создаем аудио контекст
+                                  audioContext = new AudioContext({
+                                      sampleRate: 48000,
+                                      latencyHint: 'interactive'
+                                  });
+                                  
+                                  // Создаем процессор для аудио
+                                  const scriptProcessor = audioContext.createScriptProcessor(4096, 0, 2);
+                                  const audioQueue = [];
+                                  
+                                  scriptProcessor.onaudioprocess = (event) => {
+                                      const outputBuffer = event.outputBuffer;
+                                      
+                                      for (let channel = 0; channel < outputBuffer.numberOfChannels; channel++) {
+                                          const outputData = outputBuffer.getChannelData(channel);
+                                          
+                                          if (audioQueue.length > 0) {
+                                              const audioData = audioQueue.shift();
+                                              if (audioData && audioData[channel]) {
+                                                  outputData.set(audioData[channel]);
+                                              } else {
+                                                  outputData.fill(0);
+                                              }
+                                          } else {
+                                              outputData.fill(0);
+                                          }
+                                      }
+                                  };
+                                  
+                                  const destination = audioContext.createMediaStreamDestination();
+                                  scriptProcessor.connect(destination);
+                                  
+                                  // Флаги состояния
+                                  isNativeCaptureActive = true;
+                                  currentNativeSourceId = sourceId;
+                                  let frameCount = 0;
+                                  
+                                  // Функция обновления фреймов
+                                  async function updateFrames() {
+                                      if (!isNativeCaptureActive) return;
+                                      
+                                      try {
+                                          if (window.ipcRenderer) {
+                                              const frames = await window.ipcRenderer.invoke('get-native-frames');
+                                              
+                                              // Обрабатываем видео фреймы
+                                              if (frames && frames.video && frames.video.length > 0) {
+                                                  const latestFrame = frames.video[frames.video.length - 1];
+                                                  const uint8Array = new Uint8ClampedArray(latestFrame);
+                                                  const imageData = new ImageData(uint8Array, 1920, 1080);
+                                                  ctx.putImageData(imageData, 0, 0);
+                                                  
+                                                  frameCount++;
+                                                  if (frameCount % 30 === 0) {
+                                                      console.log('[NativeCapture] Processed', frameCount, 'video frames');
+                                                  }
+                                              }
+                                              
+                                              // Обрабатываем аудио фреймы
+                                              if (frames && frames.audio) {
+                                                  for (const audioFrame of frames.audio) {
+                                                      const int16Array = new Int16Array(audioFrame);
+                                                      const channels = 2;
+                                                      const samplesPerChannel = int16Array.length / channels;
+                                                      const channelData = [];
+                                                      
+                                                      for (let ch = 0; ch < channels; ch++) {
+                                                          const float32Array = new Float32Array(samplesPerChannel);
+                                                          for (let i = 0; i < samplesPerChannel; i++) {
+                                                              const sampleIndex = i * channels + ch;
+                                                              float32Array[i] = int16Array[sampleIndex] / 32768.0;
+                                                          }
+                                                          channelData.push(float32Array);
+                                                      }
+                                                      
+                                                      audioQueue.push(channelData);
+                                                      if (audioQueue.length > 10) audioQueue.shift();
+                                                  }
+                                              }
+                                          }
+                                      } catch (error) {
+                                          console.error('[NativeCapture] Error updating frames:', error);
+                                      }
+                                      
+                                      if (isNativeCaptureActive) {
+                                          frameUpdateInterval = setTimeout(updateFrames, 33); // ~30 FPS
+                                      }
+                                  }
+                                  
+                                  // Запускаем обновление фреймов
+                                  updateFrames();
+                                  
+                                  // Создаем MediaStream
+                                  const videoStream = videoCanvas.captureStream(30);
+                                  const videoTrack = videoStream.getVideoTracks()[0];
+                                  if (videoTrack) {
+                                      videoTrack.contentHint = 'detail';
+                                  }
+                                  
+                                  const audioTrack = destination.stream.getAudioTracks()[0];
+                                  const tracks = [];
+                                  if (videoTrack) tracks.push(videoTrack);
+                                  if (audioTrack) tracks.push(audioTrack);
+                                  
+                                  const mediaStream = new MediaStream(tracks);
+                                  console.log('[NativeCapture] MediaStream created with', tracks.length, 'tracks');
+                                  
+                                  return mediaStream;
+                                  
+                              } catch (error) {
+                                  console.error('[NativeCapture] Error creating stream:', error);
+                                  throw error;
                               }
-                              
-                              return tracks;
-                              
-                            } catch (e) {
-                              console.error('[TestStream] Error in createLocalTracks:', e);
-                              throw e;
-                            }
                           }
                           
-                          // Для других типов треков вызываем оригинальную функцию
-                          return originalFunctions.createLocalTracks.call(this, options);
-                        };
-                      }
-                      
-                      // Постоянные перехваты getDisplayMedia и getUserMedia
-                      originalFunctions.getDisplayMedia = navigator.mediaDevices.getDisplayMedia;
-                      navigator.mediaDevices.getDisplayMedia = async function(constraints) {
-                        console.log('[TestStream] getDisplayMedia intercepted');
-                        if (!currentStream || !currentStream.active) {
-                          createTestStream();
-                        }
-                        return currentStream;
-                      };
-                      
-                      originalFunctions.getUserMedia = navigator.mediaDevices.getUserMedia;
-                      navigator.mediaDevices.getUserMedia = async function(constraints) {
-                        if (constraints && constraints.video && 
-                            constraints.video.mandatory && 
-                            constraints.video.mandatory.chromeMediaSource === 'desktop') {
-                          console.log('[TestStream] getUserMedia for desktop intercepted');
-                          if (!currentStream || !currentStream.active) {
-                            createTestStream();
+                          // Функция остановки нативного захвата
+                          async function stopNativeCapture() {
+                              console.log('[NativeCapture] Stopping native capture');
+                              
+                              isNativeCaptureActive = false;
+                              
+                              if (frameUpdateInterval) {
+                                  clearTimeout(frameUpdateInterval);
+                                  frameUpdateInterval = null;
+                              }
+                              
+                              if (currentNativeStream) {
+                                  currentNativeStream.getTracks().forEach(track => track.stop());
+                                  currentNativeStream = null;
+                              }
+                              
+                              if (audioContext) {
+                                  audioContext.close();
+                                  audioContext = null;
+                              }
+                              
+                              if (videoCanvas) {
+                                  videoCanvas = null;
+                              }
+                              
+                              if (window.ipcRenderer) {
+                                  await window.ipcRenderer.invoke('stop-native-capture');
+                              }
+                              
+                              currentNativeSourceId = null;
                           }
-                          return currentStream;
-                        }
-                        return originalFunctions.getUserMedia.call(this, constraints);
-                      };
-                      
-                      // Мониторинг состояния шаринга
-                      setInterval(() => {
-                        const state = window.APP && window.APP.store && window.APP.store.getState();
-                        const tracks = state && state['features/base/tracks'];
-                        const desktopTrack = tracks && tracks.find(t => t.videoType === 'desktop');
-                        
-                        if (desktopTrack && !isSharingActive) {
-                          isSharingActive = true;
-                          console.log('[TestStream] Desktop sharing started');
-                        } else if (!desktopTrack && isSharingActive) {
-                          isSharingActive = false;
-                          console.log('[TestStream] Desktop sharing stopped');
-                          // Останавливаем текущий поток при остановке шаринга
-                          if (currentStream) {
-                            currentStream.getTracks().forEach(track => track.stop());
-                            if (currentCanvas && currentCanvas.parentNode) {
-                              currentCanvas.remove();
-                            }
-                            currentStream = null;
-                            currentCanvas = null;
+                          
+                          // Сохраняем оригинальные функции
+                          const originalGetDisplayMedia = navigator.mediaDevices.getDisplayMedia;
+                          const originalGetUserMedia = navigator.mediaDevices.getUserMedia;
+                          
+                          // Перехватываем JitsiMeetScreenObtainer для показа диалога выбора
+                          if (window.JitsiMeetScreenObtainer) {
+                              console.log('[NativeCapture] Found JitsiMeetScreenObtainer, patching...');
+                              
+                              const originalOpenDesktopPicker = window.JitsiMeetScreenObtainer.openDesktopPicker;
+                              const originalObtainStream = window.JitsiMeetScreenObtainer.obtainDesktopStream;
+                              
+                              // Переопределяем openDesktopPicker
+                              window.JitsiMeetScreenObtainer.openDesktopPicker = function(options, callback) {
+                                  console.log('[NativeCapture] Desktop picker intercepted, requesting sources...');
+                                  
+                                  // Запрашиваем источники через IPC (уже отформатированные)
+                                  if (window.ipcRenderer) {
+                                      // Триггерим событие для получения источников
+                                      window.electron_bridge.send_event('requestDesktopSources');
+                                      
+                                      // Ждем ответа
+                                      const responseHandler = async (response) => {
+                                          console.log('[NativeCapture] Got sources response:', response);
+                                          
+                                          if (response && response.sources && response.sources.length > 0) {
+                                              // Возвращаем первый источник для упрощения
+                                              // В реальности здесь должен быть диалог выбора
+                                              const selectedSource = response.sources[0];
+                                              const sourceId = selectedSource.id;
+                                              
+                                              console.log('[NativeCapture] Selected source:', sourceId);
+                                              
+                                              // Callback с выбранным источником
+                                              callback(sourceId, {
+                                                  audio: true,
+                                                  screenShareAudio: true
+                                              });
+                                          } else {
+                                              // Fallback на оригинальный метод
+                                              originalOpenDesktopPicker.call(this, options, callback);
+                                          }
+                                      };
+                                      
+                                      // Слушаем ответ один раз
+                                      window.electron_bridge.on_event('desktop-sources-response', responseHandler);
+                                      
+                                      // Таймаут на случай если ответ не придет
+                                      setTimeout(() => {
+                                          console.log('[NativeCapture] Timeout waiting for sources, using fallback');
+                                          originalOpenDesktopPicker.call(this, options, callback);
+                                      }, 5000);
+                                      
+                                  } else {
+                                      // Нет IPC - используем оригинальный метод
+                                      originalOpenDesktopPicker.call(this, options, callback);
+                                  }
+                              };
+                              
+                              // Переопределяем obtainDesktopStream
+                              window.JitsiMeetScreenObtainer.obtainDesktopStream = async function(sourceId, callback, errorCallback) {
+                                  console.log('[NativeCapture] obtainDesktopStream called with:', sourceId);
+                                  
+                                  // Проверяем, это нативный источник или обычный
+                                  if (sourceId && (sourceId.startsWith('screen:') || sourceId.startsWith('window:'))) {
+                                      try {
+                                          // Извлекаем ID источника
+                                          const parts = sourceId.split(':');
+                                          const nativeSourceId = parts[1]; // Берем средню часть ID
+                                          
+                                          console.log('[NativeCapture] Creating stream for native source:', nativeSourceId);
+                                          
+                                          // Создаем MediaStream из нативного источника
+                                          if (!currentNativeStream || currentNativeSourceId !== nativeSourceId) {
+                                              // Останавливаем предыдущий захват если был
+                                              if (isNativeCaptureActive) {
+                                                  await stopNativeCapture();
+                                              }
+                                              
+                                              currentNativeStream = await createStreamFromNativeSource(nativeSourceId);
+                                          }
+                                          
+                                          if (callback) {
+                                              callback(currentNativeStream);
+                                          }
+                                      } catch (error) {
+                                          console.error('[NativeCapture] Error obtaining stream:', error);
+                                          if (errorCallback) {
+                                              errorCallback(error);
+                                          }
+                                      }
+                                  } else {
+                                      // Обычный источник - используем оригинальный метод
+                                      originalObtainStream.call(this, sourceId, callback, errorCallback);
+                                  }
+                              };
                           }
-                        }
-                      }, 1000);
-                      
-                      // Функция для полной очистки (можно вызвать из консоли)
-                      window.cleanupTestStream = function() {
-                        console.log('[TestStream] Cleaning up...');
-                        
-                        // Останавливаем поток
-                        if (currentStream) {
-                          currentStream.getTracks().forEach(track => track.stop());
-                        }
-                        if (currentAnimationFrame) {
-                          cancelAnimationFrame(currentAnimationFrame);
-                        }
-                        if (currentCanvas && currentCanvas.parentNode) {
-                          currentCanvas.remove();
-                        }
-                        
-                        // Восстанавливаем оригинальные функции
-                        if (window.JitsiMeetScreenObtainer) {
-                          if (originalFunctions.openDesktopPicker) {
-                            window.JitsiMeetScreenObtainer.openDesktopPicker = originalFunctions.openDesktopPicker;
+                          
+                          // Переопределяем getDisplayMedia для прямых вызовов
+                          navigator.mediaDevices.getDisplayMedia = async function(constraints) {
+                              console.log('[NativeCapture] getDisplayMedia intercepted');
+                              
+                              if (currentNativeStream && isNativeCaptureActive) {
+                                  console.log('[NativeCapture] Returning existing native stream');
+                                  return currentNativeStream;
+                              }
+                              
+                              // Fallback на оригинальный метод
+                              return originalGetDisplayMedia.call(this, constraints);
+                          };
+                          
+                          // Переопределяем getUserMedia для desktop
+                          navigator.mediaDevices.getUserMedia = async function(constraints) {
+                              if (constraints && constraints.video && 
+                                  constraints.video.mandatory && 
+                                  constraints.video.mandatory.chromeMediaSource === 'desktop') {
+                                  
+                                  console.log('[NativeCapture] getUserMedia for desktop intercepted');
+                                  
+                                  if (currentNativeStream && isNativeCaptureActive) {
+                                      console.log('[NativeCapture] Returning existing native stream');
+                                      return currentNativeStream;
+                                  }
+                              }
+                              
+                              return originalGetUserMedia.call(this, constraints);
+                          };
+                          
+                          // Слушаем событие остановки демонстрации
+                          if (window.APP && window.APP.conference) {
+                              const checkScreenShare = setInterval(() => {
+                                  const state = window.APP.store.getState();
+                                  const tracks = state['features/base/tracks'];
+                                  const desktopTrack = tracks && Object.values(tracks).find(t => t.videoType === 'desktop');
+                                  
+                                  if (!desktopTrack && isNativeCaptureActive) {
+                                      console.log('[NativeCapture] Screen share stopped, cleaning up');
+                                      stopNativeCapture();
+                                      clearInterval(checkScreenShare);
+                                  }
+                              }, 1000);
                           }
-                          if (originalFunctions.obtainDesktopStream) {
-                            window.JitsiMeetScreenObtainer.obtainDesktopStream = originalFunctions.obtainDesktopStream;
-                          }
-                        }
-                        if (window.JitsiMeetJS && originalFunctions.createLocalTracks) {
-                          window.JitsiMeetJS.createLocalTracks = originalFunctions.createLocalTracks;
-                        }
-                        if (originalFunctions.getDisplayMedia) {
-                          navigator.mediaDevices.getDisplayMedia = originalFunctions.getDisplayMedia;
-                        }
-                        if (originalFunctions.getUserMedia) {
-                          navigator.mediaDevices.getUserMedia = originalFunctions.getUserMedia;
-                        }
-                        
-                        console.log('[TestStream] Cleanup complete');
-                      };
-                      
-                      console.log('[TestStream] Reusable stream injection installed successfully');
-                      console.log('[TestStream] You can now click the share screen button multiple times');
-                      console.log('[TestStream] To cleanup, run: window.cleanupTestStream()');
-                      
-                      return { 
-                        success: true, 
-                        message: 'Reusable stream injection ready',
-                        features: {
-                          multipleStreams: true,
-                          autoCleanup: true,
-                          streamLifetime: '5 minutes',
-                          manualCleanup: 'window.cleanupTestStream()'
-                        }
-                      };
-                    })();
+                          
+                          console.log('[NativeCapture] Screen share handler installed successfully');
+                          return { 
+                              success: true,
+                              hasJitsiScreenObtainer: !!window.JitsiMeetScreenObtainer,
+                              hasElectronBridge: !!window.electron_bridge,
+                              hasIpcRenderer: !!window.ipcRenderer
+                          };
+                      })();
                   `);
                   
-                  log.info(`[TestStream] Injection result: ${JSON.stringify(injectionResult)}`);
-                } catch (error) {
-                  log.error(`[TestStream] Error injecting stream: ${error.message}`);
-                }
-              }, 4000); // 4 секунды для загрузки Jitsi
-        }
-        
-        // Фокусируем окно
-        jitsiWindow.focus();
-        
-        // Обработчик закрытия окна
-        jitsiWindow.on('closed', () => {
-            log.info(`🎯[Jitsi] Window closed`);
-            jitsiWindow = null;
-            
-            // Уведомляем Zulip
-            sendEventToZulip('jitsi-window-closed', {
-                roomName: roomName
-            });
-        });
-        
-        // Отправляем событие об успешном создании
-        sendEventToZulip('jitsi-window-opened', {
-            success: true,
-            roomName: roomName,
-            server: server,
-            usingSDK: useSDK
-        });
-        
-        return {
-            success: true,
-            roomName: roomName,
-            server: server
-        };
-        
-    } catch (error: any) {
-        log.error(`🎯[Jitsi] Error creating window: ${error.message}`);
-        
-        // Если не удалось создать окно в Electron, отправляем сигнал для запуска в браузере
-        sendEventToZulip('jitsi-electron-failed', {
-            error: error.message,
-            fallbackNeeded: true
-        });
-        
-        return {
-            success: false,
-            error: error.message,
-            fallbackNeeded: true  // Сигнал для Zulip запустить браузерную версию
-        };
-    }
+                  log.info(`[NativeCapture] Injection result: ${JSON.stringify(injectionResult)}`);
+              } catch (error) {
+                  log.error(`[NativeCapture] Error injecting: ${error.message}`);
+              }
+          }, 4000); // 4 секунды для загрузки Jitsi
+          
+          // Фокусируем окно
+          jitsiWindow.focus();
+          
+          // Обработчик закрытия окна
+          jitsiWindow.on('closed', () => {
+              log.info(`🎯[Jitsi] Window closed`);
+              
+              // Останавливаем нативный захват
+              if (screenCaptureAddon) {
+                  screenCaptureAddon.stopCapture().catch((err: any) => {
+                      log.error(`Failed to stop capture: ${err.message}`);
+                  });
+              }
+              
+              jitsiWindow = null;
+              
+              // Уведомляем Zulip
+              sendEventToZulip('jitsi-window-closed', {
+                  roomName: roomName
+              });
+          });
+          
+          // Отправляем событие об успешном создании
+          sendEventToZulip('jitsi-window-opened', {
+              success: true,
+              roomName: roomName,
+              server: server
+          });
+          
+          return {
+              success: true,
+              roomName: roomName,
+              server: server
+          };
+          
+      } catch (error: any) {
+          log.error(`🎯[Jitsi] Error creating window: ${error.message}`);
+          
+          sendEventToZulip('jitsi-electron-failed', {
+              error: error.message,
+              fallbackNeeded: true
+          });
+          
+          return {
+              success: false,
+              error: error.message,
+              fallbackNeeded: true
+          };
+      }
   }
 
   function sendEventToZulip(eventName: string, data: any): void {
@@ -1349,257 +1409,63 @@ async function createMainWindow(): Promise<BrowserWindow> {
     }
   });
 
-
-  // КРИТИЧНО: Обработчик get-desktop-sources БЕЗ диалога
-  async function testSwiftAddon(): Promise<void> {
-    log.info("🔬[Swift Test] Starting Swift addon test...");
-    
-    if (!screenCaptureAddon) {
-      log.error("🔬[Swift Test] screenCaptureAddon is null!");
-      return;
-    }
-    
-    // Логируем все доступные методы
-    log.info("🔬[Swift Test] Available methods in screenCaptureAddon:");
-    for (const key of Object.keys(screenCaptureAddon)) {
-      const type = typeof screenCaptureAddon[key];
-      log.info(`🔬[Swift Test]   - ${key}: ${type}`);
-    }
-    
-    // Тестируем getAvailableSources разными способами
-    if (typeof screenCaptureAddon.getAvailableSources === 'function') {
-      log.info("🔬[Swift Test] Testing getAvailableSources...");
-      
-      // Способ 1: Прямой вызов
-      try {
-        log.info("🔬[Swift Test] Method 1: Direct call");
-        const result1 = screenCaptureAddon.getAvailableSources();
-        log.info(`🔬[Swift Test] Direct call returned: ${JSON.stringify(result1)}`);
-        log.info(`🔬[Swift Test] Type: ${typeof result1}, isArray: ${Array.isArray(result1)}`);
-        
-        // Если это Promise
-        if (result1 && typeof result1.then === 'function') {
-          log.info("🔬[Swift Test] It's a Promise, waiting...");
-          const resolved = await result1;
-          log.info(`🔬[Swift Test] Promise resolved to: ${JSON.stringify(resolved)}`);
-        }
-      } catch (e: any) {
-        log.error(`🔬[Swift Test] Direct call error: ${e.message}`);
-      }
-      
-      // Способ 2: С колбэком
-      try {
-        log.info("🔬[Swift Test] Method 2: With callback");
-        await new Promise<void>((resolve) => {
-          const timeout = setTimeout(() => {
-            log.warn("🔬[Swift Test] Callback timeout after 2s");
-            resolve();
-          }, 2000);
-          
-          screenCaptureAddon.getAvailableSources((error: any, sources: any) => {
-            clearTimeout(timeout);
-            if (error) {
-              log.error(`🔬[Swift Test] Callback error: ${error}`);
-            } else {
-              log.info(`🔬[Swift Test] Callback sources: ${JSON.stringify(sources)}`);
-            }
-            resolve();
-          });
-        });
-      } catch (e: any) {
-        log.error(`🔬[Swift Test] Callback error: ${e.message}`);
-      }
-      
-      // Способ 3: С параметрами
-      try {
-        log.info("🔬[Swift Test] Method 3: With empty object parameter");
-        const result3 = screenCaptureAddon.getAvailableSources({});
-        log.info(`🔬[Swift Test] With params returned: ${JSON.stringify(result3)}`);
-      } catch (e: any) {
-        log.error(`🔬[Swift Test] With params error: ${e.message}`);
-      }
-    }
-    
-    // Проверяем другие возможные методы
-    const methodsToTest = ['getSources', 'listSources', 'getScreens', 'getWindows', 'getCaptureList'];
-    for (const method of methodsToTest) {
-      if (typeof screenCaptureAddon[method] === 'function') {
-        log.info(`🔬[Swift Test] Found method: ${method}, testing...`);
-        try {
-          const result = screenCaptureAddon[method]();
-          log.info(`🔬[Swift Test] ${method} returned: ${JSON.stringify(result)}`);
-        } catch (e: any) {
-          log.error(`🔬[Swift Test] ${method} error: ${e.message}`);
-        }
-      }
-    }
-    
-    log.info("🔬[Swift Test] Test complete!");
-  }
-
-  // Вызываем тест при загрузке
-  setTimeout(() => {
-    testSwiftAddon().catch(err => log.error(`🔬[Swift Test] Fatal error: ${err}`));
-  }, 3000);
-
-
-  // Добавьте эту функцию где-нибудь в index.ts, например, рядом с другими вспомогательными функциями
-  function createTestSourceThumbnailAsPngBase64(): string {
-    // Создаем очень простой 1x1 пиксель PNG (зеленый, как в SVG)
-    // Это стандартный заголовок для 1x1 зеленого пикселя PNG
-    return "image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYGD4DwABBAEAnjDjIgAAAABJRU5ErkJggg==";
-  }
-
-  // КРИТИЧНО: Обработчик get-desktop-sources БЕЗ диалога
-  // КРИТИЧНО: Обработчик get-desktop-sources БЕЗ диалога
-  // КРИТИЧНО: Обработчик get-desktop-sources БЕЗ диалога
   ipcMain.handle("get-desktop-sources", async () => {
     try {
-      log.info("Main: [TEST_SOURCE_DEBUG] === НАЧАЛО ЗАПРОСА ИСТОЧНИКОВ ЭКРАНА ===");
-
-      // --- 1. Получаем источники из нативного Swift аддона ---
-      let nativeSourcesRaw: any[] = [];
-      try {
-          log.info("Main: [TEST_SOURCE_DEBUG] Получение источников из нативного Swift аддона...");
-          const swiftResult = await getAvailableSources(); // Используем вашу готовую функцию
-          if (swiftResult && Array.isArray(swiftResult)) {
-              nativeSourcesRaw = swiftResult;
-              log.info(`Main: [TEST_SOURCE_DEBUG] Успешно получено ${nativeSourcesRaw.length} сырых источников из Swift аддона`);
-              // Логируем каждый полученный источник для отладки (первые 3, чтобы не засорять логи)
-              const sourcesToLog = nativeSourcesRaw.slice(0, 3);
-              sourcesToLog.forEach((src, idx) => {
-                  log.info(`Main: [TEST_SOURCE_DEBUG] Сырой нативный источник ${idx}: ${JSON.stringify(src)}`);
-              });
-              if (nativeSourcesRaw.length > 3) {
-                  log.info(`Main: [TEST_SOURCE_DEBUG] ... и ещё ${nativeSourcesRaw.length - 3} источников`);
-              }
-          } else {
-              log.warn(`Main: [TEST_SOURCE_DEBUG] getAvailableSources вернул не массив:`, swiftResult);
-          }
-      } catch (swiftError: any) {
-          log.error(`Main: [TEST_SOURCE_DEBUG] Ошибка при получении источников из Swift аддона: ${swiftError.message}`);
-          // Не прерываем выполнение, продолжаем с пустым массивом
-      }
-
-      // --- 2. Форматируем нативные источники в формат Electron/Jitsi ---
-      log.info("Main: [TEST_SOURCE_DEBUG] === НАЧАЛО ФОРМАТИРОВАНИЯ НАТИВНЫХ ИСТОЧНИКОВ ===");
-      const formattedNativeSources = nativeSourcesRaw.map((source, index) => {
-          try {
-              log.debug(`Main: [TEST_SOURCE_DEBUG] Форматирование нативного источника ${index}: ${JSON.stringify({type: source.type, id: source.id, name: source.name})}`);
-              
-              // --- Проверка и извлечение базовых полей ---
-              const sourceTypeRaw = source.type;
-              const sourceIdRaw = source.id;
-              const sourceName = source.name || `Native Source ${index + 1}`;
-
-              if (!sourceTypeRaw) {
-                  log.warn(`Main: [TEST_SOURCE_DEBUG] Пропущен нативный источник без 'type' (индекс ${index})`, source);
-                  return null; // Будет отфильтрован
-              }
-              if (!sourceIdRaw && sourceIdRaw !== 0) { // 0 это валидный ID
-                  log.warn(`Main: [TEST_SOURCE_DEBUG] Пропущен нативный источник без 'id' (индекс ${index})`, source);
-                  return null; // Будет отфильтрован
-              }
-
-              const sourceType = sourceTypeRaw.toString().toLowerCase();
-
-              // --- Определение префикса и ID для Electron/Jitsi ---
-              let prefix = 'screen:'; // Префикс по умолчанию (для display/screen)
-              if (sourceType === 'window' || sourceType === 'application') {
-                  prefix = 'window:'; // Окна и приложения получают префикс window:
-              }
-              // Формируем ID в формате Electron (добавляем :0 в конце для совместимости)
-              // Electron обычно использует формат prefix:id:capture_session_id
-              // capture_session_id часто 0 для первого запроса
-              const formattedId = `${prefix}${sourceIdRaw}:0`; // <-- Изменение здесь
-              log.debug(`Main: [TEST_SOURCE_DEBUG]   Исходный тип: ${sourceType}, Исходный ID: ${sourceIdRaw} -> Форматированный ID: ${formattedId}`);
-
-              // --- Создание thumbnail (заглушка в формате PNG) ---
-              const thumbnailDataUrl = "image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYGD4AQAA/QGOrDGjAAAAAElFTkSuQmCC";
-              log.debug(`Main: [TEST_SOURCE_DEBUG]   Thumbnail создан (заглушка)`);
-
-              // --- Возвращаем отформатированный объект ---
-              const formattedSource = {
-                  id: formattedId,
-                  name: sourceName,
-                  thumbnail: { dataUrl: thumbnailDataUrl }
-              };
-              // Не логируем каждый отформатированный источник, чтобы не засорять логи
-              // log.debug(`Main: [TEST_SOURCE_DEBUG]   Отформатированный источник ${index}: ${JSON.stringify(formattedSource)}`);
-              return formattedSource;
-          } catch (formatError: any) {
-              log.error(`Main: [TEST_SOURCE_DEBUG] Ошибка форматирования нативного источника (индекс ${index}): ${formatError.message}`, source);
-              return null; // Будет отфильтрован
-          }
-      }).filter((source): source is NonNullable<typeof source> => source !== null); // Убираем null
-
-      log.info(`Main: [TEST_SOURCE_DEBUG] Отформатировано ${formattedNativeSources.length} нативных источников`);
-
-      // --- 3. Создаем тестовые источники (с :0 в конце для совместимости) ---
-      log.info("Main: [TEST_SOURCE_DEBUG] === СОЗДАНИЕ ТЕСТОВЫХ ИСТОЧНИКОВ ===");
-      const testScreenSource = {
-        id: 'screen:test-source-screen-123:0', // <-- Добавлен :0
-        name: '🖥️ [TEST] Тестовый Экран (Заглушка)',
-        thumbnail: { dataUrl: createTestSourceThumbnailAsPngBase64() } // Убедитесь, что функция существует
-      };
-      log.info(`Main: [TEST_SOURCE_DEBUG] Тестовый ЭКРАН: ${JSON.stringify({id: testScreenSource.id, name: testScreenSource.name})}`);
-
-      const testWindowSource = {
-        id: 'window:test-source-window-456:0', // <-- Добавлен :0
-        name: '🪟 [TEST] Тестовое Окно (Заглушка)',
-        thumbnail: { dataUrl: createTestSourceThumbnailAsPngBase64() } // Убедитесь, что функция существует
-      };
-      log.info(`Main: [TEST_SOURCE_DEBUG] Тестовое ОКНО: ${JSON.stringify({id: testWindowSource.id, name: testWindowSource.name})}`);
-
-      // --- 4. Объединяем списки ---
-      log.info("Main: [TEST_SOURCE_DEBUG] === ОБЪЕДИНЕНИЕ СПИСКОВ ===");
-      // Только нативные источники + тестовые заглушки
-      const finalSourcesToSend = [testScreenSource, testWindowSource, ...formattedNativeSources];
-      log.info(`Main: [TEST_SOURCE_DEBUG] Всего источников для отправки: ${finalSourcesToSend.length}`);
-
-      // --- 5. Подробное логирование финального списка (первые и последние несколько) ---
-      log.info("Main: [TEST_SOURCE_DEBUG] === ФИНАЛЬНЫЙ СПИСОК ИСТОЧНИКОВ ДЛЯ ОТПРАВКИ ===");
-      const totalSources = finalSourcesToSend.length;
-      const maxToLog = 10; // Логируем не более 10 источников
-      const sourcesToLogFinal = totalSources <= maxToLog ? finalSourcesToSend : [
-          ...finalSourcesToSend.slice(0, Math.floor(maxToLog / 2)),
-          ...finalSourcesToSend.slice(-Math.ceil(maxToLog / 2))
-      ];
+      log.info("🎯[NativeCapture] Getting desktop sources...");
       
-      sourcesToLogFinal.forEach((src, idx) => {
-          // Для удобства читаемости в логах
-          const displayIndex = totalSources <= maxToLog ? idx : 
-              (idx < Math.floor(maxToLog / 2) ? idx : totalSources - (maxToLog - Math.floor(maxToLog / 2)) + idx);
-          log.info(`Main: [TEST_SOURCE_DEBUG] Источник ${displayIndex}: ID='${src.id}', Name='${src.name}'`);
-      });
-      if (totalSources > maxToLog) {
-          log.info(`Main: [TEST_SOURCE_DEBUG] ... (пропущено ${totalSources - maxToLog} источников) ...`);
+      let formattedSources: any[] = [];
+      
+      // Получаем источники из native addon
+      if (screenCaptureAddon && typeof screenCaptureAddon.getAvailableSources === 'function') {
+        try {
+          const nativeSources = await screenCaptureAddon.getAvailableSources();
+          log.info(`🎯[NativeCapture] Got ${nativeSources.length} native sources`);
+          
+          // Форматируем под Electron
+          formattedSources = formatNativeSourcesForElectron(nativeSources);
+          log.info(`🎯[NativeCapture] Formatted ${formattedSources.length} sources for Electron`);
+          
+        } catch (error: any) {
+          log.error(`🎯[NativeCapture] Error getting native sources: ${error.message}`);
+        }
       }
-
-      // --- 6. Отправляем список через webContents.send ---
-      log.info("Main: [TEST_SOURCE_DEBUG] === ОТПРАВКА ИСТОЧНИКОВ В WEBVIEW ===");
+      
+      // // Если нет источников, добавляем тестовые
+      if (formattedSources.length === 0) {
+        log.warn("🎯[NativeCapture] No native sources, adding test sources");
+        formattedSources = [
+          {
+            id: 'screen:test-screen:0',
+            name: '🖥️ Test Screen (Fallback)',
+            thumbnail: { dataUrl: createSourceThumbnail({ type: 'screen', name: 'Test Screen' }) }
+          },
+          {
+            id: 'window:test-window:0',
+            name: '🪟 Test Window (Fallback)',
+            thumbnail: { dataUrl: createSourceThumbnail({ type: 'window', name: 'Test Window' }) }
+          }
+        ];
+      }
+      
+      // Отправляем источники всем webContents (для Jitsi)
       webContents.getAllWebContents().forEach(content => {
-        log.info(`Main: [TEST_SOURCE_DEBUG] Отправляем ${finalSourcesToSend.length} sources в WebContents #${content.id}`);
         content.send("desktop-sources-response", {
-          sources: finalSourcesToSend,
+          sources: formattedSources,
           error: null
         });
       });
-
-      log.info("Main: [TEST_SOURCE_DEBUG] === ИСТОЧНИКИ УСПЕШНО ОТПРАВЛЕНЫ ===");
-      return finalSourcesToSend; // Возвращаем для invoke тоже
-
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      log.error("Main: [TEST_SOURCE_DEBUG] === КРИТИЧЕСКАЯ ОШИБКА ===", error);
-
-      // Отправляем ошибку
-      const errorResponse = { sources: [], error: errorMessage };
+      
+      log.info(`🎯[NativeCapture] Sent ${formattedSources.length} sources to all webContents`);
+      return formattedSources;
+      
+    } catch (error: any) {
+      log.error(`🎯[NativeCapture] Error in get-desktop-sources: ${error.message}`);
+      
+      const errorResponse = { sources: [], error: error.message };
       webContents.getAllWebContents().forEach(content => {
-        log.info(`Main: [TEST_SOURCE_DEBUG] Отправляем ОШИБКУ в WebContents #${content.id}`);
         content.send("desktop-sources-response", errorResponse);
       });
-
+      
       return errorResponse;
     }
   });
@@ -2220,34 +2086,95 @@ async function createMainWindow(): Promise<BrowserWindow> {
     }
   });
 
-  // Native capture handlers
-  if (screenCaptureAddon) {
-    ipcMain.handle("start-native-capture-simple", async () => {
-      try {
-        log.info("🎯[NativeCapture] Starting native capture...");
-        const result = await screenCaptureAddon.startCapture({
-          frameRate: 30,
-          enableAppSpecificAudio: true
-        });
-        log.info("🎯[NativeCapture] Native capture started");
-        return { success: true, result: "Native capture started" };
-      } catch (error) {
-        log.error(`🎯[NativeCapture] Native capture failed: ${error.message}`);
-        return { success: false, error: error.message };
+  // Обработчик запуска нативного захвата
+  ipcMain.handle("start-native-capture", async (event, sourceId: string) => {
+    try {
+      log.info(`🎯[NativeCapture] Starting capture for source: ${sourceId}`);
+      
+      if (!screenCaptureAddon) {
+        throw new Error("Native addon not loaded");
       }
-    });
+      
+      // Останавливаем предыдущий захват
+      if (isNativeCapturing) {
+        await ipcMain.handle("stop-native-capture", null);
+      }
+      
+      // Запускаем новый захват
+      const result = await screenCaptureAddon.startCapture({
+        sourceId: sourceId,
+        width: 1920,
+        height: 1080,
+        frameRate: 30,
+        enableAppSpecificAudio: true // Важно для изоляции звука!
+      });
+      
+      if (!result || !result.success) {
+        throw new Error(result?.error || "Failed to start capture");
+      }
+      
+      isNativeCapturing = true;
+      currentNativeCaptureId = sourceId;
+      
+      // Начинаем сбор фреймов
+      startFrameCollection();
+      
+      log.info("🎯[NativeCapture] Capture started successfully");
+      return { success: true };
+      
+    } catch (error: any) {
+      log.error(`🎯[NativeCapture] Error starting capture: ${error.message}`);
+      return { success: false, error: error.message };
+    }
+  });
 
-    ipcMain.handle("stop-native-capture-simple", async () => {
-      try {
-        log.info("🎯[NativeCapture] Stopping native capture...");
-        const result = await screenCaptureAddon.stopCapture();
-        return { success: true, result: "Native capture stopped" };
-      } catch (error) {
-        log.error(`🎯[NativeCapture] Stop failed: ${error.message}`);
-        return { success: false, error: error.message };
+  // Обработчик остановки захвата
+  ipcMain.handle("stop-native-capture", async () => {
+    try {
+      log.info("🎯[NativeCapture] Stopping capture");
+      
+      isNativeCapturing = false;
+      currentNativeCaptureId = null;
+      
+      // Останавливаем сбор фреймов
+      if (frameCollectionInterval) {
+        clearInterval(frameCollectionInterval);
+        frameCollectionInterval = null;
       }
-    });
-  }
+      
+      // Очищаем буферы
+      nativeVideoFrames = [];
+      nativeAudioFrames = [];
+      
+      // Останавливаем нативный захват
+      if (screenCaptureAddon) {
+        await screenCaptureAddon.stopCapture();
+      }
+      
+      log.info("🎯[NativeCapture] Capture stopped");
+      return { success: true };
+      
+    } catch (error: any) {
+      log.error(`🎯[NativeCapture] Error stopping capture: ${error.message}`);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Обработчик получения статуса захвата
+  ipcMain.handle("get-capture-status", async () => {
+    return {
+      isCapturing: isNativeCapturing,
+      currentSourceId: currentNativeCaptureId
+    };
+  });
+
+  // Обработчик получения фреймов
+  ipcMain.handle("get-native-frames", async () => {
+    return {
+      video: [...nativeVideoFrames],
+      audio: [...nativeAudioFrames]
+    };
+  });
 
   ipcMain.on("focus-app", () => {
     mainWindow.show();
@@ -2668,18 +2595,4 @@ Check console for full details.
   document.body.appendChild(testBtn);
 }, 2000);
 
-
-async function connectToJitsiWindow(options: {
-    roomName: string;
-    serverUrl?: string;
-    displayName?: string;
-}): Promise<any> {
-    const server = options.serverUrl || 'https://jitsi-connectrm.ru';
-    const roomName = options.roomName.replace(/[^a-zA-Z0-9-_]/g, '');
-    const displayName = options.displayName || 'User';
-    
-    log.info(`🎯[Jitsi] Connecting: ${server}/${roomName} as ${displayName}`);
-    
-    return { success: true, roomName, server, displayName };
-}
 
