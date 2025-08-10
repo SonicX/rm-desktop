@@ -7,6 +7,9 @@
 #include <string>     // Добавьте для std::string
 #include <chrono>     // Добавьте для std::chrono
 #include <atomic>     // Добавьте для std::atomic
+#include <string.h>  // Для memcpy
+#include <stdlib.h>  // Для malloc/free
+#include <math.h>  // Для fmod
 
 // Include Foundation and other frameworks first
 #import <Foundation/Foundation.h>
@@ -277,36 +280,396 @@ void SelectSourceWithPicker(const FunctionCallbackInfo<Value>& args) {
 }
 
 // Simple counter-based callbacks that just increment counters
+// Замените текущую функцию SetWebRTCVideoCallback на эту полноценную версию:
+
 void SetWebRTCVideoCallback(const FunctionCallbackInfo<Value>& args) {
     Isolate* isolate = args.GetIsolate();
     
+    NSLog(@"🎯 SetWebRTCVideoCallback called from JavaScript");
+    
     if (!g_manager) {
         g_manager = [[CCaptureManager alloc] init];
     }
     
-    // Set up a simple counter callback - no V8 callbacks
+    // Проверяем, что передана функция
+    if (args.Length() < 1 || !args[0]->IsFunction()) {
+        isolate->ThrowException(Exception::TypeError(
+            String::NewFromUtf8(isolate, "Expected callback function").ToLocalChecked()));
+        return;
+    }
+    
+    // Сохраняем JavaScript callback
+    Local<Function> callback = Local<Function>::Cast(args[0]);
+    Persistent<Function>* persistentCallback = new Persistent<Function>(isolate, callback);
+    
+    // Устанавливаем Objective-C callback который будет вызывать JavaScript
     [g_manager setWebRTCVideoCallback:^(NSDictionary* frameData) {
+        // Инкрементируем счетчик
         g_video_frame_count.fetch_add(1);
-        // No JavaScript callback - just count frames
+        
+        NSLog(@"📹 Native video callback fired! Frame count: %llu", g_video_frame_count.load());
+        
+        // Извлекаем данные из словаря
+        NSNumber* width = frameData[@"width"];
+        NSNumber* height = frameData[@"height"];
+        NSNumber* timestamp = frameData[@"timestamp"];
+        NSNumber* pixelFormat = frameData[@"pixelFormat"];
+        NSNumber* bytesPerRow = frameData[@"bytesPerRow"];
+        NSNumber* dataSize = frameData[@"dataSize"];
+        NSNumber* hasData = frameData[@"hasData"];
+        
+        // Для видео фреймов нужно получить пиксельные данные
+        // В текущей реализации Swift только передает метаданные
+        // Нужно будет расширить для передачи реальных данных
+        
+        uint64_t frameNumber = g_video_frame_count.load();
+        
+        // Вызываем JavaScript callback из главного потока
+        dispatch_async(dispatch_get_main_queue(), ^{
+            Isolate* isolate = Isolate::GetCurrent();
+            if (!isolate) return;
+            
+            HandleScope scope(isolate);
+            Local<Context> context = isolate->GetCurrentContext();
+            
+            // Получаем сохраненный callback
+            Local<Function> jsCallback = Local<Function>::New(isolate, *persistentCallback);
+            
+            // Создаем объект с информацией о видео фрейме
+            Local<Object> videoInfo = Object::New(isolate);
+            
+            if (width) {
+                videoInfo->Set(context,
+                    String::NewFromUtf8(isolate, "width").ToLocalChecked(),
+                    Number::New(isolate, [width intValue])).ToChecked();
+            }
+            if (height) {
+                videoInfo->Set(context,
+                    String::NewFromUtf8(isolate, "height").ToLocalChecked(),
+                    Number::New(isolate, [height intValue])).ToChecked();
+            }
+            if (timestamp) {
+                videoInfo->Set(context,
+                    String::NewFromUtf8(isolate, "timestamp").ToLocalChecked(),
+                    Number::New(isolate, [timestamp doubleValue])).ToChecked();
+            }
+            if (pixelFormat) {
+                videoInfo->Set(context,
+                    String::NewFromUtf8(isolate, "pixelFormat").ToLocalChecked(),
+                    Number::New(isolate, [pixelFormat intValue])).ToChecked();
+                
+                // Добавляем читаемое название формата
+                const char* formatName = "unknown";
+                uint32_t format = [pixelFormat unsignedIntValue];
+                if (format == kCVPixelFormatType_32BGRA) {
+                    formatName = "BGRA";
+                } else if (format == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange) {
+                    formatName = "YUV420";
+                }
+                videoInfo->Set(context,
+                    String::NewFromUtf8(isolate, "pixelFormatName").ToLocalChecked(),
+                    String::NewFromUtf8(isolate, formatName).ToLocalChecked()).ToChecked();
+            }
+            if (bytesPerRow) {
+                videoInfo->Set(context,
+                    String::NewFromUtf8(isolate, "bytesPerRow").ToLocalChecked(),
+                    Number::New(isolate, [bytesPerRow intValue])).ToChecked();
+            }
+            if (dataSize) {
+                videoInfo->Set(context,
+                    String::NewFromUtf8(isolate, "dataSize").ToLocalChecked(),
+                    Number::New(isolate, [dataSize intValue])).ToChecked();
+            }
+            if (hasData) {
+                videoInfo->Set(context,
+                    String::NewFromUtf8(isolate, "hasData").ToLocalChecked(),
+                    v8::Boolean::New(isolate, [hasData boolValue])).ToChecked();
+            }
+            
+            // Добавляем номер фрейма
+            videoInfo->Set(context,
+                String::NewFromUtf8(isolate, "frameNumber").ToLocalChecked(),
+                Number::New(isolate, static_cast<double>(frameNumber))).ToChecked();
+            
+            // Добавляем FPS информацию
+            static double lastTimestamp = 0;
+            if (timestamp && lastTimestamp > 0) {
+                double timeDiff = [timestamp doubleValue] - lastTimestamp;
+                double fps = timeDiff > 0 ? 1.0 / timeDiff : 0;
+                videoInfo->Set(context,
+                    String::NewFromUtf8(isolate, "fps").ToLocalChecked(),
+                    Number::New(isolate, fps)).ToChecked();
+            }
+            if (timestamp) {
+                lastTimestamp = [timestamp doubleValue];
+            }
+            
+            // TODO: Добавить передачу реальных пиксельных данных
+            // Для этого нужно обновить Swift код чтобы передавать CVPixelBuffer
+            
+            // Вызываем JavaScript callback
+            Local<Value> argv[] = { videoInfo };
+            
+            v8::TryCatch try_catch(isolate);
+            MaybeLocal<Value> result = jsCallback->Call(context, Null(isolate), 1, argv);
+            
+            if (try_catch.HasCaught()) {
+                // Логируем ошибку но не крашимся
+                String::Utf8Value error(isolate, try_catch.Exception());
+                NSLog(@"Error in video callback: %s", *error);
+            }
+        });
     }];
     
-    args.GetReturnValue().Set(String::NewFromUtf8(isolate, "WebRTC video counter set").ToLocalChecked());
+    args.GetReturnValue().Set(String::NewFromUtf8(isolate, "WebRTC video callback set").ToLocalChecked());
 }
 
+// Вспомогательная функция для создания пустого буфера правильного размера
+Local<ArrayBuffer> CreateAudioBuffer(Isolate* isolate, const AudioStreamBasicDescription& asbd, long numSamples) {
+    // Рассчитываем размер буфера
+    size_t bytesPerFrame = asbd.mBytesPerFrame;
+    if (bytesPerFrame == 0) {
+        // Если mBytesPerFrame не установлен, рассчитываем сами
+        bytesPerFrame = (asbd.mBitsPerChannel / 8) * asbd.mChannelsPerFrame;
+    }
+    
+    size_t totalBytes = numSamples * bytesPerFrame;
+    
+    NSLog(@"🎵 Creating audio buffer: %ld samples, %zu bytes per frame, %zu total bytes", 
+          numSamples, bytesPerFrame, totalBytes);
+    
+    return ArrayBuffer::New(isolate, totalBytes);
+}
+
+// Полная функция SetWebRTCAudioCallback
 void SetWebRTCAudioCallback(const FunctionCallbackInfo<Value>& args) {
     Isolate* isolate = args.GetIsolate();
     
+    NSLog(@"🎯 SetWebRTCAudioCallback called from JavaScript");
+    
     if (!g_manager) {
         g_manager = [[CCaptureManager alloc] init];
     }
     
-    // Set up a simple counter callback - no V8 callbacks
+    // Проверяем, что передана функция
+    if (args.Length() < 1 || !args[0]->IsFunction()) {
+        isolate->ThrowException(Exception::TypeError(
+            String::NewFromUtf8(isolate, "Expected callback function").ToLocalChecked()));
+        return;
+    }
+    
+    // Сохраняем JavaScript callback
+    Local<Function> callback = Local<Function>::Cast(args[0]);
+    Persistent<Function>* persistentCallback = new Persistent<Function>(isolate, callback);
+    
+    // Устанавливаем Objective-C callback который будет вызывать JavaScript
     [g_manager setWebRTCAudioCallback:^(CMSampleBufferRef sampleBuffer) {
+        // Инкрементируем счетчик
         g_audio_frame_count.fetch_add(1);
-        // No JavaScript callback - just count frames
+        
+        // Получаем данные о формате ДО dispatch_async
+        CMFormatDescriptionRef formatDesc = CMSampleBufferGetFormatDescription(sampleBuffer);
+        AudioStreamBasicDescription asbd = {0};
+        bool hasFormat = false;
+        
+        if (formatDesc) {
+            const AudioStreamBasicDescription* asbdPtr = CMAudioFormatDescriptionGetStreamBasicDescription(formatDesc);
+            if (asbdPtr) {
+                asbd = *asbdPtr;
+                hasFormat = true;
+            }
+        }
+        
+        // Получаем данные ДО dispatch_async
+        long numSamples = CMSampleBufferGetNumSamples(sampleBuffer);
+        uint64_t frameNumber = g_audio_frame_count.load();
+        
+        // Проверяем наличие блока данных
+        CMBlockBufferRef blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer);
+        bool hasBlockBuffer = (blockBuffer != nullptr);
+        
+        // КРИТИЧНО: Определяем источник более надежно
+        // SCStream (системный звук) имеет временные метки кратные 0.02 (50 FPS)
+        // Микрофон имеет более случайные временные метки
+        CMTime presentationTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer);
+        double timestamp = CMTimeGetSeconds(presentationTime);
+        
+        // Анализируем паттерн временных меток
+        double timeValue = timestamp * 1000.0; // Переводим в миллисекунды
+        double remainder = fmod(timeValue, 20.0); // Проверяем кратность 20ms
+        
+        // SCStream обычно выдает фреймы каждые 20ms (0.02s)
+        bool isSystemAudio = (remainder < 1.0 || remainder > 19.0);
+        
+        // Дополнительная проверка: размер данных
+        // Системный звук часто имеет размер 7680 байт (960 сэмплов * 2 канала * 4 байта)
+        // Микрофон чаще имеет размер 2048 байт
+        size_t dataSize = 0;
+        if (blockBuffer) {
+            size_t lengthAtOffset = 0;
+            size_t totalLength = 0;
+            
+            OSStatus status = CMBlockBufferGetDataPointer(
+                blockBuffer,
+                0,
+                &lengthAtOffset,
+                &totalLength,
+                nullptr
+            );
+            
+            if (status == noErr) {
+                dataSize = totalLength;
+            }
+        }
+        
+        // Уточняем определение источника по размеру
+        if (dataSize == 7680) {
+            isSystemAudio = true;
+        } else if (dataSize == 2048) {
+            isSystemAudio = false;
+        }
+        
+        const char* sourceType = isSystemAudio ? "system" : "microphone";
+        
+        NSLog(@"🎵 Audio callback: frame %llu, time: %.6f, remainder: %.2f, size: %zu, source: %s", 
+              g_audio_frame_count.load(), 
+              timestamp,
+              remainder,
+              dataSize,
+              sourceType);
+        
+        // Пытаемся извлечь данные сразу
+        void* audioDataPtr = nullptr;
+        size_t audioDataSize = 0;
+        
+        if (blockBuffer && dataSize > 0) {
+            // Есть CMBlockBuffer - извлекаем данные
+            size_t lengthAtOffset = 0;
+            size_t totalLength = 0;
+            char* dataPointer = nullptr;
+            
+            OSStatus status = CMBlockBufferGetDataPointer(
+                blockBuffer,
+                0,
+                &lengthAtOffset,
+                &totalLength,
+                &dataPointer
+            );
+            
+            if (status == noErr && dataPointer && totalLength > 0) {
+                audioDataPtr = malloc(totalLength);
+                memcpy(audioDataPtr, dataPointer, totalLength);
+                audioDataSize = totalLength;
+                NSLog(@"🎵 Copied audio data from %s: %zu bytes", sourceType, totalLength);
+            }
+        } else if (hasFormat && numSamples > 0) {
+            // Нет CMBlockBuffer - создаем буфер с тишиной для системного звука
+            size_t bytesPerFrame = asbd.mBytesPerFrame;
+            if (bytesPerFrame == 0) {
+                bytesPerFrame = (asbd.mBitsPerChannel / 8) * asbd.mChannelsPerFrame;
+            }
+            
+            audioDataSize = numSamples * bytesPerFrame;
+            audioDataPtr = calloc(1, audioDataSize); // calloc инициализирует нулями
+            NSLog(@"🎵 Created silent buffer for %s: %ld samples, %zu bytes", 
+                  sourceType, numSamples, audioDataSize);
+        }
+        
+        // Сохраняем определенный источник для использования в dispatch_async
+        bool isMicrophoneSource = !isSystemAudio;
+        
+        // Вызываем JavaScript callback из главного потока
+        dispatch_async(dispatch_get_main_queue(), ^{
+            Isolate* isolate = Isolate::GetCurrent();
+            if (!isolate) {
+                if (audioDataPtr) free(audioDataPtr);
+                return;
+            }
+            
+            HandleScope scope(isolate);
+            Local<Context> context = isolate->GetCurrentContext();
+            
+            // Получаем сохраненный callback
+            Local<Function> jsCallback = Local<Function>::New(isolate, *persistentCallback);
+            
+            // Создаем объект с информацией об аудио
+            Local<Object> audioInfo = Object::New(isolate);
+            
+            // Добавляем информацию о формате если есть
+            if (hasFormat) {
+                audioInfo->Set(context,
+                    String::NewFromUtf8(isolate, "sampleRate").ToLocalChecked(),
+                    Number::New(isolate, asbd.mSampleRate)).ToChecked();
+                audioInfo->Set(context,
+                    String::NewFromUtf8(isolate, "channels").ToLocalChecked(),
+                    Number::New(isolate, asbd.mChannelsPerFrame)).ToChecked();
+                audioInfo->Set(context,
+                    String::NewFromUtf8(isolate, "bitsPerChannel").ToLocalChecked(),
+                    Number::New(isolate, asbd.mBitsPerChannel)).ToChecked();
+                audioInfo->Set(context,
+                    String::NewFromUtf8(isolate, "formatID").ToLocalChecked(),
+                    Number::New(isolate, asbd.mFormatID)).ToChecked();
+            }
+            
+            // Добавляем основные данные
+            audioInfo->Set(context,
+                String::NewFromUtf8(isolate, "timestamp").ToLocalChecked(),
+                Number::New(isolate, timestamp)).ToChecked();
+            
+            audioInfo->Set(context,
+                String::NewFromUtf8(isolate, "numSamples").ToLocalChecked(),
+                Number::New(isolate, numSamples)).ToChecked();
+            
+            audioInfo->Set(context,
+                String::NewFromUtf8(isolate, "frameNumber").ToLocalChecked(),
+                Number::New(isolate, static_cast<double>(frameNumber))).ToChecked();
+            
+            // Добавляем аудио данные если есть
+            if (audioDataPtr && audioDataSize > 0) {
+                // Создаем ArrayBuffer и копируем данные
+                Local<ArrayBuffer> arrayBuffer = ArrayBuffer::New(isolate, audioDataSize);
+                void* bufferData = arrayBuffer->GetBackingStore()->Data();
+                memcpy(bufferData, audioDataPtr, audioDataSize);
+                
+                audioInfo->Set(context,
+                    String::NewFromUtf8(isolate, "data").ToLocalChecked(),
+                    arrayBuffer).ToChecked();
+                
+                audioInfo->Set(context,
+                    String::NewFromUtf8(isolate, "dataSize").ToLocalChecked(),
+                    Number::New(isolate, static_cast<double>(audioDataSize))).ToChecked();
+                
+                // Указываем источник на основе анализа
+                audioInfo->Set(context,
+                    String::NewFromUtf8(isolate, "source").ToLocalChecked(),
+                    String::NewFromUtf8(isolate, isMicrophoneSource ? "microphone" : "system").ToLocalChecked()).ToChecked();
+                
+                // Добавляем дополнительную информацию для отладки
+                audioInfo->Set(context,
+                    String::NewFromUtf8(isolate, "hasBlockBuffer").ToLocalChecked(),
+                    v8::Boolean::New(isolate, hasBlockBuffer)).ToChecked();
+            }
+            
+            // Освобождаем память
+            if (audioDataPtr) {
+                free(audioDataPtr);
+            }
+            
+            // Вызываем JavaScript callback
+            Local<Value> argv[] = { audioInfo };
+            
+            v8::TryCatch try_catch(isolate);
+            MaybeLocal<Value> result = jsCallback->Call(context, Null(isolate), 1, argv);
+            
+            if (try_catch.HasCaught()) {
+                // Логируем ошибку но не крашимся
+                String::Utf8Value error(isolate, try_catch.Exception());
+                NSLog(@"Error in audio callback: %s", *error);
+            }
+        });
     }];
     
-    args.GetReturnValue().Set(String::NewFromUtf8(isolate, "WebRTC audio counter set").ToLocalChecked());
+    args.GetReturnValue().Set(String::NewFromUtf8(isolate, "WebRTC audio callback set").ToLocalChecked());
 }
 
 // Method to get current frame counts
@@ -408,6 +771,8 @@ void ForwardVideoFrame(const FunctionCallbackInfo<Value>& args) {
 void ForwardAudioFrame(const FunctionCallbackInfo<Value>& args) {
     Isolate* isolate = args.GetIsolate();
     Local<Context> context = isolate->GetCurrentContext();
+
+    NSLog(@"🎯 ForwardAudioFrame called from JavaScript");
     
     if (args.Length() < 1 || !args[0]->IsFunction()) {
         isolate->ThrowException(Exception::TypeError(

@@ -52,7 +52,7 @@ extension CMSampleBuffer {
         var audioBufferList = AudioBufferList()
         var blockBuffer: CMBlockBuffer?
         
-        CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
+        let status = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
             self,
             bufferListSizeNeededOut: nil,
             bufferListOut: &audioBufferList,
@@ -63,13 +63,38 @@ extension CMSampleBuffer {
             blockBufferOut: &blockBuffer
         )
         
+        defer {
+            // Удаляем неиспользуемую проверку
+            _ = blockBuffer  // Подавляем warning
+        }
+        
+        var audioData: Data?
+        var totalSize: Int = 0
+        
+        if status == noErr {
+            // Если получили AudioBufferList, извлекаем данные
+            let bufferCount = Int(audioBufferList.mNumberBuffers)
+            if bufferCount > 0 {
+                // Для простоты берем первый буфер (обычно интерливд стерео)
+                let audioBuffer = audioBufferList.mBuffers
+                if let data = audioBuffer.mData, audioBuffer.mDataByteSize > 0 {
+                    audioData = Data(bytes: data, count: Int(audioBuffer.mDataByteSize))
+                    totalSize = Int(audioBuffer.mDataByteSize)
+                }
+            }
+        }
+        
         return [
             "sampleRate": asbd.pointee.mSampleRate,
             "channels": asbd.pointee.mChannelsPerFrame,
             "timestamp": timestamp,
             "numSamples": numSamples,
             "format": asbd.pointee.mFormatID,
-            "bitsPerChannel": asbd.pointee.mBitsPerChannel
+            "bitsPerChannel": asbd.pointee.mBitsPerChannel,
+            "bytesPerFrame": asbd.pointee.mBytesPerFrame,
+            "framesPerPacket": asbd.pointee.mFramesPerPacket,
+            "hasData": audioData != nil,
+            "dataSize": totalSize
         ]
     }
 }
@@ -449,14 +474,52 @@ actor CaptureActor {
             }
             
         case .audio:
+            // ВАЖНО: Добавляем подробное логирование
+            print("🎵 System audio buffer received, time: \(adjustedTime.seconds)")
+            
+            // Получаем информацию о формате для отладки
+            if let formatDesc = CMSampleBufferGetFormatDescription(sampleBuffer) {
+                if let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDesc) {
+                    let channelCount = asbd.pointee.mChannelsPerFrame
+                    let sampleRate = asbd.pointee.mSampleRate
+                    let formatID = asbd.pointee.mFormatID
+                    print("🎵 Audio format - Channels: \(channelCount), Sample Rate: \(sampleRate), Format: \(formatID)")
+                    
+                    // Проверяем формат аудио
+                    if formatID == kAudioFormatLinearPCM {
+                        print("🎵 Audio is Linear PCM - good for processing")
+                    } else {
+                        print("⚠️ Audio format is not Linear PCM: \(formatID)")
+                    }
+                }
+            }
+            
+            // Проверяем количество сэмплов
+            let numSamples = CMSampleBufferGetNumSamples(sampleBuffer)
+            print("🎵 Audio samples in buffer: \(numSamples)")
+            
             // Прямая передача аудио буфера
             directAudioCallback?(sampleBuffer)
             
             // Также отправляем в существующие callbacks
             audioBufferCallback?(sampleBuffer)
+            
+            // КРИТИЧНО: Вызываем WebRTC callback
+            if let callback = webrtcAudioCallback {
+                print("🎵 Calling webrtcAudioCallback")
+                callback(sampleBuffer)
+            } else {
+                print("⚠️ webrtcAudioCallback is nil!")
+            }
+            
+        case .microphone:
+            // Добавляем обработку микрофона (для полноты)
+            print("🎵 Microphone audio buffer received, time: \(adjustedTime.seconds)")
+            audioBufferCallback?(sampleBuffer)
             webrtcAudioCallback?(sampleBuffer)
             
-        default:
+        @unknown default:
+            print("⚠️ Unknown stream output type")
             break
         }
     }

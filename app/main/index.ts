@@ -1139,25 +1139,12 @@ async function createMainWindow(): Promise<BrowserWindow> {
                             console.log('[NativeCapture] obtainDesktopStream called with:', sourceId);
                             
                             try {
-                                // Определяем native источник
                                 let isNativeSource = window._lastSelectedSourceIsNative || window._usingNativeSources;
                                 
                                 if (isNativeSource) {
-                                    console.log('🎯[NativeCapture] NATIVE source - creating stream with APP AUDIO');
+                                    console.log('🎯[NativeCapture] Creating NATIVE stream with system audio');
                                     
-                                    // Извлекаем оригинальный ID источника
-                                    const originalSourceId = sourceId; // Формат: screen:1234567890:0
-                                    
-                                    // Запускаем native capture если есть IPC
-                                    if (window.ipcRenderer) {
-                                        const startResult = await window.ipcRenderer.invoke('start-native-capture-with-audio', originalSourceId);
-                                        if (!startResult.success) {
-                                            throw new Error('Failed to start native capture: ' + startResult.error);
-                                        }
-                                        console.log('[NativeCapture] Native capture started successfully');
-                                    }
-                                    
-                                    // === СОЗДАЕМ VIDEO CANVAS ===
+                                    // === СОЗДАЕМ CANVAS ДЛЯ ВИДЕО ===
                                     const canvas = document.createElement('canvas');
                                     canvas.width = 1920;
                                     canvas.height = 1080;
@@ -1170,18 +1157,20 @@ async function createMainWindow(): Promise<BrowserWindow> {
                                         throw new Error('Failed to get canvas context');
                                     }
                                     
-                                    // === СОЗДАЕМ AUDIO CONTEXT ===
+                                    // === СОЗДАЕМ AUDIO CONTEXT ДЛЯ СИСТЕМНОГО ЗВУКА ===
                                     const audioContext = new AudioContext({
                                         sampleRate: 48000,
                                         latencyHint: 'interactive'
                                     });
                                     
-                                    // ScriptProcessor для обработки аудио от native addon
-                                    const scriptProcessor = audioContext.createScriptProcessor(4096, 0, 2); // 2 канала
-                                    const audioQueue = [];
+                                    // ScriptProcessor для обработки аудио
+                                    const scriptProcessor = audioContext.createScriptProcessor(4096, 0, 2);
+                                    const audioBufferQueue = [];
                                     let isActive = true;
+                                    let frameCount = 0;
+                                    let audioFramesReceived = 0;
                                     
-                                    // Обработчик аудио буфера
+                                    // Обработчик аудио процессора
                                     scriptProcessor.onaudioprocess = (event) => {
                                         if (!isActive) return;
                                         
@@ -1190,129 +1179,142 @@ async function createMainWindow(): Promise<BrowserWindow> {
                                         for (let channel = 0; channel < outputBuffer.numberOfChannels; channel++) {
                                             const outputData = outputBuffer.getChannelData(channel);
                                             
-                                            if (audioQueue.length > 0) {
-                                                const audioFrame = audioQueue.shift();
-                                                if (audioFrame && audioFrame[channel]) {
-                                                    outputData.set(audioFrame[channel]);
+                                            if (audioBufferQueue.length > 0) {
+                                                const audioData = audioBufferQueue.shift();
+                                                if (audioData && audioData[channel]) {
+                                                    outputData.set(audioData[channel]);
                                                 } else {
-                                                    outputData.fill(0); // Тишина если нет данных
+                                                    outputData.fill(0);
                                                 }
                                             } else {
-                                                outputData.fill(0); // Тишина если очередь пуста
+                                                outputData.fill(0);
                                             }
                                         }
                                     };
                                     
-                                    // === ФУНКЦИЯ ПОЛУЧЕНИЯ ФРЕЙМОВ ОТ NATIVE ADDON ===
-                                    let frameCount = 0;
-                                    let lastVideoFrame = null;
+                                    // Запускаем native capture
+                                    if (window.ipcRenderer) {
+                                        const startResult = await window.ipcRenderer.invoke('start-native-capture', sourceId);
+                                        console.log('[NativeCapture] Native capture started:', startResult);
+                                        
+                                        if (!startResult.success) {
+                                            throw new Error('Failed to start native capture');
+                                        }
+                                    }
                                     
-                                    async function updateFrames() {
+                                    // === ФУНКЦИЯ ОБРАБОТКИ ФРЕЙМОВ ===
+                                    async function processFrames() {
                                         if (!isActive) return;
                                         
                                         try {
                                             if (window.ipcRenderer) {
-                                                const frames = await window.ipcRenderer.invoke('get-native-audio-frames');
+                                                const frames = await window.ipcRenderer.invoke('get-native-frames');
                                                 
-                                                // Обрабатываем видео фреймы
+                                                // Обработка видео
                                                 if (frames.video && frames.video.length > 0) {
-                                                    lastVideoFrame = frames.video[frames.video.length - 1];
+                                                    frameCount++;
                                                     
-                                                    // Отображаем видео фрейм на canvas
-                                                    if (lastVideoFrame) {
-                                                        try {
-                                                            const uint8Array = new Uint8ClampedArray(lastVideoFrame);
-                                                            const imageData = new ImageData(uint8Array, 1920, 1080);
-                                                            ctx.putImageData(imageData, 0, 0);
-                                                            frameCount++;
-                                                        } catch (e) {
-                                                            // Если нет реальных фреймов, показываем заглушку
-                                                            drawPlaceholder();
+                                                    try {
+                                                        const videoData = frames.video[0];
+                                                        // Предполагаем что videoData - это ArrayBuffer или Uint8Array
+                                                        const imageData = new ImageData(
+                                                            new Uint8ClampedArray(videoData),
+                                                            1920,
+                                                            1080
+                                                        );
+                                                        ctx.putImageData(imageData, 0, 0);
+                                                        
+                                                        if (frameCount % 30 === 0) {
+                                                            console.log('[NativeCapture] Video frames:', frameCount);
                                                         }
+                                                    } catch (e) {
+                                                        // Показываем тестовый паттерн если ошибка
+                                                        drawTestPattern();
                                                     }
                                                 } else {
-                                                    // Показываем заглушку если нет видео
-                                                    drawPlaceholder();
+                                                    drawTestPattern();
                                                 }
                                                 
-                                                // Обрабатываем аудио фреймы от приложения
+                                                // Обработка аудио от системы
                                                 if (frames.audio && frames.audio.length > 0) {
-                                                    for (const audioFrame of frames.audio) {
-                                                        // Конвертируем аудио данные (предполагаем Int16Array)
-                                                        const int16Array = new Int16Array(audioFrame);
-                                                        const channels = 2;
-                                                        const samplesPerChannel = int16Array.length / channels;
-                                                        const channelData = [];
-                                                        
-                                                        for (let ch = 0; ch < channels; ch++) {
-                                                            const float32Array = new Float32Array(samplesPerChannel);
-                                                            for (let i = 0; i < samplesPerChannel; i++) {
-                                                                const sampleIndex = i * channels + ch;
-                                                                // Конвертируем Int16 в Float32 (-1.0 to 1.0)
-                                                                float32Array[i] = int16Array[sampleIndex] / 32768.0;
+                                                    audioFramesReceived++;
+                                                    
+                                                    const audioData = frames.audio[0];
+                                                    // Предполагаем что audioData - это ArrayBuffer с Int16 данными
+                                                    const int16Array = new Int16Array(audioData);
+                                                    const channels = 2;
+                                                    const samplesPerChannel = Math.floor(int16Array.length / channels);
+                                                    const channelData = [];
+                                                    
+                                                    for (let ch = 0; ch < channels; ch++) {
+                                                        const float32Array = new Float32Array(samplesPerChannel);
+                                                        for (let i = 0; i < samplesPerChannel; i++) {
+                                                            const idx = i * channels + ch;
+                                                            if (idx < int16Array.length) {
+                                                                // Конвертируем Int16 в Float32 с усилением
+                                                                float32Array[i] = (int16Array[idx] / 32768.0) * 2.0;
                                                             }
-                                                            channelData.push(float32Array);
                                                         }
-                                                        
-                                                        audioQueue.push(channelData);
-                                                        
-                                                        // Ограничиваем размер очереди
-                                                        if (audioQueue.length > 20) {
-                                                            audioQueue.shift();
-                                                        }
+                                                        channelData.push(float32Array);
                                                     }
                                                     
-                                                    console.log('[NativeCapture] Audio queue size:', audioQueue.length);
+                                                    audioBufferQueue.push(channelData);
+                                                    
+                                                    // Ограничиваем размер очереди
+                                                    if (audioBufferQueue.length > 20) {
+                                                        audioBufferQueue.shift();
+                                                    }
+                                                    
+                                                    if (audioFramesReceived % 100 === 0) {
+                                                        console.log('[NativeCapture] Audio frames received:', audioFramesReceived);
+                                                    }
                                                 }
                                             }
                                         } catch (error) {
-                                            console.error('[NativeCapture] Error updating frames:', error);
+                                            console.error('[NativeCapture] Error processing frames:', error);
                                         }
                                         
                                         // Запрашиваем следующий кадр
                                         if (isActive) {
-                                            setTimeout(updateFrames, 33); // ~30 FPS
+                                            setTimeout(processFrames, 10); // 100 раз в секунду для аудио
                                         }
                                     }
                                     
-                                    // Функция отрисовки заглушки
-                                    function drawPlaceholder() {
-                                        // Градиентный фон
+                                    // Тестовый паттерн
+                                    function drawTestPattern() {
                                         const gradient = ctx.createRadialGradient(960, 540, 0, 960, 540, 800);
                                         gradient.addColorStop(0, '#4CAF50');
                                         gradient.addColorStop(1, '#2E7D32');
                                         ctx.fillStyle = gradient;
                                         ctx.fillRect(0, 0, 1920, 1080);
                                         
-                                        // Текст
                                         ctx.fillStyle = 'white';
                                         ctx.font = 'bold 60px Arial';
                                         ctx.textAlign = 'center';
-                                        ctx.shadowColor = 'rgba(0,0,0,0.5)';
-                                        ctx.shadowBlur = 10;
-                                        
-                                        ctx.fillText('🎯 NATIVE CAPTURE ACTIVE', 960, 400);
-                                        ctx.fillText('🔊 App Audio Isolated', 960, 500);
-                                        
-                                        ctx.font = '30px Arial';
-                                        ctx.fillText('Source: ' + sourceId, 960, 600);
-                                        ctx.fillText('Frames: ' + frameCount, 960, 660);
-                                        ctx.fillText('Audio Queue: ' + audioQueue.length, 960, 720);
+                                        ctx.fillText('🎯 NATIVE CAPTURE', 960, 400);
+                                        ctx.fillText('🔊 System Audio Active', 960, 500);
+                                        ctx.font = '40px Arial';
+                                        ctx.fillText('Video: ${frameCount} | Audio: ${audioFramesReceived}', 960, 600);
+                                        ctx.fillText('Queue: ${audioBufferQueue.length}', 960, 700);
                                     }
                                     
-                                    // Запускаем обновление фреймов
-                                    updateFrames();
+                                    // Запускаем обработку
+                                    processFrames();
                                     
-                                    // === СОЗДАЕМ ФИНАЛЬНЫЙ MEDIASTREAM ===
+                                    // === СОЗДАЕМ MEDIASTREAM ===
+                                    const videoStream = canvas.captureStream(30);
+                                    const videoTrack = videoStream.getVideoTracks()[0];
                                     
-                                    // Подключаем audio processor к destination
+                                    // Подключаем аудио процессор к destination
                                     const destination = audioContext.createMediaStreamDestination();
                                     scriptProcessor.connect(destination);
                                     
-                                    // Получаем треки
-                                    const videoStream = canvas.captureStream(30);
-                                    const videoTrack = videoStream.getVideoTracks()[0];
                                     const audioTrack = destination.stream.getAudioTracks()[0];
+                                    
+                                    // Помечаем что это системный звук
+                                    if (audioTrack) {
+                                        (audioTrack as any)._isSystemAudio = true;
+                                    }
                                     
                                     // Создаем комбинированный stream
                                     const combinedStream = new MediaStream();
@@ -1322,14 +1324,14 @@ async function createMainWindow(): Promise<BrowserWindow> {
                                     }
                                     if (audioTrack) {
                                         combinedStream.addTrack(audioTrack);
-                                        console.log('[NativeCapture] Added audio track from app');
+                                        console.log('[NativeCapture] Added SYSTEM AUDIO track');
                                     }
                                     
-                                    console.log('[NativeCapture] Final stream created:');
+                                    console.log('[NativeCapture] Stream created with:');
                                     console.log('  - Video tracks:', combinedStream.getVideoTracks().length);
                                     console.log('  - Audio tracks:', combinedStream.getAudioTracks().length);
                                     
-                                    // === ДОБАВЛЯЕМ ИНДИКАТОР ===
+                                    // === ИНДИКАТОР ===
                                     const indicator = document.createElement('div');
                                     indicator.id = 'native-capture-indicator';
                                     indicator.style.cssText = \`
@@ -1347,6 +1349,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
                                         align-items: center;
                                         gap: 12px;
                                         box-shadow: 0 4px 20px rgba(76, 175, 80, 0.5);
+                                        animation: fadeIn 0.3s ease;
                                     \`;
                                     indicator.innerHTML = \`
                                         <div style="
@@ -1365,7 +1368,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
                                             gap: 6px;
                                         ">
                                             <span style="font-size: 18px;">🔊</span>
-                                            <span style="font-size: 12px;">App Audio Only</span>
+                                            <span style="font-size: 12px;">System Audio</span>
                                         </div>
                                     \`;
                                     
@@ -1375,40 +1378,42 @@ async function createMainWindow(): Promise<BrowserWindow> {
                                             0%, 100% { opacity: 1; transform: scale(1); }
                                             50% { opacity: 0.6; transform: scale(0.9); }
                                         }
+                                        @keyframes fadeIn {
+                                            from { opacity: 0; transform: translateY(20px); }
+                                            to { opacity: 1; transform: translateY(0); }
+                                        }
                                     \`;
                                     document.head.appendChild(style);
                                     document.body.appendChild(indicator);
                                     
-                                    // === CLEANUP ПРИ ОСТАНОВКЕ ===
+                                    // === CLEANUP ===
                                     if (videoTrack) {
                                         videoTrack.addEventListener('ended', async () => {
-                                            console.log('[NativeCapture] Stream ended, cleaning up...');
+                                            console.log('[NativeCapture] Stopping...');
                                             isActive = false;
                                             
-                                            // Останавливаем native capture
+                                            scriptProcessor.disconnect();
+                                            await audioContext.close();
+                                            
                                             if (window.ipcRenderer) {
-                                                await window.ipcRenderer.invoke('stop-native-capture-with-audio');
+                                                await window.ipcRenderer.invoke('stop-native-capture');
                                             }
                                             
-                                            // Очищаем audio
-                                            scriptProcessor.disconnect();
-                                            audioContext.close();
-                                            
-                                            // Удаляем индикатор
                                             const ind = document.getElementById('native-capture-indicator');
                                             if (ind) ind.remove();
                                             style.remove();
                                         });
                                     }
                                     
-                                    // Вызываем callback с готовым stream
+                                    // Передаем stream в Jitsi
                                     if (callback) {
-                                        console.log('[NativeCapture] Calling callback with combined stream');
+                                        console.log('[NativeCapture] Calling Jitsi callback with stream');
                                         callback(combinedStream);
                                     }
                                     
                                 } else {
-                                    console.log('📺[NativeCapture] Standard source, using original method');
+                                    // Стандартный источник
+                                    console.log('📺[NativeCapture] Standard source');
                                     originalObtainStream.call(this, sourceId, callback, errorCallback);
                                 }
                                 
@@ -1636,6 +1641,55 @@ async function createMainWindow(): Promise<BrowserWindow> {
               roomName: roomName,
               server: server
           });
+
+          // В функции createJitsiWindow после загрузки страницы добавьте:
+            setTimeout(async () => {
+                await jitsiWindow.webContents.executeJavaScript(`
+                    // Добавляем кнопку для тестирования native stream
+                    const button = document.createElement('button');
+                    button.textContent = '🎯 Start Native Stream';
+                    button.style.cssText = \`
+                        position: fixed;
+                        top: 80px;
+                        right: 20px;
+                        z-index: 100000;
+                        padding: 10px 20px;
+                        background: linear-gradient(135deg, #4CAF50, #66BB6A);
+                        color: white;
+                        border: none;
+                        border-radius: 8px;
+                        font-size: 16px;
+                        font-weight: bold;
+                        cursor: pointer;
+                        box-shadow: 0 4px 20px rgba(76, 175, 80, 0.3);
+                    \`;
+                    
+                    button.onclick = async () => {
+                        button.disabled = true;
+                        button.textContent = '⏳ Starting...';
+                        
+                        try {
+                            // Запрашиваем создание native stream через IPC
+                            const result = await window.ipcRenderer.invoke('create-native-stream-for-jitsi');
+                            
+                            if (result.success) {
+                                button.textContent = '✅ Native Stream Active';
+                                button.style.background = 'linear-gradient(135deg, #66BB6A, #4CAF50)';
+                            } else {
+                                button.textContent = '❌ Failed';
+                                button.style.background = '#f44336';
+                                console.error('Failed to start native stream:', result.error);
+                            }
+                        } catch (error) {
+                            button.textContent = '❌ Error';
+                            button.style.background = '#f44336';
+                            console.error('Error:', error);
+                        }
+                    };
+                    
+                    document.body.appendChild(button);
+                `);
+            }, 3000);
           
           return {
               success: true,
@@ -1804,6 +1858,9 @@ async function createMainWindow(): Promise<BrowserWindow> {
           let formattedSources = [];
           let sourceType = 'unknown';
           
+          // Создаем маппинг для сохранения оригинальных ID
+          const sourceIdMapping = new Map();
+          
           // Получаем источники из native addon
           if (screenCaptureAddon && typeof screenCaptureAddon.getAvailableSources === 'function') {
               try {
@@ -1813,54 +1870,58 @@ async function createMainWindow(): Promise<BrowserWindow> {
                   if (nativeSources.length > 0) {
                       sourceType = 'native';
                       
-                      // ВАЖНО: Форматируем с правильными маркерами для native
+                      // Логируем первые несколько источников для отладки
+                      nativeSources.slice(0, 3).forEach((source, i) => {
+                          log.info(`  Native source ${i}: id=${source.id}, name=${source.name}, type=${source.type}`);
+                      });
+                      
                       formattedSources = nativeSources.map((source, index) => {
-                          // ВАЖНО: Форматируем ID в стандартный формат Electron
-                          // screen:2077748985:0 или window:2077748985:0
-                          
-                          let formattedId;
                           const type = source.type === 'window' ? 'window' : 'screen';
                           
-                          // Генерируем числовой ID
-                          let numericId;
+                          // ВАЖНО: Сохраняем оригинальный ID от native addon
+                          const originalId = source.id;
                           
-                          if (source.id && /^\d+$/.test(source.id.toString())) {
-                              // Если ID уже число, используем его
-                              numericId = source.id;
-                          } else if (source.id) {
-                              // Если ID не число, генерируем хеш из строки
-                              // Используем простой хеш для генерации числа из строки
-                              numericId = Math.abs(source.id.toString().split('').reduce((a, b) => {
+                          // Создаем ID в формате Electron, но сохраняем оригинальный ID
+                          let formattedId;
+                          if (originalId && !isNaN(Number(originalId))) {
+                              // Если ID - число, используем его напрямую
+                              formattedId = `${type}:${originalId}:0`;
+                          } else if (originalId) {
+                              // Если ID - строка (например, com.microsoft.VSCode)
+                              // Генерируем числовой ID для Electron формата
+                              const numericId = Math.abs(originalId.toString().split('').reduce((a, b) => {
                                   a = ((a << 5) - a) + b.charCodeAt(0);
                                   return a & a;
                               }, 0));
+                              formattedId = `${type}:${numericId}:0`;
                               
-                              // Убеждаемся что число имеет нужную длину (10 цифр как в примере)
-                              numericId = numericId.toString().padStart(10, '1').slice(0, 10);
+                              // Сохраняем маппинг
+                              sourceIdMapping.set(formattedId, originalId);
                           } else {
-                              // Генерируем случайный ID той же длины что и в примере (2077748985 = 10 цифр)
-                              numericId = Math.floor(1000000000 + Math.random() * 9000000000).toString();
+                              // Fallback - генерируем случайный ID
+                              const randomId = Math.floor(100000 + Math.random() * 900000);
+                              formattedId = `${type}:${randomId}:0`;
                           }
                           
-                          // КРИТИЧНО: Используем стандартный формат Electron БЕЗ префикса native:
-                          formattedId = `${type}:${numericId}:0`;
-                          
-                          log.info(`  Native source ${index}: ${source.name} -> ${formattedId}`);
+                          log.info(`  Formatted: ${formattedId} -> original: ${originalId}`);
                           
                           return {
-                              id: formattedId, // Стандартный формат: screen:2077748985:0
-                              name: `🎯 ${source.name || `Source ${index}`}`, // Эмодзи для визуального отличия
+                              id: formattedId,
+                              name: `🎯 ${source.name || `Source ${index}`}`,
                               thumbnail: { 
                                   dataUrl: createSourceThumbnail(source) 
                               },
-                              isNative: true, // Флаг что это native источник
+                              isNative: true,
                               sourceType: 'native',
-                              originalId: source.id,
+                              originalId: originalId, // Сохраняем оригинальный ID
                               originalType: source.type
                           };
                       });
                       
-                      log.info(`🎯[NativeCapture] Formatted ${formattedSources.length} NATIVE sources`);
+                      // Сохраняем маппинг глобально для последующего использования
+                      global.nativeSourceMapping = sourceIdMapping;
+                      
+                      log.info(`🎯[NativeCapture] Created source mapping with ${sourceIdMapping.size} entries`);
                   }
                   
               } catch (error) {
@@ -1868,70 +1929,13 @@ async function createMainWindow(): Promise<BrowserWindow> {
               }
           }
           
-          // Если нет native источников и не включен Native Only Mode
-          const useNativeOnly = true; // Измените на false для включения Electron fallback
+          // ... остальной код ...
           
-          if (formattedSources.length === 0 && !useNativeOnly) {
-              log.warn("🎯[NativeCapture] No native sources, using Electron fallback");
-              sourceType = 'electron';
-              
-              const electronSources = await desktopCapturer.getSources({
-                  types: ['screen', 'window'],
-                  thumbnailSize: { width: 300, height: 200 }
-              });
-              
-              formattedSources = electronSources.map(source => ({
-                  id: `electron:${source.id}`, // Префикс electron:
-                  name: `📺 ${source.name}`, // Эмодзи для Electron
-                  thumbnail: { 
-                      dataUrl: source.thumbnail.toDataURL() 
-                  },
-                  isNative: false, // Флаг для Electron
-                  sourceType: 'electron',
-                  originalId: source.id
-              }));
-              
-              log.info(`📺[NativeCapture] Formatted ${formattedSources.length} ELECTRON sources`);
-          }
-          
-          // Логируем первые несколько источников для отладки
-          if (formattedSources.length > 0) {
-              log.info(`🔍 Sample sources (first 3):`);
-              formattedSources.slice(0, 3).forEach((s, i) => {
-                  log.info(`  ${i}: ${s.name} | ID: ${s.id} | Native: ${s.isNative}`);
-              });
-          }
-          
-          // Отправляем источники всем webContents с правильной структурой
-          const response = {
-              sources: formattedSources,
-              sourceType: sourceType, // Передаем тип
-              isNative: formattedSources.length > 0 && formattedSources[0].isNative,
-              error: null
-          };
-          
-          webContents.getAllWebContents().forEach(content => {
-              content.send("desktop-sources-response", response);
-          });
-          
-          log.info(`🎯[NativeCapture] Sent ${formattedSources.length} ${sourceType} sources to all webContents`);
           return formattedSources;
           
       } catch (error) {
-          log.error(`🎯[NativeCapture] Error in get-desktop-sources: ${error.message}`);
-          
-          const errorResponse = { 
-              sources: [], 
-              sourceType: 'error',
-              isNative: false,
-              error: error.message 
-          };
-          
-          webContents.getAllWebContents().forEach(content => {
-              content.send("desktop-sources-response", errorResponse);
-          });
-          
-          return errorResponse;
+          log.error(`🎯[NativeCapture] Error: ${error.message}`);
+          return { sources: [], error: error.message };
       }
   });
 
@@ -2058,38 +2062,6 @@ async function createMainWindow(): Promise<BrowserWindow> {
       }
   });
 
-  ipcMain.handle("get-native-audio-frames", async () => {
-      if (!screenCaptureAddon) {
-          return { audio: [], video: [] };
-      }
-      
-      try {
-          // Получаем аудио и видео фреймы
-          const frames = await screenCaptureAddon.getFrames();
-          
-          return {
-              audio: frames.audio || [],
-              video: frames.video || []
-          };
-      } catch (error: any) {
-          log.error(`Error getting frames: ${error.message}`);
-          return { audio: [], video: [] };
-      }
-  });
-
-  ipcMain.handle("stop-native-capture-with-audio", async () => {
-      try {
-          if (screenCaptureAddon) {
-              await screenCaptureAddon.stopCapture();
-          }
-          log.info("🎯[NativeCapture] Capture stopped");
-          return { success: true };
-      } catch (error: any) {
-          log.error(`Error stopping capture: ${error.message}`);
-          return { success: false, error: error.message };
-      }
-  });
-
 
 
   // Добавить функцию создания тестовых thumbnail
@@ -2126,6 +2098,969 @@ async function createMainWindow(): Promise<BrowserWindow> {
       log.info(`🔍 Source type check: ${JSON.stringify(result)}`);
       return result;
   });
+
+
+  // Добавьте этот обработчик для тестирования аудио
+  ipcMain.handle("test-native-audio-recording", async (event) => {
+        try {
+            log.info("🎬 [Test] Starting native audio/video recording test...");
+            
+            if (!screenCaptureAddon) {
+                throw new Error("Native addon not loaded");
+            }
+            
+            // === ВИДЕО СТРУКТУРЫ ===
+            interface VideoFrameInfo {
+                timestamp: number;
+                width: number;
+                height: number;
+                data?: Buffer;  // Пиксельные данные если доступны
+                pixelFormat: string;
+                bytesPerRow: number;
+            }
+            
+            const videoFrames: VideoFrameInfo[] = [];
+            const MAX_VIDEO_FRAMES = 300; // Ограничиваем для экономии памяти
+            let videoFrameCount = 0;
+            const videoFrameStats = {
+                minFps: Infinity,
+                maxFps: 0,
+                avgFps: 0,
+                totalFrames: 0,
+                width: 0,
+                height: 0,
+                format: '',
+                firstTimestamp: 0,
+                lastTimestamp: 0,
+                actualDuration: 0,
+                savedFrames: 0
+            };
+            let lastVideoTimestamp = 0;
+            let videoFpsBuffer: number[] = [];
+            
+            // === АУДИО СТРУКТУРЫ (как раньше) ===
+            interface AudioChunkInfo {
+                buffer: Buffer;
+                timestamp: number;
+                samples: number;
+                source: string;
+            }
+            
+            const microphoneChunks: AudioChunkInfo[] = [];
+            const systemChunks: AudioChunkInfo[] = [];
+            
+            let audioSourceStats = {
+                microphone: 0,
+                system: 0,
+                unknown: 0
+            };
+            
+            let firstTimestamp: number | null = null;
+            let lastMicTimestamp = 0;
+            let lastSysTimestamp = 0;
+            let audioFrameCount = 0;
+            const duration = 10000; // 10 секунд
+            
+            // === УСТАНОВКА КОЛБЭКОВ ===
+            log.info("📹 [Test] Setting up audio/video callbacks...");
+            
+            try {
+                // ВИДЕО КОЛБЭК с сохранением фреймов
+                log.info("🎥 [VideoTest] Setting up video callback with frame capture...");
+                screenCaptureAddon.setWebRTCVideoCallback((videoData: any) => {
+                    try {
+                        videoFrameCount++;
+                        videoFrameStats.totalFrames = videoFrameCount;
+                        
+                        // Логируем первые несколько фреймов
+                        if (videoFrameCount <= 5) {
+                            log.info(`🎥 [VideoTest] Video frame ${videoFrameCount}:`);
+                            log.info(`  - Resolution: ${videoData?.width}x${videoData?.height}`);
+                            log.info(`  - Timestamp: ${videoData?.timestamp}`);
+                            log.info(`  - Pixel format: ${videoData?.pixelFormatName} (${videoData?.pixelFormat})`);
+                            log.info(`  - Bytes per row: ${videoData?.bytesPerRow}`);
+                            log.info(`  - Data size: ${videoData?.dataSize} bytes`);
+                            log.info(`  - Has data: ${videoData?.hasData}`);
+                            log.info(`  - Has pixel buffer: ${!!videoData?.data}`);
+                        }
+                        
+                        // Сохраняем первую временную метку
+                        if (videoFrameCount === 1 && videoData?.timestamp) {
+                            videoFrameStats.firstTimestamp = videoData.timestamp;
+                        }
+                        
+                        // Обновляем статистику
+                        if (videoData?.width) videoFrameStats.width = videoData.width;
+                        if (videoData?.height) videoFrameStats.height = videoData.height;
+                        if (videoData?.pixelFormatName) videoFrameStats.format = videoData.pixelFormatName;
+                        if (videoData?.timestamp) {
+                            videoFrameStats.lastTimestamp = videoData.timestamp;
+                            
+                            // Расчет FPS
+                            if (lastVideoTimestamp > 0) {
+                                const deltaTime = videoData.timestamp - lastVideoTimestamp;
+                                if (deltaTime > 0) {
+                                    const currentFps = 1.0 / deltaTime;
+                                    
+                                    videoFpsBuffer.push(currentFps);
+                                    if (videoFpsBuffer.length > 30) {
+                                        videoFpsBuffer.shift();
+                                    }
+                                    
+                                    videoFrameStats.minFps = Math.min(videoFrameStats.minFps, currentFps);
+                                    videoFrameStats.maxFps = Math.max(videoFrameStats.maxFps, currentFps);
+                                    
+                                    const avgFps = videoFpsBuffer.reduce((a, b) => a + b, 0) / videoFpsBuffer.length;
+                                    videoFrameStats.avgFps = avgFps;
+                                }
+                            }
+                            lastVideoTimestamp = videoData.timestamp;
+                        }
+                        
+                        // СОХРАНЕНИЕ ВИДЕО ФРЕЙМА
+                        // Сохраняем каждый N-й фрейм для экономии памяти
+                        const FRAME_SAVE_INTERVAL = Math.ceil(videoFrameStats.avgFps / 10) || 3; // ~10 fps для сохранения
+                        
+                        if (videoFrameCount % FRAME_SAVE_INTERVAL === 0 && videoFrames.length < MAX_VIDEO_FRAMES) {
+                            const frameInfo: VideoFrameInfo = {
+                                timestamp: videoData?.timestamp || 0,
+                                width: videoData?.width || 0,
+                                height: videoData?.height || 0,
+                                pixelFormat: videoData?.pixelFormatName || 'unknown',
+                                bytesPerRow: videoData?.bytesPerRow || 0
+                            };
+                            
+                            // Если есть пиксельные данные, сохраняем их
+                            if (videoData?.data) {
+                                if (videoData.data instanceof ArrayBuffer) {
+                                    frameInfo.data = Buffer.from(videoData.data);
+                                } else if (Buffer.isBuffer(videoData.data)) {
+                                    frameInfo.data = videoData.data;
+                                }
+                                
+                                if (frameInfo.data && videoFrameStats.savedFrames === 0) {
+                                    log.info(`🎥 [VideoTest] First frame with pixel data saved! Size: ${frameInfo.data.length} bytes`);
+                                }
+                                videoFrameStats.savedFrames++;
+                            }
+                            
+                            videoFrames.push(frameInfo);
+                            
+                            if (videoFrames.length % 50 === 0) {
+                                log.info(`🎥 [VideoTest] Saved ${videoFrames.length} video frames (${videoFrameStats.savedFrames} with pixel data)`);
+                            }
+                        }
+                        
+                        // Периодический отчет
+                        if (videoFrameCount % 100 === 0) {
+                            const currentDuration = videoFrameStats.lastTimestamp - videoFrameStats.firstTimestamp;
+                            log.info(`🎥 [VideoTest] Video progress:`);
+                            log.info(`  - Frames captured: ${videoFrameCount}`);
+                            log.info(`  - Frames saved: ${videoFrames.length} (${videoFrameStats.savedFrames} with data)`);
+                            log.info(`  - Duration: ${currentDuration.toFixed(2)}s`);
+                            log.info(`  - Average FPS: ${videoFrameStats.avgFps.toFixed(2)}`);
+                        }
+                        
+                    } catch (error: any) {
+                        if (videoFrameCount <= 5) {
+                            log.error(`🎥 [VideoTest] Video callback error: ${error.message}`);
+                        }
+                    }
+                });
+                
+                // АУДИО КОЛБЭК (как раньше)
+                log.info("🎤 [AudioTest] Setting up audio callback...");
+                screenCaptureAddon.setWebRTCAudioCallback((audioData: any) => {
+                    try {
+                        audioFrameCount++;
+                        
+                        const source = audioData?.source || 'unknown';
+                        audioSourceStats[source] = (audioSourceStats[source] || 0) + 1;
+                        
+                        if (firstTimestamp === null && audioData?.timestamp !== undefined) {
+                            firstTimestamp = audioData.timestamp;
+                        }
+                        
+                        if (audioSourceStats[source] <= 3) {
+                            log.info(`🎤 [AudioTest] ${source.toUpperCase()} audio frame ${audioSourceStats[source]}:`);
+                            log.info(`  - Sample rate: ${audioData?.sampleRate}`);
+                            log.info(`  - Channels: ${audioData?.channels}`);
+                            log.info(`  - Data size: ${audioData?.dataSize} bytes`);
+                            log.info(`  - Timestamp: ${audioData?.timestamp}`);
+                        }
+                        
+                        if (audioData && audioData.data && audioData.dataSize > 0) {
+                            let buffer: Buffer;
+                            
+                            if (audioData.data instanceof ArrayBuffer) {
+                                buffer = Buffer.from(audioData.data);
+                            } else if (Buffer.isBuffer(audioData.data)) {
+                                buffer = audioData.data;
+                            } else {
+                                return;
+                            }
+                            
+                            const numSamples = audioData.numSamples || 960;
+                            const chunkInfo: AudioChunkInfo = {
+                                buffer: buffer,
+                                timestamp: audioData.timestamp || 0,
+                                samples: numSamples,
+                                source: source
+                            };
+                            
+                            if (source === 'microphone') {
+                                if (!audioData.timestamp || audioData.timestamp > lastMicTimestamp) {
+                                    microphoneChunks.push(chunkInfo);
+                                    lastMicTimestamp = audioData.timestamp || lastMicTimestamp;
+                                }
+                            } else if (source === 'system') {
+                                if (!audioData.timestamp || audioData.timestamp > lastSysTimestamp) {
+                                    systemChunks.push(chunkInfo);
+                                    lastSysTimestamp = audioData.timestamp || lastSysTimestamp;
+                                }
+                            }
+                        }
+                        
+                    } catch (error: any) {
+                        if (audioFrameCount <= 5) {
+                            log.error(`🎤 [AudioTest] Audio callback error: ${error.message}`);
+                        }
+                    }
+                });
+                
+                log.info("✅ [Test] All callbacks set successfully");
+                
+            } catch (error: any) {
+                log.error(`❌ [Test] Error setting callbacks: ${error.message}`);
+                return { success: false, error: `Callback setup failed: ${error.message}` };
+            }
+            
+            // === ЗАПУСК ЗАХВАТА ===
+            try {
+                log.info("🚀 [Test] Starting capture (will show system picker)...");
+                const startResult = await screenCaptureAddon.startCapture();
+                log.info(`✅ [Test] Capture started: ${JSON.stringify(startResult)}`);
+                
+            } catch (error: any) {
+                log.error(`❌ [Test] startCapture failed: ${error.message}`);
+                
+                if (error.message.includes("not initialized") || error.message.includes("No selection")) {
+                    log.info("🔄 [Test] Trying with selectSourceWithPicker...");
+                    
+                    try {
+                        const pickerResult = await screenCaptureAddon.selectSourceWithPicker();
+                        log.info(`✅ [Test] Picker result: ${JSON.stringify(pickerResult)}`);
+                        
+                        if (pickerResult && pickerResult.type && pickerResult.id) {
+                            await screenCaptureAddon.setCaptureSource({
+                                type: pickerResult.type,
+                                id: String(pickerResult.id)
+                            });
+                            
+                            const startResult2 = await screenCaptureAddon.startCapture();
+                            log.info(`✅ [Test] Capture started: ${JSON.stringify(startResult2)}`);
+                        } else {
+                            throw new Error("User cancelled picker");
+                        }
+                        
+                    } catch (pickerError: any) {
+                        log.error(`❌ [Test] Picker also failed: ${pickerError.message}`);
+                        return { success: false, error: `Cannot start capture: ${pickerError.message}` };
+                    }
+                } else {
+                    return { success: false, error: `Failed to start: ${error.message}` };
+                }
+            }
+            
+            // === ЗАПИСЬ С ПРОГРЕССОМ ===
+            log.info(`⏺️ [Test] Recording for ${duration/1000} seconds...`);
+            
+            for (let i = 1; i <= duration/1000; i++) {
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
+                log.info(`⏺️ [Test] Recording ${i}/${duration/1000}s:`);
+                log.info(`  🎥 Video: ${videoFrameCount} frames (${videoFrameStats.avgFps.toFixed(1)} fps), saved: ${videoFrames.length}`);
+                log.info(`  🎤 Audio: ${audioFrameCount} frames (Mic:${audioSourceStats.microphone}, Sys:${audioSourceStats.system})`);
+                
+                if (i % 3 === 0 && typeof screenCaptureAddon.getFrameStats === 'function') {
+                    try {
+                        const stats = screenCaptureAddon.getFrameStats();
+                        log.info(`  📊 Native stats: ${JSON.stringify(stats)}`);
+                    } catch (e) {}
+                }
+            }
+            
+            // === ОСТАНОВКА ===
+            try {
+                log.info("⏹️ [Test] Stopping capture...");
+                await screenCaptureAddon.stopCapture();
+                log.info("✅ [Test] Capture stopped");
+            } catch (error: any) {
+                log.error(`⚠️ [Test] Warning: stopCapture error: ${error.message}`);
+            }
+            
+            // === ФИНАЛЬНАЯ СТАТИСТИКА ===
+            videoFrameStats.actualDuration = videoFrameStats.lastTimestamp - videoFrameStats.firstTimestamp;
+            
+            log.info("");
+            log.info("============ FINAL RESULTS ============");
+            
+            // Видео статистика
+            log.info("🎥 VIDEO STATISTICS:");
+            log.info(`  - Total frames: ${videoFrameStats.totalFrames}`);
+            log.info(`  - Frames saved: ${videoFrames.length}`);
+            log.info(`  - Frames with pixel data: ${videoFrameStats.savedFrames}`);
+            log.info(`  - Resolution: ${videoFrameStats.width}x${videoFrameStats.height}`);
+            log.info(`  - Pixel format: ${videoFrameStats.format}`);
+            log.info(`  - Actual duration: ${videoFrameStats.actualDuration.toFixed(2)}s`);
+            log.info(`  - Average FPS: ${videoFrameStats.avgFps.toFixed(2)}`);
+            log.info(`  - FPS range: ${videoFrameStats.minFps === Infinity ? 'N/A' : videoFrameStats.minFps.toFixed(2)} - ${videoFrameStats.maxFps.toFixed(2)}`);
+            
+            // Аудио статистика
+            log.info("");
+            log.info("🎤 AUDIO STATISTICS:");
+            log.info(`  - Total frames: ${audioFrameCount}`);
+            log.info(`  - Microphone: ${audioSourceStats.microphone} frames (${microphoneChunks.length} chunks saved)`);
+            log.info(`  - System: ${audioSourceStats.system} frames (${systemChunks.length} chunks saved)`);
+            
+            if (microphoneChunks.length > 0) {
+                const micDuration = microphoneChunks[microphoneChunks.length - 1].timestamp - microphoneChunks[0].timestamp;
+                log.info(`  - Mic duration: ${micDuration.toFixed(2)}s`);
+            }
+            
+            if (systemChunks.length > 0) {
+                const sysDuration = systemChunks[systemChunks.length - 1].timestamp - systemChunks[0].timestamp;
+                log.info(`  - System duration: ${sysDuration.toFixed(2)}s`);
+            }
+            
+            // === СОХРАНЕНИЕ ФАЙЛОВ ===
+            const timestamp = Date.now();
+            const savedFiles: string[] = [];
+            
+            log.info("");
+            log.info("💾 SAVING FILES:");
+            
+            // Функции сохранения аудио
+            const createWavHeader = (dataSize: number, sampleRate: number, channels: number, bitsPerSample: number): Buffer => {
+                const header = Buffer.alloc(44);
+                header.write('RIFF', 0);
+                header.writeUInt32LE(36 + dataSize, 4);
+                header.write('WAVE', 8);
+                header.write('fmt ', 12);
+                header.writeUInt32LE(16, 16);
+                header.writeUInt16LE(1, 20);
+                header.writeUInt16LE(channels, 22);
+                header.writeUInt32LE(sampleRate, 24);
+                header.writeUInt32LE(sampleRate * channels * bitsPerSample / 8, 28);
+                header.writeUInt16LE(channels * bitsPerSample / 8, 32);
+                header.writeUInt16LE(bitsPerSample, 34);
+                header.write('data', 36);
+                header.writeUInt32LE(dataSize, 40);
+                return header;
+            };
+            
+            const saveWavFileWithTimestamps = (chunks: AudioChunkInfo[], sampleRate: number, channels: number, filePath: string) => {
+                if (chunks.length === 0) return;
+                
+                chunks.sort((a, b) => a.timestamp - b.timestamp);
+                const audioData = Buffer.concat(chunks.map(c => c.buffer));
+                const wavHeader = createWavHeader(audioData.length, sampleRate, channels, 16);
+                const wavFile = Buffer.concat([wavHeader, audioData]);
+                
+                fs.writeFileSync(filePath, wavFile);
+                log.info(`  ✅ Saved: ${filePath} (${(wavFile.length / 1024 / 1024).toFixed(2)} MB)`);
+                savedFiles.push(filePath);
+            };
+            
+            // Сохранение аудио
+            if (microphoneChunks.length > 0) {
+                const micFile = path.join(app.getPath('downloads'), `microphone-${timestamp}.wav`);
+                saveWavFileWithTimestamps(microphoneChunks, 48000, 2, micFile);
+            }
+            
+            if (systemChunks.length > 0) {
+                const sysFile = path.join(app.getPath('downloads'), `system-audio-${timestamp}.wav`);
+                saveWavFileWithTimestamps(systemChunks, 48000, 2, sysFile);
+            }
+            
+            // === СОХРАНЕНИЕ ВИДЕО ===
+            if (videoFrames.length > 0) {
+                const videoInfoFile = path.join(app.getPath('downloads'), `video-info-${timestamp}.json`);
+                
+                // Сохраняем метаданные видео
+                const videoMetadata = {
+                    frames: videoFrames.length,
+                    framesWithData: videoFrameStats.savedFrames,
+                    resolution: `${videoFrameStats.width}x${videoFrameStats.height}`,
+                    pixelFormat: videoFrameStats.format,
+                    duration: videoFrameStats.actualDuration,
+                    avgFps: videoFrameStats.avgFps,
+                    frameInfo: videoFrames.map(f => ({
+                        timestamp: f.timestamp,
+                        hasData: !!f.data,
+                        dataSize: f.data ? f.data.length : 0
+                    }))
+                };
+                
+                fs.writeFileSync(videoInfoFile, JSON.stringify(videoMetadata, null, 2));
+                log.info(`  ✅ Saved video metadata: ${videoInfoFile}`);
+                savedFiles.push(videoInfoFile);
+                
+                // Если есть фреймы с пиксельными данными, сохраняем первый как пример
+                const framesWithData = videoFrames.filter(f => f.data);
+                if (framesWithData.length > 0) {
+                    log.info(`  📹 Found ${framesWithData.length} frames with pixel data`);
+                    
+                    // Сохраняем несколько кадров как примеры (RAW формат)
+                    const samplesToSave = Math.min(5, framesWithData.length);
+                    for (let i = 0; i < samplesToSave; i++) {
+                        const frame = framesWithData[Math.floor(i * framesWithData.length / samplesToSave)];
+                        if (frame.data) {
+                            const frameFile = path.join(app.getPath('downloads'), `frame-${timestamp}-${i}.raw`);
+                            fs.writeFileSync(frameFile, frame.data);
+                            log.info(`  ✅ Saved sample frame ${i}: ${frameFile} (${(frame.data.length / 1024).toFixed(1)} KB)`);
+                            
+                            // Также сохраним информацию о формате для этого фрейма
+                            const frameInfoFile = path.join(app.getPath('downloads'), `frame-${timestamp}-${i}.json`);
+                            fs.writeFileSync(frameInfoFile, JSON.stringify({
+                                width: frame.width,
+                                height: frame.height,
+                                pixelFormat: frame.pixelFormat,
+                                bytesPerRow: frame.bytesPerRow,
+                                timestamp: frame.timestamp,
+                                dataSize: frame.data.length,
+                                expectedSize: frame.width * frame.height * 4 // для BGRA
+                            }, null, 2));
+                        }
+                    }
+                    
+                    log.info(`  💡 Note: Video frames saved as RAW pixel data (${videoFrameStats.format} format)`);
+                    log.info(`  💡 To convert to image: Use ffmpeg or image processing tool with ${videoFrameStats.width}x${videoFrameStats.height} ${videoFrameStats.format}`);
+                } else {
+                    log.warn(`  ⚠️ No video frames with pixel data were captured`);
+                    log.info(`  💡 Video frame metadata saved, but no pixel data available`);
+                }
+            }
+            
+            log.info("=======================================");
+            
+            // === ВОЗВРАТ РЕЗУЛЬТАТА ===
+            const hasVideo = videoFrameStats.totalFrames > 0;
+            const hasVideoData = videoFrameStats.savedFrames > 0;
+            const hasAudio = audioFrameCount > 0;
+            
+            if (!hasVideo && !hasAudio) {
+                return {
+                    success: false,
+                    error: "No data captured at all",
+                    stats: { video: videoFrameStats, audio: audioSourceStats }
+                };
+            }
+            
+            return {
+                success: true,
+                message: `Capture test completed. Video: ${hasVideo ? '✅' : '❌'} (data: ${hasVideoData ? '✅' : '❌'}), Audio: ${hasAudio ? '✅' : '❌'}`,
+                files: savedFiles,
+                stats: {
+                    video: {
+                        frames: videoFrameStats.totalFrames,
+                        savedFrames: videoFrames.length,
+                        framesWithData: videoFrameStats.savedFrames,
+                        resolution: `${videoFrameStats.width}x${videoFrameStats.height}`,
+                        format: videoFrameStats.format,
+                        duration: videoFrameStats.actualDuration,
+                        avgFps: videoFrameStats.avgFps
+                    },
+                    audio: {
+                        frames: audioFrameCount,
+                        microphone: audioSourceStats.microphone,
+                        system: audioSourceStats.system,
+                        micDuration: microphoneChunks.length > 0 ? 
+                            (microphoneChunks[microphoneChunks.length - 1].timestamp - microphoneChunks[0].timestamp) : 0,
+                        sysDuration: systemChunks.length > 0 ?
+                            (systemChunks[systemChunks.length - 1].timestamp - systemChunks[0].timestamp) : 0
+                    }
+                }
+            };
+            
+        } catch (error: any) {
+            log.error(`❌ [Test] Fatal error: ${error.message}`);
+            log.error(`❌ [Test] Stack: ${error.stack}`);
+            
+            try {
+                await screenCaptureAddon.stopCapture();
+            } catch (e) {}
+            
+            return {
+                success: false,
+                error: error.message
+            };
+        }
+    });
+
+  ipcMain.handle("check-native-methods", async () => {
+      if (!screenCaptureAddon) {
+          return { error: "Native addon not loaded" };
+      }
+      
+      const methods = Object.keys(screenCaptureAddon).filter(key => 
+          typeof screenCaptureAddon[key] === 'function'
+      );
+      
+      const result = {
+          methods: methods,
+          hasGetVideoFrameData: typeof screenCaptureAddon.getVideoFrameData === 'function',
+          hasGetAudioFrameData: typeof screenCaptureAddon.getAudioFrameData === 'function',
+          hasSetCaptureSource: typeof screenCaptureAddon.setCaptureSource === 'function',
+          hasStartCapture: typeof screenCaptureAddon.startCapture === 'function',
+          hasStopCapture: typeof screenCaptureAddon.stopCapture === 'function',
+      };
+      
+      log.info("🔍 Native addon check:", result);
+      
+      return result;
+  });
+
+  // Добавьте новый обработчик для создания native MediaStream для Jitsi
+    ipcMain.handle("create-native-stream-for-jitsi", async (event) => {
+        try {
+            log.info("🎯 [NativeStream] Creating native MediaStream for Jitsi...");
+            
+            if (!screenCaptureAddon) {
+                throw new Error("Native addon not loaded");
+            }
+            
+            if (!jitsiWindow || jitsiWindow.isDestroyed()) {
+                throw new Error("Jitsi window not found. Please open a conference first.");
+            }
+            
+            let isStreamActive = true;
+            let videoFrameCount = 0;
+            let audioFrameCount = 0;
+            
+            // Создаем MediaStream в Jitsi окне
+            const streamCreationResult = await jitsiWindow.webContents.executeJavaScript(`
+                (async function() {
+                    console.log('🎯 [NativeStream] Starting MediaStream creation in Jitsi context...');
+                    
+                    // === СОЗДАЕМ CANVAS ДЛЯ ВИДЕО ===
+                    const canvas = document.createElement('canvas');
+                    canvas.width = 1920;
+                    canvas.height = 1080;
+                    canvas.style.display = 'none';
+                    document.body.appendChild(canvas);
+                    
+                    const ctx = canvas.getContext('2d', {
+                        alpha: false,
+                        desynchronized: true
+                    });
+                    
+                    if (!ctx) {
+                        throw new Error('Failed to get canvas context');
+                    }
+                    
+                    // === СОЗДАЕМ AUDIO CONTEXT ДЛЯ СИСТЕМНОГО ЗВУКА ===
+                    const audioContext = new (window.AudioContext || window.webkitAudioContext)({
+                        sampleRate: 48000,
+                        latencyHint: 'interactive'
+                    });
+                    
+                    const scriptProcessor = audioContext.createScriptProcessor(4096, 0, 2);
+                    const audioBufferQueue = [];
+                    let isActive = true;
+                    let frameCount = 0;
+                    let audioFramesReceived = 0;
+                    
+                    scriptProcessor.onaudioprocess = (event) => {
+                        if (!isActive) return;
+                        
+                        const outputBuffer = event.outputBuffer;
+                        
+                        for (let channel = 0; channel < outputBuffer.numberOfChannels; channel++) {
+                            const outputData = outputBuffer.getChannelData(channel);
+                            
+                            if (audioBufferQueue.length > 0) {
+                                const audioData = audioBufferQueue.shift();
+                                if (audioData && audioData[channel]) {
+                                    outputData.set(audioData[channel]);
+                                } else {
+                                    outputData.fill(0);
+                                }
+                            } else {
+                                outputData.fill(0);
+                            }
+                        }
+                    };
+                    
+                    const destination = audioContext.createMediaStreamDestination();
+                    scriptProcessor.connect(destination);
+                    
+                    // === СОЗДАЕМ MEDIASTREAM ===
+                    const videoStream = canvas.captureStream(30);
+                    const videoTrack = videoStream.getVideoTracks()[0];
+                    const audioTrack = destination.stream.getAudioTracks()[0];
+                    
+                    if (videoTrack) {
+                        videoTrack.contentHint = 'detail';
+                        console.log('🎯 [NativeStream] Video track created');
+                    }
+                    
+                    if (audioTrack) {
+                        audioTrack._isSystemAudio = true;
+                        console.log('🎯 [NativeStream] Audio track created (system audio)');
+                    }
+                    
+                    const combinedStream = new MediaStream();
+                    if (videoTrack) combinedStream.addTrack(videoTrack);
+                    if (audioTrack) combinedStream.addTrack(audioTrack);
+                    
+                    console.log('🎯 [NativeStream] Combined stream created with', combinedStream.getTracks().length, 'tracks');
+                    
+                    // === СОХРАНЯЕМ ГЛОБАЛЬНО ===
+                    window._nativeStream = combinedStream;
+                    window._nativeCanvas = canvas;
+                    window._nativeCtx = ctx;
+                    window._nativeAudioQueue = audioBufferQueue;
+                    window._nativeAudioContext = audioContext;
+                    window._isNativeStreamActive = true;
+                    
+                    // === ФУНКЦИЯ ОБНОВЛЕНИЯ ВИДЕО ===
+                    window._updateNativeVideo = function(width, height) {
+                        if (!window._isNativeStreamActive || !ctx) return;
+                        
+                        frameCount++;
+                        
+                        try {
+                            // Обновляем размер canvas если нужно
+                            if (canvas.width !== width || canvas.height !== height) {
+                                canvas.width = width;
+                                canvas.height = height;
+                                console.log('🎯 [NativeStream] Canvas resized to', width, 'x', height);
+                            }
+                            
+                            // Рисуем тестовый паттерн с анимацией
+                            const time = Date.now() / 1000;
+                            const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+                            gradient.addColorStop(0, 'hsl(' + ((time * 30) % 360) + ', 100%, 50%)');
+                            gradient.addColorStop(0.5, 'hsl(' + ((time * 30 + 120) % 360) + ', 100%, 40%)');
+                            gradient.addColorStop(1, 'hsl(' + ((time * 30 + 240) % 360) + ', 100%, 30%)');
+                            
+                            ctx.fillStyle = gradient;
+                            ctx.fillRect(0, 0, canvas.width, canvas.height);
+                            
+                            ctx.fillStyle = 'white';
+                            ctx.font = 'bold 60px Arial';
+                            ctx.textAlign = 'center';
+                            ctx.shadowColor = 'rgba(0,0,0,0.5)';
+                            ctx.shadowBlur = 10;
+                            ctx.fillText('🎯 NATIVE CAPTURE', canvas.width/2, canvas.height/2 - 50);
+                            ctx.fillText('🔊 System Audio', canvas.width/2, canvas.height/2 + 50);
+                            ctx.font = '40px Arial';
+                            ctx.fillText('Frame: ' + frameCount, canvas.width/2, canvas.height/2 + 120);
+                            
+                            if (frameCount % 30 === 0) {
+                                console.log('🎯 [NativeStream] Video frames:', frameCount);
+                            }
+                        } catch (error) {
+                            console.error('🎯 [NativeStream] Error updating video:', error);
+                        }
+                    };
+                    
+                    // === ФУНКЦИЯ ДОБАВЛЕНИЯ АУДИО ===
+                    window._addNativeAudio = function(channelData) {
+                        if (!window._isNativeStreamActive) return;
+                        
+                        audioFramesReceived++;
+                        
+                        try {
+                            if (channelData && channelData.length === 2) {
+                                audioBufferQueue.push(channelData);
+                                
+                                if (audioBufferQueue.length > 20) {
+                                    audioBufferQueue.shift();
+                                }
+                                
+                                if (audioFramesReceived % 100 === 0) {
+                                    console.log('🎯 [NativeStream] Audio frames:', audioFramesReceived);
+                                }
+                            }
+                        } catch (error) {
+                            console.error('🎯 [NativeStream] Error adding audio:', error);
+                        }
+                    };
+                    
+                    // Начальная отрисовка
+                    window._updateNativeVideo(1920, 1080);
+                    
+                    // === ИНДИКАТОР ===
+                    const indicator = document.createElement('div');
+                    indicator.id = 'native-stream-indicator';
+                    indicator.style.cssText = \`
+                        position: fixed;
+                        bottom: 20px;
+                        left: 20px;
+                        background: linear-gradient(135deg, #4CAF50, #66BB6A);
+                        color: white;
+                        padding: 12px 20px;
+                        border-radius: 25px;
+                        z-index: 100000;
+                        font-size: 14px;
+                        font-weight: 600;
+                        box-shadow: 0 4px 20px rgba(76, 175, 80, 0.5);
+                    \`;
+                    indicator.textContent = '🎯 Native Stream Active';
+                    document.body.appendChild(indicator);
+                    
+                    // === ФУНКЦИЯ ОСТАНОВКИ ===
+                    window._stopNativeStream = function() {
+                        console.log('🎯 [NativeStream] Stopping...');
+                        window._isNativeStreamActive = false;
+                        
+                        combinedStream.getTracks().forEach(track => track.stop());
+                        scriptProcessor.disconnect();
+                        audioContext.close();
+                        
+                        canvas.remove();
+                        indicator.remove();
+                        
+                        delete window._nativeStream;
+                        delete window._nativeCanvas;
+                        delete window._nativeCtx;
+                        delete window._nativeAudioQueue;
+                        delete window._updateNativeVideo;
+                        delete window._addNativeAudio;
+                        delete window._stopNativeStream;
+                    };
+                    
+                    return {
+                        success: true,
+                        streamId: combinedStream.id,
+                        hasVideo: !!videoTrack,
+                        hasAudio: !!audioTrack
+                    };
+                })();
+            `);
+            
+            log.info(`🎯 [NativeStream] Stream creation result: ${JSON.stringify(streamCreationResult)}`);
+            
+            if (!streamCreationResult.success) {
+                throw new Error('Failed to create stream');
+            }
+            
+            // Устанавливаем колбэки для native addon
+            log.info("🎯 [NativeStream] Setting up native callbacks...");
+            
+            // Видео колбэк - упрощенный, только обновляем размеры
+            screenCaptureAddon.setWebRTCVideoCallback((videoData: any) => {
+                if (!isStreamActive) return;
+                
+                videoFrameCount++;
+                
+                if (videoData && !jitsiWindow.isDestroyed()) {
+                    const width = videoData.width || 1920;
+                    const height = videoData.height || 1080;
+                    
+                    // Обновляем canvas (пока без реальных пикселей)
+                    jitsiWindow.webContents.executeJavaScript(`
+                        if (window._updateNativeVideo) {
+                            window._updateNativeVideo(${width}, ${height});
+                        }
+                    `).catch(() => {});
+                }
+                
+                if (videoFrameCount % 100 === 0) {
+                    log.info(`🎯 [NativeStream] Video frames: ${videoFrameCount}`);
+                }
+            });
+            
+            // Аудио колбэк - только системный звук
+            screenCaptureAddon.setWebRTCAudioCallback((audioData: any) => {
+                if (!isStreamActive) return;
+                if (audioData?.source !== 'system') return;
+                
+                audioFrameCount++;
+                
+                if (audioData && audioData.data && !jitsiWindow.isDestroyed()) {
+                    // Конвертируем аудио для Web Audio API
+                    try {
+                        const buffer = Buffer.isBuffer(audioData.data) ? audioData.data : Buffer.from(audioData.data);
+                        const int16Array = new Int16Array(buffer.buffer, buffer.byteOffset, buffer.length / 2);
+                        
+                        const channels = 2;
+                        const samplesPerChannel = Math.floor(int16Array.length / channels);
+                        
+                        // Создаем Float32 массивы для каждого канала
+                        const channel0 = new Float32Array(samplesPerChannel);
+                        const channel1 = new Float32Array(samplesPerChannel);
+                        
+                        for (let i = 0; i < samplesPerChannel; i++) {
+                            channel0[i] = int16Array[i * 2] / 32768.0;
+                            channel1[i] = int16Array[i * 2 + 1] / 32768.0;
+                        }
+                        
+                        // Передаем как JSON массивы
+                        jitsiWindow.webContents.executeJavaScript(`
+                            if (window._addNativeAudio) {
+                                window._addNativeAudio([
+                                    new Float32Array([${Array.from(channel0).join(',')}]),
+                                    new Float32Array([${Array.from(channel1).join(',')}])
+                                ]);
+                            }
+                        `).catch(() => {});
+                        
+                    } catch (e) {
+                        // Игнорируем ошибки конвертации
+                    }
+                }
+                
+                if (audioFrameCount % 200 === 0) {
+                    log.info(`🎯 [NativeStream] Audio frames: ${audioFrameCount}`);
+                }
+            });
+            
+            // Запускаем захват
+            log.info("🎯 [NativeStream] Starting native capture...");
+            
+            try {
+                const startResult = await screenCaptureAddon.startCapture();
+                log.info(`🎯 [NativeStream] Capture started: ${JSON.stringify(startResult)}`);
+            } catch (error: any) {
+                if (error.message.includes("not initialized")) {
+                    const pickerResult = await screenCaptureAddon.selectSourceWithPicker();
+                    if (pickerResult && pickerResult.type && pickerResult.id) {
+                        await screenCaptureAddon.setCaptureSource({
+                            type: pickerResult.type,
+                            id: String(pickerResult.id)
+                        });
+                        await screenCaptureAddon.startCapture();
+                    } else {
+                        throw new Error("User cancelled source selection");
+                    }
+                } else {
+                    throw error;
+                }
+            }
+            
+            // Пробуем передать stream в Jitsi
+            log.info("🎯 [NativeStream] Attempting to share stream in Jitsi...");
+            
+            const shareResult = await jitsiWindow.webContents.executeJavaScript(`
+                (async function() {
+                    console.log('🎯 [NativeStream] Attempting to share native stream...');
+                    
+                    if (!window._nativeStream) {
+                        return { success: false, error: 'Native stream not found' };
+                    }
+                    
+                    try {
+                        // Проверяем разные варианты API
+                        if (window.APP && window.APP.conference) {
+                            // Вариант 1: executeCommand
+                            if (typeof window.APP.conference.executeCommand === 'function') {
+                                console.log('🎯 [NativeStream] Using executeCommand...');
+                                
+                                // Подменяем getDisplayMedia
+                                const originalGetDisplayMedia = navigator.mediaDevices.getDisplayMedia;
+                                navigator.mediaDevices.getDisplayMedia = async () => window._nativeStream;
+                                
+                                // Запускаем демонстрацию экрана
+                                window.APP.conference.executeCommand('toggleShareScreen');
+                                
+                                // Восстанавливаем через 100ms
+                                setTimeout(() => {
+                                    navigator.mediaDevices.getDisplayMedia = originalGetDisplayMedia;
+                                }, 100);
+                                
+                                return { success: true, method: 'executeCommand' };
+                            }
+                            
+                            // Вариант 2: прямой вызов
+                            if (window.APP.conference.toggleScreenSharing) {
+                                await window.APP.conference.toggleScreenSharing();
+                                return { success: true, method: 'toggleScreenSharing' };
+                            }
+                            
+                            // Вариант 3: через API
+                            if (window.APP.API && window.APP.API.executeCommand) {
+                                const originalGetDisplayMedia = navigator.mediaDevices.getDisplayMedia;
+                                navigator.mediaDevices.getDisplayMedia = async () => window._nativeStream;
+                                
+                                window.APP.API.executeCommand('toggleShareScreen');
+                                
+                                setTimeout(() => {
+                                    navigator.mediaDevices.getDisplayMedia = originalGetDisplayMedia;
+                                }, 100);
+                                
+                                return { success: true, method: 'API.executeCommand' };
+                            }
+                        }
+                        
+                        // Вариант 4: Поиск кнопки
+                        const shareButton = document.querySelector('[aria-label*="screen"], [aria-label*="Share"], [aria-label*="Демонстрация"]');
+                        if (shareButton) {
+                            const originalGetDisplayMedia = navigator.mediaDevices.getDisplayMedia;
+                            navigator.mediaDevices.getDisplayMedia = async () => window._nativeStream;
+                            
+                            shareButton.click();
+                            
+                            setTimeout(() => {
+                                navigator.mediaDevices.getDisplayMedia = originalGetDisplayMedia;
+                            }, 100);
+                            
+                            return { success: true, method: 'button click' };
+                        }
+                        
+                        return { success: false, error: 'No suitable method found' };
+                        
+                    } catch (error) {
+                        return { success: false, error: error.message };
+                    }
+                })();
+            `);
+            
+            log.info(`🎯 [NativeStream] Share result: ${JSON.stringify(shareResult)}`);
+            
+            // Обработчик закрытия окна
+            if (jitsiWindow) {
+                jitsiWindow.once('closed', async () => {
+                    log.info("🎯 [NativeStream] Jitsi window closed, stopping stream...");
+                    isStreamActive = false;
+                    
+                    try {
+                        await screenCaptureAddon.stopCapture();
+                    } catch (e: any) {
+                        log.error(`🎯 [NativeStream] Error stopping capture: ${e.message}`);
+                    }
+                });
+            }
+            
+            // Возвращаем результат БЕЗ функций (чтобы избежать ошибки клонирования)
+            return {
+                success: true,
+                message: "Native stream created",
+                stats: {
+                    videoFrames: videoFrameCount,
+                    audioFrames: audioFrameCount,
+                    streamId: streamCreationResult.streamId,
+                    shareResult: shareResult
+                }
+            };
+            
+        } catch (error: any) {
+            log.error(`🎯 [NativeStream] Error: ${error.message}`);
+            
+            try {
+                await screenCaptureAddon.stopCapture();
+            } catch (e) {}
+            
+            return {
+                success: false,
+                error: error.message
+            };
+        }
+    });
+
+
 
 
 
@@ -2826,44 +3761,38 @@ async function createMainWindow(): Promise<BrowserWindow> {
 
   // Обработчик запуска нативного захвата
   ipcMain.handle("start-native-capture", async (event, sourceId: string) => {
-    try {
-      log.info(`🎯[NativeCapture] Starting capture for source: ${sourceId}`);
-      
-      if (!screenCaptureAddon) {
-        throw new Error("Native addon not loaded");
+      try {
+          log.info(`🎯[NativeCapture] Starting capture for source: ${sourceId}`);
+          
+          if (!screenCaptureAddon) {
+              throw new Error("Native addon not loaded");
+          }
+          
+          let realSourceId = sourceId;
+          
+          // Проверяем маппинг для получения оригинального ID
+          if (sourceId && sourceId.includes(':')) {
+              if (global.nativeSourceMapping && global.nativeSourceMapping.has(sourceId)) {
+                  realSourceId = global.nativeSourceMapping.get(sourceId);
+                  log.info(`🎯[NativeCapture] Mapped ${sourceId} to original: ${realSourceId}`);
+              } else {
+                  // Извлекаем числовую часть
+                  const parts = sourceId.split(':');
+                  realSourceId = parts[1];
+                  log.info(`🎯[NativeCapture] Extracted ID: ${realSourceId}`);
+              }
+          }
+          
+          // Запускаем захват с оригинальным ID
+          const result = await screenCaptureAddon.startCapture(realSourceId);
+          log.info(`🎯[NativeCapture] Capture started: ${JSON.stringify(result)}`);
+          
+          return { success: true };
+          
+      } catch (error: any) {
+          log.error(`🎯[NativeCapture] Error: ${error.message}`);
+          return { success: false, error: error.message };
       }
-      
-      // Останавливаем предыдущий захват
-      if (isNativeCapturing) {
-        await ipcMain.handle("stop-native-capture", null);
-      }
-      
-      // Запускаем новый захват
-      const result = await screenCaptureAddon.startCapture({
-        sourceId: sourceId,
-        width: 1920,
-        height: 1080,
-        frameRate: 30,
-        enableAppSpecificAudio: true // Важно для изоляции звука!
-      });
-      
-      if (!result || !result.success) {
-        throw new Error(result?.error || "Failed to start capture");
-      }
-      
-      isNativeCapturing = true;
-      currentNativeCaptureId = sourceId;
-      
-      // Начинаем сбор фреймов
-      startFrameCollection();
-      
-      log.info("🎯[NativeCapture] Capture started successfully");
-      return { success: true };
-      
-    } catch (error: any) {
-      log.error(`🎯[NativeCapture] Error starting capture: ${error.message}`);
-      return { success: false, error: error.message };
-    }
   });
 
   // Обработчик остановки захвата
@@ -2908,10 +3837,41 @@ async function createMainWindow(): Promise<BrowserWindow> {
 
   // Обработчик получения фреймов
   ipcMain.handle("get-native-frames", async () => {
-    return {
-      video: [...nativeVideoFrames],
-      audio: [...nativeAudioFrames]
-    };
+      if (!screenCaptureAddon) {
+          return { audio: [], video: [] };
+      }
+      
+      const result = { audio: [], video: [] };
+      
+      try {
+          // Используем правильные названия методов
+          if (typeof screenCaptureAddon.getVideoFrameData === 'function') {
+              try {
+                  const frameData = await screenCaptureAddon.getVideoFrameData();
+                  if (frameData && frameData.data) {
+                      result.video = [frameData.data];
+                  }
+              } catch (e) {
+                  log.error(`Error getting video frame: ${e}`);
+              }
+          }
+          
+          if (typeof screenCaptureAddon.getAudioFrameData === 'function') {
+              try {
+                  const frameData = await screenCaptureAddon.getAudioFrameData();
+                  if (frameData && frameData.data) {
+                      result.audio = [frameData.data];
+                  }
+              } catch (e) {
+                  log.error(`Error getting audio frame: ${e}`);
+              }
+          }
+          
+      } catch (error) {
+          log.error(`Error getting frames: ${error}`);
+      }
+      
+      return result;
   });
 
   ipcMain.on("focus-app", () => {

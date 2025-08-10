@@ -938,4 +938,98 @@ window.addEventListener("load", async () => {
   const serverManagerView = new ServerManagerView();
   await serverManagerView.init();
 
+  function addAudioTestButton() {
+      const testBtn = document.createElement('button');
+      testBtn.innerHTML = '🎤 Test Native Audio';
+      testBtn.style.cssText = `
+          position: fixed;
+          top: 20px;
+          right: 20px;
+          z-index: 99999;
+          padding: 10px 20px;
+          background: #f44336;
+          color: white;
+          border: none;
+          border-radius: 8px;
+          cursor: pointer;
+          font-weight: bold;
+      `;
+      
+      testBtn.onclick = async () => {
+          testBtn.disabled = true;
+          testBtn.innerHTML = '⏺️ Recording...';
+          
+          try {
+              // Записываем 10 секунд аудио
+              const result = await ipcRenderer.invoke('test-native-audio-recording', 10000);
+              
+              if (result.success) {
+                  setTimeout(() => {
+                      alert('Audio recording completed! Check Downloads folder.');
+                      testBtn.disabled = false;
+                      testBtn.innerHTML = '🎤 Test Native Audio';
+                  }, 10000);
+              } else {
+                  alert(`Error: ${result.error}`);
+                  testBtn.disabled = false;
+                  testBtn.innerHTML = '🎤 Test Native Audio';
+              }
+          } catch (error) {
+              console.error('Test error:', error);
+              testBtn.disabled = false;
+              testBtn.innerHTML = '🎤 Test Native Audio';
+          }
+      };
+      
+      document.body.appendChild(testBtn);
+  }
+  addAudioTestButton();
+
+  setTimeout(async () => {
+      await jitsiWindow.webContents.executeJavaScript(`
+          // Добавляем кнопку для тестирования native stream
+          const button = document.createElement('button');
+          button.textContent = '🎯 Start Native Stream';
+          button.style.cssText = \`
+              position: fixed;
+              top: 80px;
+              right: 20px;
+              z-index: 100000;
+              padding: 10px 20px;
+              background: linear-gradient(135deg, #4CAF50, #66BB6A);
+              color: white;
+              border: none;
+              border-radius: 8px;
+              font-size: 16px;
+              font-weight: bold;
+              cursor: pointer;
+              box-shadow: 0 4px 20px rgba(76, 175, 80, 0.3);
+          \`;
+          
+          button.onclick = async () => {
+              button.disabled = true;
+              button.textContent = '⏳ Starting...';
+              
+              try {
+                  // Запрашиваем создание native stream через IPC
+                  const result = await window.ipcRenderer.invoke('create-native-stream-for-jitsi');
+                  
+                  if (result.success) {
+                      button.textContent = '✅ Native Stream Active';
+                      button.style.background = 'linear-gradient(135deg, #66BB6A, #4CAF50)';
+                  } else {
+                      button.textContent = '❌ Failed';
+                      button.style.background = '#f44336';
+                      console.error('Failed to start native stream:', result.error);
+                  }
+              } catch (error) {
+                  button.textContent = '❌ Error';
+                  button.style.background = '#f44336';
+                  console.error('Error:', error);
+              }
+          };
+          
+          document.body.appendChild(button);
+      `);
+  }, 3000);
 });
