@@ -463,6 +463,35 @@ async function createMainWindow(): Promise<BrowserWindow> {
       }
   }
 
+  function createSourceThumbnail(source: any): string {
+    const colors: { [key: string]: string } = {
+        screen: '#4CAF50',
+        display: '#4CAF50', 
+        window: '#2196F3',
+        application: '#FF9800'
+    };
+    
+    const color = colors[source.type] || '#9E9E9E';
+    const icon = source.type === 'screen' || source.type === 'display' ? '🖥️' : '🪟';
+    
+    const svg = `<svg width="300" height="200" xmlns="http://www.w3.org/2000/svg">
+        <rect width="300" height="200" fill="${color}"/>
+        <text x="150" y="80" font-size="50" text-anchor="middle" fill="white">${icon}</text>
+        <text x="150" y="130" font-size="16" text-anchor="middle" fill="white" font-weight="bold">
+        ${(source.name || 'Unknown').replace(/[<>&"']/g, '')}
+        </text>
+        ${source.appName ? `
+        <text x="150" y="155" font-size="14" text-anchor="middle" fill="white" opacity="0.9">
+            ${source.appName.replace(/[<>&"']/g, '')}
+        </text>
+        ` : ''}
+        <rect x="20" y="180" width="260" height="3" rx="1.5" fill="white" opacity="0.2"/>
+        <rect x="20" y="180" width="130" height="3" rx="1.5" fill="white" opacity="0.6"/>
+    </svg>`;
+    
+    return `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
+  }
+
 
   ipcMain.handle("get-desktop-sources", async () => {
     try {

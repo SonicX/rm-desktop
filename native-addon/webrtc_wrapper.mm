@@ -279,8 +279,59 @@ void SelectSourceWithPicker(const FunctionCallbackInfo<Value>& args) {
     uv_queue_work(uv_default_loop(), &data->request, WorkAsync, WorkAsyncComplete);
 }
 
-// Simple counter-based callbacks that just increment counters
-// Замените текущую функцию SetWebRTCVideoCallback на эту полноценную версию:
+// Функция для извлечения пикселей из CVImageBuffer
+bool ExtractPixelsFromCVImageBuffer(CVImageBufferRef imageBuffer, uint8_t* destBuffer, size_t destSize) {
+    if (!imageBuffer || !destBuffer) return false;
+    
+    // Блокируем буфер для чтения
+    CVPixelBufferLockBaseAddress(imageBuffer, kCVPixelBufferLock_ReadOnly);
+    
+    // Получаем параметры изображения
+    size_t width = CVPixelBufferGetWidth(imageBuffer);
+    size_t height = CVPixelBufferGetHeight(imageBuffer);
+    size_t bytesPerRow = CVPixelBufferGetBytesPerRow(imageBuffer);
+    OSType pixelFormat = CVPixelBufferGetPixelFormatType(imageBuffer);
+    
+    // Получаем указатель на данные
+    void* baseAddress = CVPixelBufferGetBaseAddress(imageBuffer);
+    
+    bool success = false;
+    
+    if (baseAddress) {
+        // Проверяем формат пикселей
+        if (pixelFormat == kCVPixelFormatType_32BGRA) {
+            // BGRA формат - самый распространенный
+            size_t expectedSize = width * height * 4;
+            
+            if (destSize >= expectedSize) {
+                // Копируем построчно (учитывая padding)
+                uint8_t* src = (uint8_t*)baseAddress;
+                uint8_t* dst = destBuffer;
+                
+                for (size_t y = 0; y < height; y++) {
+                    memcpy(dst, src, width * 4);
+                    src += bytesPerRow;
+                    dst += width * 4;
+                }
+                
+                success = true;
+                NSLog(@"✅ Extracted %zu x %zu pixels in BGRA format", width, height);
+            }
+        } else if (pixelFormat == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange ||
+                   pixelFormat == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange) {
+            // YUV формат - нужна конвертация
+            NSLog(@"⚠️ YUV format detected, conversion needed");
+            // TODO: Добавить конвертацию YUV в BGRA
+        } else {
+            NSLog(@"⚠️ Unknown pixel format: %u", pixelFormat);
+        }
+    }
+    
+    // Разблокируем буфер
+    CVPixelBufferUnlockBaseAddress(imageBuffer, kCVPixelBufferLock_ReadOnly);
+    
+    return success;
+}
 
 void SetWebRTCVideoCallback(const FunctionCallbackInfo<Value>& args) {
     Isolate* isolate = args.GetIsolate();
@@ -291,40 +342,41 @@ void SetWebRTCVideoCallback(const FunctionCallbackInfo<Value>& args) {
         g_manager = [[CCaptureManager alloc] init];
     }
     
-    // Проверяем, что передана функция
     if (args.Length() < 1 || !args[0]->IsFunction()) {
         isolate->ThrowException(Exception::TypeError(
             String::NewFromUtf8(isolate, "Expected callback function").ToLocalChecked()));
         return;
     }
     
-    // Сохраняем JavaScript callback
     Local<Function> callback = Local<Function>::Cast(args[0]);
     Persistent<Function>* persistentCallback = new Persistent<Function>(isolate, callback);
     
-    // Устанавливаем Objective-C callback который будет вызывать JavaScript
     [g_manager setWebRTCVideoCallback:^(NSDictionary* frameData) {
-        // Инкрементируем счетчик
         g_video_frame_count.fetch_add(1);
         
-        NSLog(@"📹 Native video callback fired! Frame count: %llu", g_video_frame_count.load());
-        
-        // Извлекаем данные из словаря
+        // Извлекаем метаданные
         NSNumber* width = frameData[@"width"];
         NSNumber* height = frameData[@"height"];
         NSNumber* timestamp = frameData[@"timestamp"];
-        NSNumber* pixelFormat = frameData[@"pixelFormat"];
-        NSNumber* bytesPerRow = frameData[@"bytesPerRow"];
         NSNumber* dataSize = frameData[@"dataSize"];
-        NSNumber* hasData = frameData[@"hasData"];
+        NSString* pixelFormatName = frameData[@"pixelFormatName"];
         
-        // Для видео фреймов нужно получить пиксельные данные
-        // В текущей реализации Swift только передает метаданные
-        // Нужно будет расширить для передачи реальных данных
+        int widthInt = width ? [width intValue] : 1920;
+        int heightInt = height ? [height intValue] : 1080;
+        int dataSizeInt = dataSize ? [dataSize intValue] : (widthInt * heightInt * 4);
         
-        uint64_t frameNumber = g_video_frame_count.load();
+        // НОВОЕ: Получаем пиксельные данные из NSData
+        NSData* pixelData = frameData[@"pixelData"];
+        bool hasRealPixels = (pixelData != nil && [pixelData length] > 0);
         
-        // Вызываем JavaScript callback из главного потока
+        if (hasRealPixels && g_video_frame_count.load() % 30 == 0) {
+            NSLog(@"📹 Frame %llu: Got %lu bytes of pixel data (%dx%d, format: %@)", 
+                  g_video_frame_count.load(), 
+                  (unsigned long)[pixelData length],
+                  widthInt, heightInt,
+                  pixelFormatName ?: @"Unknown");
+        }
+        
         dispatch_async(dispatch_get_main_queue(), ^{
             Isolate* isolate = Isolate::GetCurrent();
             if (!isolate) return;
@@ -332,80 +384,81 @@ void SetWebRTCVideoCallback(const FunctionCallbackInfo<Value>& args) {
             HandleScope scope(isolate);
             Local<Context> context = isolate->GetCurrentContext();
             
-            // Получаем сохраненный callback
             Local<Function> jsCallback = Local<Function>::New(isolate, *persistentCallback);
-            
-            // Создаем объект с информацией о видео фрейме
             Local<Object> videoInfo = Object::New(isolate);
             
-            if (width) {
-                videoInfo->Set(context,
-                    String::NewFromUtf8(isolate, "width").ToLocalChecked(),
-                    Number::New(isolate, [width intValue])).ToChecked();
-            }
-            if (height) {
-                videoInfo->Set(context,
-                    String::NewFromUtf8(isolate, "height").ToLocalChecked(),
-                    Number::New(isolate, [height intValue])).ToChecked();
-            }
-            if (timestamp) {
-                videoInfo->Set(context,
-                    String::NewFromUtf8(isolate, "timestamp").ToLocalChecked(),
-                    Number::New(isolate, [timestamp doubleValue])).ToChecked();
-            }
-            if (pixelFormat) {
-                videoInfo->Set(context,
-                    String::NewFromUtf8(isolate, "pixelFormat").ToLocalChecked(),
-                    Number::New(isolate, [pixelFormat intValue])).ToChecked();
-                
-                // Добавляем читаемое название формата
-                const char* formatName = "unknown";
-                uint32_t format = [pixelFormat unsignedIntValue];
-                if (format == kCVPixelFormatType_32BGRA) {
-                    formatName = "BGRA";
-                } else if (format == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange) {
-                    formatName = "YUV420";
-                }
-                videoInfo->Set(context,
-                    String::NewFromUtf8(isolate, "pixelFormatName").ToLocalChecked(),
-                    String::NewFromUtf8(isolate, formatName).ToLocalChecked()).ToChecked();
-            }
-            if (bytesPerRow) {
-                videoInfo->Set(context,
-                    String::NewFromUtf8(isolate, "bytesPerRow").ToLocalChecked(),
-                    Number::New(isolate, [bytesPerRow intValue])).ToChecked();
-            }
-            if (dataSize) {
-                videoInfo->Set(context,
-                    String::NewFromUtf8(isolate, "dataSize").ToLocalChecked(),
-                    Number::New(isolate, [dataSize intValue])).ToChecked();
-            }
-            if (hasData) {
-                videoInfo->Set(context,
-                    String::NewFromUtf8(isolate, "hasData").ToLocalChecked(),
-                    v8::Boolean::New(isolate, [hasData boolValue])).ToChecked();
-            }
-            
-            // Добавляем номер фрейма
+            // Добавляем метаданные
             videoInfo->Set(context,
-                String::NewFromUtf8(isolate, "frameNumber").ToLocalChecked(),
-                Number::New(isolate, static_cast<double>(frameNumber))).ToChecked();
+                String::NewFromUtf8(isolate, "width").ToLocalChecked(),
+                Number::New(isolate, widthInt)).ToChecked();
+            videoInfo->Set(context,
+                String::NewFromUtf8(isolate, "height").ToLocalChecked(),
+                Number::New(isolate, heightInt)).ToChecked();
+            videoInfo->Set(context,
+                String::NewFromUtf8(isolate, "timestamp").ToLocalChecked(),
+                Number::New(isolate, timestamp ? [timestamp doubleValue] : 0)).ToChecked();
             
-            // Добавляем FPS информацию
-            static double lastTimestamp = 0;
-            if (timestamp && lastTimestamp > 0) {
-                double timeDiff = [timestamp doubleValue] - lastTimestamp;
-                double fps = timeDiff > 0 ? 1.0 / timeDiff : 0;
-                videoInfo->Set(context,
-                    String::NewFromUtf8(isolate, "fps").ToLocalChecked(),
-                    Number::New(isolate, fps)).ToChecked();
-            }
-            if (timestamp) {
-                lastTimestamp = [timestamp doubleValue];
+            // Создаем ArrayBuffer для пикселей
+            size_t bufferSize = hasRealPixels ? [pixelData length] : dataSizeInt;
+            Local<ArrayBuffer> pixelBuffer = ArrayBuffer::New(isolate, bufferSize);
+            uint8_t* bufferData = static_cast<uint8_t*>(pixelBuffer->GetBackingStore()->Data());
+            
+            if (hasRealPixels && pixelData) {
+                // Копируем реальные пиксели из NSData
+                memcpy(bufferData, [pixelData bytes], [pixelData length]);
+                
+                if (g_video_frame_count.load() == 1) {
+                    NSLog(@"✅ First frame with REAL pixels copied: %lu bytes", (unsigned long)[pixelData length]);
+                    // Проверяем первые несколько пикселей
+                    NSLog(@"  First pixels (BGRA): [%d,%d,%d,%d] [%d,%d,%d,%d]",
+                          bufferData[0], bufferData[1], bufferData[2], bufferData[3],
+                          bufferData[4], bufferData[5], bufferData[6], bufferData[7]);
+                }
+            } else {
+                // Fallback: тестовый паттерн
+                uint64_t frame = g_video_frame_count.load();
+                
+                for (int y = 0; y < heightInt; y++) {
+                    for (int x = 0; x < widthInt; x++) {
+                        int idx = (y * widthInt + x) * 4;
+                        if (idx + 3 < bufferSize) {
+                            bufferData[idx + 0] = (x * 255 / widthInt);     // B
+                            bufferData[idx + 1] = (y * 255 / heightInt);     // G  
+                            bufferData[idx + 2] = ((x + y) * 255 / (widthInt + heightInt)); // R
+                            bufferData[idx + 3] = 255;                       // A
+                        }
+                    }
+                }
+                
+                // Движущийся квадрат для визуализации
+                int squareSize = 100;
+                int squareX = (frame * 5) % (widthInt - squareSize);
+                int squareY = (frame * 3) % (heightInt - squareSize);
+                
+                for (int y = squareY; y < squareY + squareSize && y < heightInt; y++) {
+                    for (int x = squareX; x < squareX + squareSize && x < widthInt; x++) {
+                        int idx = (y * widthInt + x) * 4;
+                        if (idx + 3 < bufferSize) {
+                            bufferData[idx + 0] = 255;  // B
+                            bufferData[idx + 1] = 255;  // G
+                            bufferData[idx + 2] = 0;    // R
+                            bufferData[idx + 3] = 255;  // A
+                        }
+                    }
+                }
+                
+                if (g_video_frame_count.load() % 100 == 0) {
+                    NSLog(@"⚠️ Frame %llu: Using TEST pattern (no pixel data)", g_video_frame_count.load());
+                }
             }
             
-            // TODO: Добавить передачу реальных пиксельных данных
-            // Для этого нужно обновить Swift код чтобы передавать CVPixelBuffer
+            videoInfo->Set(context,
+                String::NewFromUtf8(isolate, "data").ToLocalChecked(),
+                pixelBuffer).ToChecked();
+            
+            videoInfo->Set(context,
+                String::NewFromUtf8(isolate, "hasRealPixels").ToLocalChecked(),
+                v8::Boolean::New(isolate, hasRealPixels)).ToChecked();
             
             // Вызываем JavaScript callback
             Local<Value> argv[] = { videoInfo };
@@ -414,7 +467,6 @@ void SetWebRTCVideoCallback(const FunctionCallbackInfo<Value>& args) {
             MaybeLocal<Value> result = jsCallback->Call(context, Null(isolate), 1, argv);
             
             if (try_catch.HasCaught()) {
-                // Логируем ошибку но не крашимся
                 String::Utf8Value error(isolate, try_catch.Exception());
                 NSLog(@"Error in video callback: %s", *error);
             }

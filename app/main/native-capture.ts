@@ -248,35 +248,102 @@ export class NativeCaptureManager {
   }
 
   private setupCallbacks(): void {
-    if (!this.state.addon) return;
+      if (!this.state.addon) return;
 
-    // Видео колбэк
-    this.state.addon.setWebRTCVideoCallback((videoData: any) => {
-      this.state.videoFrameCount++;
+      // Видео колбэк с исправленной обработкой ArrayBuffer
+      this.state.addon.setWebRTCVideoCallback((videoData: any) => {
+          this.state.videoFrameCount++;
+          
+          // Детальная диагностика для первых кадров
+          if (this.state.videoFrameCount <= 3) {
+              log.info(`Video frame ${this.state.videoFrameCount} structure:`, {
+                  hasDataField: 'data' in videoData,
+                  dataType: typeof videoData?.data,
+                  dataConstructor: videoData?.data?.constructor?.name,
+                  dataByteLength: videoData?.data?.byteLength,
+                  width: videoData?.width,
+                  height: videoData?.height
+              });
+          }
+          
+          // ИСПРАВЛЕНИЕ: Правильно обрабатываем ArrayBuffer
+          if (videoData && videoData.data) {
+              // ArrayBuffer от N-API имеет свойство byteLength
+              if (videoData.data.byteLength !== undefined && videoData.data.byteLength > 0) {
+                  // ЭТО ArrayBuffer! Передаем его напрямую в callback
+                  if (this.state.callbacks.video) {
+                      const normalizedData = {
+                          data: videoData.data, // ArrayBuffer передаем как есть
+                          width: videoData?.width || 1920,
+                          height: videoData?.height || 1080,
+                          dataSize: videoData?.dataSize || videoData.data.byteLength,
+                          timestamp: videoData?.timestamp || 0
+                      };
+                      
+                      this.state.callbacks.video(normalizedData);
+                      
+                      if (this.state.videoFrameCount === 1) {
+                          log.info("✅ First video frame sent to callback with ArrayBuffer");
+                      }
+                  }
+              } else if (Buffer.isBuffer(videoData.data)) {
+                  // Если это Buffer
+                  if (this.state.callbacks.video) {
+                      this.state.callbacks.video({
+                          data: videoData.data,
+                          width: videoData?.width || 1920,
+                          height: videoData?.height || 1080,
+                          dataSize: videoData?.dataSize || videoData.data.length,
+                          timestamp: videoData?.timestamp || 0
+                      });
+                  }
+              }
+          } else if (this.state.videoFrameCount <= 3) {
+              log.warn(`Frame ${this.state.videoFrameCount}: No data field`);
+          }
+
+          if (this.state.videoFrameCount % 30 === 0) {
+              log.info(`Video frames: ${this.state.videoFrameCount}`);
+          }
+      });
+
+      // Аудио колбэк - аналогично упрощаем
+      this.state.addon.setWebRTCAudioCallback((audioData: any) => {
+          this.state.audioFrameCount++;
+          
+          if (this.state.audioFrameCount === 1) {
+              log.info("First audio frame:", {
+                  hasData: !!audioData?.data,
+                  dataByteLength: audioData?.data?.byteLength,
+                  sampleRate: audioData?.sampleRate,
+                  channels: audioData?.channels,
+                  source: audioData?.source
+              });
+          }
+          
+          // Передаем ArrayBuffer напрямую
+          if (audioData && audioData.data && audioData.data.byteLength > 0) {
+              if (this.state.callbacks.audio) {
+                  this.state.callbacks.audio({
+                      data: audioData.data, // ArrayBuffer как есть
+                      sampleRate: audioData?.sampleRate || 48000,
+                      channels: audioData?.channels || 2,
+                      numSamples: audioData?.numSamples || 960,
+                      source: audioData?.source || 'unknown'
+                  });
+                  
+                  if (this.state.audioFrameCount === 1) {
+                      log.info("✅ First audio frame sent to callback");
+                  }
+              }
+          }
+
+          if (this.state.audioFrameCount % 100 === 0) {
+              log.info(`Audio frames: ${this.state.audioFrameCount}`);
+          }
+      });
       
-      if (this.state.callbacks.video) {
-        this.state.callbacks.video(videoData);
-      }
-
-      // Логирование каждые 100 кадров
-      if (this.state.videoFrameCount % 100 === 0) {
-        log.info(`Video frames: ${this.state.videoFrameCount}`);
-      }
-    });
-
-    // Аудио колбэк
-    this.state.addon.setWebRTCAudioCallback((audioData: any) => {
-      this.state.audioFrameCount++;
-      
-      if (this.state.callbacks.audio) {
-        this.state.callbacks.audio(audioData);
-      }
-
-      // Логирование каждые 200 кадров
-      if (this.state.audioFrameCount % 200 === 0) {
-        log.info(`Audio frames: ${this.state.audioFrameCount}`);
-      }
-    });
+      log.info("Native capture callbacks setup complete");
   }
 
   // Установка внешних колбэков для обработки фреймов

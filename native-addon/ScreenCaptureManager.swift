@@ -13,32 +13,62 @@ extension CMSampleBuffer {
         let width = CVPixelBufferGetWidth(imageBuffer)
         let height = CVPixelBufferGetHeight(imageBuffer)
         let timestamp = CMSampleBufferGetPresentationTimeStamp(self).seconds
+        let pixelFormat = CVPixelBufferGetPixelFormatType(imageBuffer)
+        let bytesPerRow = CVPixelBufferGetBytesPerRow(imageBuffer)
         
         // Блокируем буфер для чтения
         CVPixelBufferLockBaseAddress(imageBuffer, .readOnly)
         defer { CVPixelBufferUnlockBaseAddress(imageBuffer, .readOnly) }
         
-        // Получаем указатель на данные
-        let baseAddress = CVPixelBufferGetBaseAddress(imageBuffer)
-        let bytesPerRow = CVPixelBufferGetBytesPerRow(imageBuffer)
-        let bufferSize = bytesPerRow * height
-        
-        // Создаем Data из буфера
-        var frameData: Data?
-        if let baseAddress = baseAddress {
-            frameData = Data(bytes: baseAddress, count: bufferSize)
+        // Извлекаем пиксели
+        var pixelData: Data?
+        if let baseAddress = CVPixelBufferGetBaseAddress(imageBuffer) {
+            // ВАЖНО: Копируем только актуальные пиксели, без padding
+            let actualBytesPerRow = width * 4 // BGRA = 4 bytes per pixel
+            let totalSize = actualBytesPerRow * height
+            
+            // Создаем Data с правильным размером
+            pixelData = Data(count: totalSize)
+            
+            pixelData?.withUnsafeMutableBytes { destPtr in
+                guard let destBytes = destPtr.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return }
+                let srcBytes = baseAddress.assumingMemoryBound(to: UInt8.self)
+                
+                // Копируем построчно, убирая padding
+                for y in 0..<height {
+                    let srcOffset = y * bytesPerRow
+                    let destOffset = y * actualBytesPerRow
+                    memcpy(destBytes + destOffset, srcBytes + srcOffset, actualBytesPerRow)
+                }
+            }
         }
         
         return [
             "width": width,
             "height": height,
             "timestamp": timestamp,
-            "pixelFormat": CVPixelBufferGetPixelFormatType(imageBuffer),
-            "bytesPerRow": bytesPerRow,
-            "dataSize": bufferSize,
-            // Для WebRTC нужны только метаданные, сами данные передаем отдельно
-            "hasData": frameData != nil
+            "pixelFormat": pixelFormat,
+            "pixelFormatName": getPixelFormatName(pixelFormat),
+            "bytesPerRow": width * 4, // Актуальный bytesPerRow без padding
+            "dataSize": pixelData?.count ?? 0,
+            "hasData": pixelData != nil,
+            // НЕ передаем imageBuffer - он вызывает краш
+            // Вместо этого передаем пиксели как Data
+            "pixelData": pixelData as Any
         ]
+    }
+
+    private func getPixelFormatName(_ format: OSType) -> String {
+        switch format {
+        case kCVPixelFormatType_32BGRA:
+            return "BGRA"
+        case kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange:
+            return "YUV420v"
+        case kCVPixelFormatType_420YpCbCr8BiPlanarFullRange:
+            return "YUV420f"
+        default:
+            return "Unknown(\(format))"
+        }
     }
 
     func getAudioData() -> [String: Any]? {
