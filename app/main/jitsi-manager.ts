@@ -607,7 +607,7 @@ export class JitsiManager {
             log.info(`Starting capture for source: ${sourceId}`);
             
             // Выбираем качество для захвата
-            const qualityPreset = 'MEDIUM'; // ULTRALOW, LOW, MEDIUM, HIGH, ULTRAHIGH, PRESENTATION, SCREENSHARE
+            const qualityPreset = 'ULTRALOW'; // ULTRALOW, LOW, MEDIUM, HIGH, ULTRAHIGH, PRESENTATION, SCREENSHARE
             await this.nativeCapture.useQualityPreset(qualityPreset);
             
             log.info(`Using quality preset: ${qualityPreset}`);
