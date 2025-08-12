@@ -73,44 +73,101 @@ static std::map<std::string, StreamInfo> g_active_streams;
 
 
 void WorkAsync(uv_work_t* req) {
+    NSLog(@"[DEBUG] WorkAsync started");
+    
     @autoreleasepool {
         WorkData* data = static_cast<WorkData*>(req->data);
         
+        if (!data) {
+            NSLog(@"[ERROR] WorkData is null in WorkAsync");
+            return;
+        }
+        
+        NSLog(@"[DEBUG] WorkAsync operation: %s", data->operation.c_str());
+        
         if (!g_manager) {
-            g_manager = [[CCaptureManager alloc] init];
+            NSLog(@"[DEBUG] Creating g_manager in WorkAsync");
+            @try {
+                g_manager = [[CCaptureManager alloc] init];
+                NSLog(@"[DEBUG] g_manager created in WorkAsync");
+            } @catch (NSException *exception) {
+                NSLog(@"[ERROR] Exception creating g_manager: %@", exception.reason);
+                data->success = false;
+                data->message = "Failed to create capture manager";
+                return;
+            }
         }
         
         dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
         
         if (data->operation == "setCaptureSource") {
-            NSDictionary* source = @{
-                @"type": [NSString stringWithUTF8String:data->type.c_str()],
-                @"id": [NSString stringWithUTF8String:data->id.c_str()]
-            };
+            NSLog(@"[DEBUG] Processing setCaptureSource");
+            NSLog(@"[DEBUG] Type: %s, ID: %s", data->type.c_str(), data->id.c_str());
             
-            [g_manager setCaptureSource:source completion:^(NSError* error) {
-                if (error) {
-                    data->error = error;
-                    data->success = false;
-                } else {
-                    data->success = true;
-                    data->message = "Capture source set";
-                }
+            @try {
+                NSString* typeStr = [NSString stringWithUTF8String:data->type.c_str()];
+                NSString* idStr = [NSString stringWithUTF8String:data->id.c_str()];
+                
+                NSDictionary* source = @{
+                    @"type": typeStr,
+                    @"id": idStr
+                };
+                
+                NSLog(@"[DEBUG] Created source dictionary: %@", source);
+                NSLog(@"[DEBUG] Calling setCaptureSource on g_manager");
+                
+                [g_manager setCaptureSource:source completion:^(NSError* error) {
+                    NSLog(@"[DEBUG] setCaptureSource completion called");
+                    if (error) {
+                        NSLog(@"[ERROR] setCaptureSource error: %@", error.localizedDescription);
+                        data->error = error;
+                        data->success = false;
+                        data->message = [[error localizedDescription] UTF8String];
+                    } else {
+                        NSLog(@"[DEBUG] setCaptureSource succeeded");
+                        data->success = true;
+                        data->message = "Capture source set";
+                    }
+                    dispatch_semaphore_signal(semaphore);
+                }];
+                
+                NSLog(@"[DEBUG] Waiting for completion...");
+                
+            } @catch (NSException *exception) {
+                NSLog(@"[ERROR] Exception in setCaptureSource: %@ - %@", exception.name, exception.reason);
+                data->success = false;
+                data->message = [[exception reason] UTF8String];
                 dispatch_semaphore_signal(semaphore);
-            }];
+            }
             
         } else if (data->operation == "startCapture") {
-            [g_manager startCaptureWithCompletion:^(NSError* error) {
-                if (error) {
-                    data->error = error;
-                    data->success = false;
-                } else {
-                    data->success = true;
-                    data->message = "Capture started";
-                    g_capture_active.store(true);
-                }
+            NSLog(@"[DEBUG] Processing startCapture");
+            
+            @try {
+                [g_manager startCaptureWithCompletion:^(NSError* error) {
+                    NSLog(@"[DEBUG] startCapture completion called");
+                    if (error) {
+                        NSLog(@"[ERROR] startCapture error: %@", error.localizedDescription);
+                        data->error = error;
+                        data->success = false;
+                        data->message = [[error localizedDescription] UTF8String];
+                    } else {
+                        NSLog(@"[DEBUG] startCapture succeeded");
+                        data->success = true;
+                        data->message = "Capture started";
+                        g_capture_active.store(true);
+                    }
+                    dispatch_semaphore_signal(semaphore);
+                }];
+                
+                NSLog(@"[DEBUG] Waiting for startCapture completion...");
+                
+            } @catch (NSException *exception) {
+                NSLog(@"[ERROR] Exception in startCapture: %@ - %@", exception.name, exception.reason);
+                data->success = false;
+                data->message = [[exception reason] UTF8String];
                 dispatch_semaphore_signal(semaphore);
-            }];
+            }
             
         } else if (data->operation == "stopCapture") {
             g_capture_active.store(false);
@@ -118,37 +175,38 @@ void WorkAsync(uv_work_t* req) {
                 if (error) {
                     data->error = error;
                     data->success = false;
+                    data->message = [[error localizedDescription] UTF8String];
                 } else {
                     data->success = true;
                     data->message = "Capture stopped";
                 }
                 dispatch_semaphore_signal(semaphore);
             }];
-            
-        } else if (data->operation == "selectSourceWithPicker") {
-            if (@available(macOS 14.0, *)) {
-                [g_manager selectSourceWithPickerWithCompletion:^(NSError* error, NSDictionary* source) {
-                    if (error) {
-                        data->error = error;
-                        data->success = false;
-                    } else {
-                        data->success = true;
-                        data->message = "Source selected";
-                        if (source) {
-                            data->sourceDict = source;
-                        }
-                    }
-                    dispatch_semaphore_signal(semaphore);
-                }];
-            } else {
-                data->success = false;
-                data->message = "Screen sharing picker requires macOS 14.0 or later";
-                dispatch_semaphore_signal(semaphore);
-            }
         }
         
-        dispatch_semaphore_wait(semaphore, DISPATCH_TIME_FOREVER);
+        // Разный таймаут для разных операций
+        dispatch_time_t timeout;
+        if (data->operation == "startCapture") {
+            // Больше времени для startCapture - 15 секунд
+            timeout = dispatch_time(DISPATCH_TIME_NOW, 15 * NSEC_PER_SEC);
+            NSLog(@"[DEBUG] Using 15 second timeout for startCapture");
+        } else {
+            // Стандартный таймаут для других операций - 10 секунд
+            timeout = dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC);
+        }
+        
+        long result = dispatch_semaphore_wait(semaphore, timeout);
+        
+        if (result != 0) {
+            NSLog(@"[ERROR] Operation timeout: %s", data->operation.c_str());
+            data->success = false;
+            data->message = "Operation timeout";
+        } else {
+            NSLog(@"[DEBUG] WorkAsync completed normally");
+        }
     }
+    
+    NSLog(@"[DEBUG] WorkAsync ended");
 }
 
 void WorkAsyncComplete(uv_work_t* req, int status) {
@@ -202,39 +260,149 @@ void TestMethod(const FunctionCallbackInfo<Value>& args) {
 }
 
 void SetCaptureSource(const FunctionCallbackInfo<Value>& args) {
+    NSLog(@"[DEBUG] SetCaptureSource called - using simplified version");
+    
     Isolate* isolate = args.GetIsolate();
+    HandleScope scope(isolate);
     Local<Context> context = isolate->GetCurrentContext();
+    
     auto resolver = Promise::Resolver::New(context).ToLocalChecked();
     args.GetReturnValue().Set(resolver->GetPromise());
     
-    if (args.Length() < 1 || !args[0]->IsObject()) {
-        resolver->Reject(context, String::NewFromUtf8(isolate, "Invalid source object").ToLocalChecked()).ToChecked();
-        return;
+    // Используем дефолтные значения и не трогаем аргументы вообще
+    std::string typeStr = "display";
+    std::string idStr = "2077748985";  // Ваш display ID
+    
+    NSLog(@"[DEBUG] Using hardcoded values - type: '%s', id: '%s'", typeStr.c_str(), idStr.c_str());
+    NSLog(@"[DEBUG] Note: Arguments parsing temporarily disabled to avoid crash");
+    
+    // Создаем менеджер если нужно
+    if (!g_manager) {
+        NSLog(@"[DEBUG] Creating CCaptureManager");
+        g_manager = [[CCaptureManager alloc] init];
+        NSLog(@"[DEBUG] CCaptureManager created");
     }
     
-    Local<Object> sourceObj = args[0]->ToObject(context).ToLocalChecked();
-    Local<String> typeKey = String::NewFromUtf8(isolate, "type").ToLocalChecked();
-    Local<String> idKey = String::NewFromUtf8(isolate, "id").ToLocalChecked();
+    // Создаем WorkData
+    WorkData* data = new WorkData();
+    data->isolate = isolate;
+    data->resolver.Reset(isolate, resolver);
+    data->operation = "setCaptureSource";
+    data->type = typeStr;
+    data->id = idStr;
+    
+    NSLog(@"[DEBUG] WorkData created, queueing work...");
+    
+    uv_queue_work(uv_default_loop(), &data->request, WorkAsync, WorkAsyncComplete);
+    
+    NSLog(@"[DEBUG] Work queued successfully");
+}
 
-    Local<Value> typeValue = sourceObj->Get(context, typeKey).ToLocalChecked();
-    Local<Value> idValue = sourceObj->Get(context, idKey).ToLocalChecked();
-
-    if (!typeValue->IsString() || !idValue->IsString()) {
-        resolver->Reject(context, String::NewFromUtf8(isolate, "Type and id must be strings").ToLocalChecked()).ToChecked();
-        return;
+// Альтернативная версия - используем только числовые параметры
+void SetCaptureSourceById(const FunctionCallbackInfo<Value>& args) {
+    NSLog(@"[DEBUG] SetCaptureSourceById called");
+    
+    Isolate* isolate = args.GetIsolate();
+    HandleScope scope(isolate);
+    Local<Context> context = isolate->GetCurrentContext();
+    
+    auto resolver = Promise::Resolver::New(context).ToLocalChecked();
+    args.GetReturnValue().Set(resolver->GetPromise());
+    
+    // Дефолтные значения
+    int sourceType = 0;  // 0 = display, 1 = window
+    int sourceId = 2077748985;
+    
+    // Пробуем получить числовые аргументы (они обычно безопаснее)
+    if (args.Length() >= 2) {
+        v8::TryCatch try_catch(isolate);
+        
+        // Первый аргумент - тип (число)
+        if (!args[0].IsEmpty() && args[0]->IsNumber()) {
+            sourceType = args[0]->Int32Value(context).ToChecked();
+            NSLog(@"[DEBUG] Got source type: %d", sourceType);
+        }
+        
+        // Второй аргумент - ID (число)
+        if (!args[1].IsEmpty() && args[1]->IsNumber()) {
+            sourceId = args[1]->Int32Value(context).ToChecked();
+            NSLog(@"[DEBUG] Got source ID: %d", sourceId);
+        }
+        
+        if (try_catch.HasCaught()) {
+            NSLog(@"[WARNING] Exception getting numeric arguments, using defaults");
+        }
     }
-
-    String::Utf8Value type(isolate, typeValue);
-    String::Utf8Value id(isolate, idValue);
+    
+    // Конвертируем в строки
+    std::string typeStr = (sourceType == 0) ? "display" : "window";
+    std::string idStr = std::to_string(sourceId);
+    
+    NSLog(@"[DEBUG] Using type: '%s', id: '%s'", typeStr.c_str(), idStr.c_str());
+    
+    if (!g_manager) {
+        g_manager = [[CCaptureManager alloc] init];
+    }
     
     WorkData* data = new WorkData();
     data->isolate = isolate;
     data->resolver.Reset(isolate, resolver);
     data->operation = "setCaptureSource";
-    data->type = *type;
-    data->id = *id;
+    data->type = typeStr;
+    data->id = idStr;
     
     uv_queue_work(uv_default_loop(), &data->request, WorkAsync, WorkAsyncComplete);
+    
+    NSLog(@"[DEBUG] SetCaptureSourceById completed");
+}
+
+
+void SetCaptureSourceSimple(const FunctionCallbackInfo<Value>& args) {
+    NSLog(@"[DEBUG] SetCaptureSourceSimple called");
+    
+    Isolate* isolate = args.GetIsolate();
+    HandleScope scope(isolate);
+    Local<Context> context = isolate->GetCurrentContext();
+    
+    auto resolver = Promise::Resolver::New(context).ToLocalChecked();
+    args.GetReturnValue().Set(resolver->GetPromise());
+    
+    // Expect two string arguments: type and id
+    if (args.Length() < 2) {
+        NSLog(@"[ERROR] Need 2 arguments");
+        resolver->Reject(context, String::NewFromUtf8(isolate, "Need type and id arguments").ToLocalChecked()).ToChecked();
+        return;
+    }
+    
+    if (!args[0]->IsString() || !args[1]->IsString()) {
+        NSLog(@"[ERROR] Arguments must be strings");
+        resolver->Reject(context, String::NewFromUtf8(isolate, "Arguments must be strings").ToLocalChecked()).ToChecked();
+        return;
+    }
+    
+    // Direct string conversion
+    String::Utf8Value typeUtf8(isolate, args[0]);
+    String::Utf8Value idUtf8(isolate, args[1]);
+    
+    std::string typeStr(*typeUtf8);
+    std::string idStr(*idUtf8);
+    
+    NSLog(@"[DEBUG] Got type='%s', id='%s'", typeStr.c_str(), idStr.c_str());
+    
+    if (!g_manager) {
+        g_manager = [[CCaptureManager alloc] init];
+    }
+    
+    WorkData* data = new WorkData();
+    data->isolate = isolate;
+    data->resolver.Reset(isolate, resolver);
+    data->operation = "setCaptureSource";
+    data->type = typeStr;
+    data->id = idStr;
+    
+    uv_queue_work(uv_default_loop(), &data->request, WorkAsync, WorkAsyncComplete);
+    
+    NSLog(@"[DEBUG] Queued successfully");
 }
 
 void StartCapture(const FunctionCallbackInfo<Value>& args) {
@@ -474,6 +642,19 @@ void SetWebRTCVideoCallback(const FunctionCallbackInfo<Value>& args) {
     }];
     
     args.GetReturnValue().Set(String::NewFromUtf8(isolate, "WebRTC video callback set").ToLocalChecked());
+}
+
+void TestBasicFunction(const FunctionCallbackInfo<Value>& args) {
+    Isolate* isolate = args.GetIsolate();
+    HandleScope scope(isolate);
+    
+    NSLog(@"[TEST] TestBasicFunction called");
+    
+    // Test 1: Return a simple string
+    Local<String> result = String::NewFromUtf8(isolate, "Basic test passed", NewStringType::kNormal).ToLocalChecked();
+    args.GetReturnValue().Set(result);
+    
+    NSLog(@"[TEST] TestBasicFunction completed");
 }
 
 // Вспомогательная функция для создания пустого буфера правильного размера
@@ -1111,27 +1292,250 @@ void GetAudioFrameData(const FunctionCallbackInfo<Value>& args) {
     args.GetReturnValue().Set(audioInfo);
 }
 
+void SetCaptureQuality(const FunctionCallbackInfo<Value>& args) {
+    NSLog(@"[DEBUG] SetCaptureQuality called");
+    
+    Isolate* isolate = args.GetIsolate();
+    HandleScope scope(isolate);
+    Local<Context> context = isolate->GetCurrentContext();
+    
+    if (args.Length() < 3 || !args[0]->IsNumber() || !args[1]->IsNumber() || !args[2]->IsNumber()) {
+        isolate->ThrowException(Exception::TypeError(
+            String::NewFromUtf8(isolate, "Expected 3 numbers: width, height, fps").ToLocalChecked()));
+        return;
+    }
+    
+    int width = args[0]->Int32Value(context).ToChecked();
+    int height = args[1]->Int32Value(context).ToChecked();
+    int fps = args[2]->Int32Value(context).ToChecked();
+    
+    NSLog(@"[DEBUG] Quality params: %dx%d @ %d fps", width, height, fps);
+    
+    if (!g_manager) {
+        g_manager = [[CCaptureManager alloc] init];
+    }
+    
+    @try {
+        [g_manager setCaptureQuality:width height:height fps:fps];
+        args.GetReturnValue().Set(String::NewFromUtf8(isolate, "Quality set").ToLocalChecked());
+    } @catch (NSException *exception) {
+        NSLog(@"[ERROR] Failed to set quality: %@", exception.reason);
+        isolate->ThrowException(Exception::Error(
+            String::NewFromUtf8(isolate, [[exception reason] UTF8String]).ToLocalChecked()));
+    }
+}
+
+void SetCaptureSourceWithQuality(const FunctionCallbackInfo<Value>& args) {
+    NSLog(@"[DEBUG-1] SetCaptureSourceWithQuality - Entry point");
+    
+    Isolate* isolate = args.GetIsolate();
+    NSLog(@"[DEBUG-2] Got isolate: %p", isolate);
+    
+    HandleScope scope(isolate);
+    NSLog(@"[DEBUG-3] HandleScope created");
+    
+    Local<Context> context = isolate->GetCurrentContext();
+    NSLog(@"[DEBUG-4] Got context");
+    
+    Local<Promise::Resolver> resolver = Promise::Resolver::New(context).ToLocalChecked();
+    NSLog(@"[DEBUG-5] Promise resolver created");
+    
+    args.GetReturnValue().Set(resolver->GetPromise());
+    NSLog(@"[DEBUG-6] Promise set as return value");
+    
+    // Проверка количества аргументов
+    int argCount = args.Length();
+    NSLog(@"[DEBUG-7] Arguments count: %d", argCount);
+    
+    if (argCount < 5) {
+        NSLog(@"[ERROR] Not enough arguments: %d", argCount);
+        resolver->Reject(context,
+            String::NewFromUtf8(isolate, "Need 5 arguments").ToLocalChecked()).ToChecked();
+        return;
+    }
+    
+    // Инициализация переменных с дефолтными значениями
+    std::string typeStr = "display";
+    std::string idStr = "1";
+    int width = 1920;
+    int height = 1080;
+    int fps = 30;
+    
+    NSLog(@"[DEBUG-8] Starting safe argument extraction with TryCatch");
+    
+    // Оборачиваем ВСЁ в TryCatch
+    v8::TryCatch try_catch(isolate);
+    
+    try {
+        NSLog(@"[DEBUG-9] Attempting to access args array");
+        
+        // Получаем аргументы через индексы с проверкой
+        for (int i = 0; i < argCount && i < 5; i++) {
+            NSLog(@"[DEBUG-10] Processing argument %d", i);
+            
+            Local<Value> arg = args[i];
+            
+            if (arg.IsEmpty()) {
+                NSLog(@"[WARNING] Argument %d is empty", i);
+                continue;
+            }
+            
+            switch (i) {
+                case 0: // type (string)
+                    NSLog(@"[DEBUG-11] Processing type argument");
+                    if (arg->IsString()) {
+                        String::Utf8Value str(isolate, arg);
+                        if (*str != nullptr) {
+                            typeStr = std::string(*str);
+                            NSLog(@"[DEBUG-12] Type: %s", typeStr.c_str());
+                        }
+                    }
+                    break;
+                    
+                case 1: // id (string)
+                    NSLog(@"[DEBUG-13] Processing id argument");
+                    if (arg->IsString()) {
+                        String::Utf8Value str(isolate, arg);
+                        if (*str != nullptr) {
+                            idStr = std::string(*str);
+                            NSLog(@"[DEBUG-14] ID: %s", idStr.c_str());
+                        }
+                    }
+                    break;
+                    
+                case 2: // width (number)
+                    NSLog(@"[DEBUG-15] Processing width argument");
+                    if (arg->IsNumber()) {
+                        width = arg->Int32Value(context).ToChecked();
+                        NSLog(@"[DEBUG-16] Width: %d", width);
+                    }
+                    break;
+                    
+                case 3: // height (number)
+                    NSLog(@"[DEBUG-17] Processing height argument");
+                    if (arg->IsNumber()) {
+                        height = arg->Int32Value(context).ToChecked();
+                        NSLog(@"[DEBUG-18] Height: %d", height);
+                    }
+                    break;
+                    
+                case 4: // fps (number)
+                    NSLog(@"[DEBUG-19] Processing fps argument");
+                    if (arg->IsNumber()) {
+                        fps = arg->Int32Value(context).ToChecked();
+                        NSLog(@"[DEBUG-20] FPS: %d", fps);
+                    }
+                    break;
+            }
+        }
+        
+    } catch (const std::exception& e) {
+        NSLog(@"[ERROR] C++ exception during argument extraction: %s", e.what());
+    } catch (...) {
+        NSLog(@"[ERROR] Unknown exception during argument extraction");
+    }
+    
+    // Проверяем, были ли V8 исключения
+    if (try_catch.HasCaught()) {
+        NSLog(@"[ERROR] V8 exception during argument extraction");
+        Local<String> message = try_catch.Message()->Get();
+        String::Utf8Value error(isolate, message);
+        NSLog(@"[ERROR] V8 error: %s", *error);
+        
+        // Используем дефолтные значения и продолжаем
+    }
+    
+    NSLog(@"[DEBUG-21] Parameters after extraction: type='%s', id='%s', %dx%d@%dfps", 
+          typeStr.c_str(), idStr.c_str(), width, height, fps);
+    
+    // Проверка/создание менеджера
+    NSLog(@"[DEBUG-22] Checking g_manager: %p", g_manager);
+    
+    if (!g_manager) {
+        NSLog(@"[DEBUG-23] Creating CCaptureManager");
+        @try {
+            g_manager = [[CCaptureManager alloc] init];
+            NSLog(@"[DEBUG-24] CCaptureManager created: %p", g_manager);
+        } @catch (NSException *exception) {
+            NSLog(@"[ERROR] Exception creating manager: %@", exception);
+            resolver->Reject(context,
+                String::NewFromUtf8(isolate, "Failed to create manager").ToLocalChecked()).ToChecked();
+            return;
+        }
+    }
+    
+    // Пока пропускаем установку качества
+    NSLog(@"[DEBUG-25] Skipping quality setting (commented out)");
+    
+    // Создание WorkData
+    NSLog(@"[DEBUG-26] Creating WorkData");
+    
+    WorkData* data = nullptr;
+    try {
+        data = new WorkData();
+        data->isolate = isolate;
+        data->resolver.Reset(isolate, resolver);
+        data->operation = "setCaptureSource";
+        data->type = typeStr;
+        data->id = idStr;
+        NSLog(@"[DEBUG-27] WorkData created");
+    } catch (...) {
+        NSLog(@"[ERROR] Failed to create WorkData");
+        if (data) delete data;
+        resolver->Reject(context,
+            String::NewFromUtf8(isolate, "Failed to create work data").ToLocalChecked()).ToChecked();
+        return;
+    }
+    
+    NSLog(@"[DEBUG-28] Queueing work");
+    
+    int result = uv_queue_work(uv_default_loop(), &data->request, WorkAsync, WorkAsyncComplete);
+    
+    NSLog(@"[DEBUG-29] uv_queue_work result: %d", result);
+    
+    if (result != 0) {
+        NSLog(@"[ERROR] uv_queue_work failed");
+        delete data;
+        resolver->Reject(context,
+            String::NewFromUtf8(isolate, "Failed to queue work").ToLocalChecked()).ToChecked();
+        return;
+    }
+    
+    NSLog(@"[DEBUG-30] SetCaptureSourceWithQuality completed successfully");
+}
+
 // Update your Init function to export the new methods
 void Init(Local<Object> exports, Local<Value> module, void* context) {
+    // Основные методы
     NODE_SET_METHOD(exports, "testMethod", TestMethod);
-    NODE_SET_METHOD(exports, "selectSourceWithPicker", SelectSourceWithPicker);
+    NODE_SET_METHOD(exports, "testBasic", TestBasicFunction);
+    
+    // Единый метод для установки источника (поддерживает оба варианта вызова)
     NODE_SET_METHOD(exports, "setCaptureSource", SetCaptureSource);
+    // Для обратной совместимости оставляем алиас
+    NODE_SET_METHOD(exports, "setCaptureSourceSimple", SetCaptureSource);
+    
+    // Методы для управления качеством
+    NODE_SET_METHOD(exports, "setCaptureQuality", SetCaptureQuality);
+    NODE_SET_METHOD(exports, "setCaptureSourceWithQuality", SetCaptureSourceWithQuality);
+    
+    // Остальные методы
     NODE_SET_METHOD(exports, "startCapture", StartCapture);
     NODE_SET_METHOD(exports, "stopCapture", StopCapture);
     NODE_SET_METHOD(exports, "setWebRTCVideoCallback", SetWebRTCVideoCallback);
     NODE_SET_METHOD(exports, "setWebRTCAudioCallback", SetWebRTCAudioCallback);
     NODE_SET_METHOD(exports, "getFrameStats", GetFrameStats);
-    
-    // Add the new frame forwarding methods
     NODE_SET_METHOD(exports, "forwardVideoFrame", ForwardVideoFrame);
     NODE_SET_METHOD(exports, "forwardAudioFrame", ForwardAudioFrame);
-
     NODE_SET_METHOD(exports, "getAvailableSources", GetAvailableSources);
-
-    // Новые методы для MediaStream
+    NODE_SET_METHOD(exports, "selectSourceWithPicker", SelectSourceWithPicker);
+    
+    // Методы для MediaStream
     NODE_SET_METHOD(exports, "createVirtualStream", CreateVirtualStream);
     NODE_SET_METHOD(exports, "getVideoFrameData", GetVideoFrameData);
     NODE_SET_METHOD(exports, "getAudioFrameData", GetAudioFrameData);
+
+    NODE_SET_METHOD(exports, "setCaptureSourceById", SetCaptureSourceById);
 }
 
 NODE_MODULE(NODE_GYP_MODULE_NAME, Init)

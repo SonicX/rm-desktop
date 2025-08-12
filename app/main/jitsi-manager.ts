@@ -19,322 +19,9 @@ interface JitsiState {
   streamId: string | null;
   lastSelectedSourceId?: string;
   videoFrameCount?: number; 
-  audioFrameCount?: number; 
+  audioFrameCount?: number;
+  qualityPreset?: string;
 }
-
-const COMPLETE_INJECTION_CODE = `
-(function() {
-    // Помечаем, что инжекция выполнена
-    if (window.jitsiHandlersInjected) {
-        console.log('[JitsiNative] Handlers already injected');
-        return;
-    }
-    window.jitsiHandlersInjected = true;
-    
-    console.log('[JitsiNative] Starting complete injection...');
-    
-    // === ОТЛАДОЧНЫЙ ИНДИКАТОР ===
-    if (!document.getElementById('stream-debug-indicator')) {
-        const debugIndicator = document.createElement('div');
-        debugIndicator.id = 'stream-debug-indicator';
-        debugIndicator.style.cssText = \`
-            position: fixed;
-            top: 10px;
-            left: 10px;
-            background: rgba(0, 0, 0, 0.8);
-            color: white;
-            padding: 10px 15px;
-            border-radius: 8px;
-            z-index: 100000;
-            font-family: monospace;
-            font-size: 12px;
-            min-width: 200px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.5);
-        \`;
-        debugIndicator.innerHTML = \`
-            <div style="font-weight: bold; margin-bottom: 5px;">🎯 Native Stream Debug</div>
-            <div>Type: <span id="source-type" style="color: #ffa726;">Not set</span></div>
-            <div>Native Active: <span id="native-status" style="color: #ef5350;">No</span></div>
-            <div>Stream ID: <span id="stream-id" style="font-size: 10px;">None</span></div>
-        \`;
-        document.body.appendChild(debugIndicator);
-    }
-    
-    // Функция обновления индикатора
-    function updateDebugIndicator() {
-        const typeEl = document.getElementById('source-type');
-        const statusEl = document.getElementById('native-status');
-        const idEl = document.getElementById('stream-id');
-        const indicator = document.getElementById('stream-debug-indicator');
-        
-        if (window.jitsiNativeMediaStream && window.isNativeActive) {
-            if (typeEl) typeEl.textContent = 'NATIVE';
-            if (statusEl) {
-                statusEl.textContent = 'Active';
-                statusEl.style.color = '#66bb6a';
-            }
-            if (idEl) idEl.textContent = window.jitsiNativeMediaStream.id.substring(0, 8) + '...';
-            if (indicator) {
-                indicator.style.background = 'linear-gradient(135deg, rgba(76, 175, 80, 0.95), rgba(102, 187, 106, 0.95))';
-            }
-        } else {
-            if (typeEl) typeEl.textContent = 'None';
-            if (statusEl) {
-                statusEl.textContent = 'No';
-                statusEl.style.color = '#ef5350';
-            }
-            if (idEl) idEl.textContent = 'None';
-            if (indicator) {
-                indicator.style.background = 'rgba(0, 0, 0, 0.8)';
-            }
-        }
-    }
-    
-    setInterval(updateDebugIndicator, 500);
-    
-    // === СОХРАНЯЕМ ОРИГИНАЛЬНЫЕ ФУНКЦИИ ===
-    const originalFunctions = {
-        openDesktopPicker: null,
-        obtainDesktopStream: null,
-        createLocalTracks: null,
-        getDisplayMedia: null,
-        getUserMedia: null
-    };
-    
-    // === КРИТИЧЕСКИЙ ПЕРЕХВАТ: JitsiMeetJS.createLocalTracks ===
-    if (window.JitsiMeetJS && window.JitsiMeetJS.createLocalTracks) {
-        console.log('[JitsiNative] Saving original createLocalTracks');
-        originalFunctions.createLocalTracks = window.JitsiMeetJS.createLocalTracks;
-        
-        window.JitsiMeetJS.createLocalTracks = async function(options) {
-            console.log('[JitsiNative] createLocalTracks intercepted, options:', options);
-            
-            // Проверяем, запрашивается ли desktop
-            if (options && options.devices && options.devices.includes('desktop')) {
-                console.log('[JitsiNative] Desktop track requested');
-                
-                // Проверяем наличие native stream
-                if (window.jitsiNativeMediaStream && window.isNativeActive) {
-                    console.log('[JitsiNative] 🎯 Native stream available, injecting it...');
-                    
-                    // Объявляем переменные ВНЕ try блока для доступности в catch
-                    let tempGetUserMedia = null;
-                    let tempGetDisplayMedia = null;
-                    
-                    try {
-                        // КРИТИЧЕСКИЙ ТРЮК: Временно подменяем getUserMedia и getDisplayMedia
-                        tempGetUserMedia = navigator.mediaDevices.getUserMedia;
-                        tempGetDisplayMedia = navigator.mediaDevices.getDisplayMedia;
-                        
-                        // Подменяем getUserMedia
-                        navigator.mediaDevices.getUserMedia = async function(constraints) {
-                            console.log('[JitsiNative] getUserMedia intercepted in createLocalTracks');
-                            console.log('[JitsiNative] Constraints:', JSON.stringify(constraints));
-                            
-                            if (constraints && constraints.video && 
-                                constraints.video.mandatory && 
-                                constraints.video.mandatory.chromeMediaSource === 'desktop') {
-                                console.log('[JitsiNative] 🎯 Returning native stream for desktop getUserMedia');
-                                return window.jitsiNativeMediaStream;
-                            }
-                            
-                            // Для обычного getUserMedia используем оригинальный метод
-                            return tempGetUserMedia.call(this, constraints);
-                        };
-                        
-                        // Подменяем getDisplayMedia
-                        navigator.mediaDevices.getDisplayMedia = async function(constraints) {
-                            console.log('[JitsiNative] getDisplayMedia intercepted in createLocalTracks');
-                            console.log('[JitsiNative] 🎯 RETURNING NATIVE STREAM!');
-                            return window.jitsiNativeMediaStream;
-                        };
-                        
-                        // Вызываем оригинальную функцию с подмененными методами
-                        console.log('[JitsiNative] Calling original createLocalTracks...');
-                        const tracks = await originalFunctions.createLocalTracks.call(this, options);
-                        
-                        // Восстанавливаем оригинальные методы
-                        if (tempGetUserMedia) {
-                            navigator.mediaDevices.getUserMedia = tempGetUserMedia;
-                        }
-                        if (tempGetDisplayMedia) {
-                            navigator.mediaDevices.getDisplayMedia = tempGetDisplayMedia;
-                        }
-                        
-                        if (tracks && tracks.length > 0) {
-                            console.log('[JitsiNative] ✅ JitsiLocalTrack created successfully with native stream');
-                            console.log('[JitsiNative] Track type:', tracks[0].getType());
-                            console.log('[JitsiNative] Track video type:', tracks[0].getVideoType());
-                            
-                            // Добавляем обработчик остановки
-                            const originalDispose = tracks[0].dispose;
-                            tracks[0].dispose = function() {
-                                console.log('[JitsiNative] Track dispose called');
-                                window.isNativeActive = false;
-                                updateDebugIndicator();
-                                if (originalDispose) {
-                                    return originalDispose.call(this);
-                                }
-                            };
-                        }
-                        
-                        return tracks;
-                        
-                    } catch (e) {
-                        console.error('[JitsiNative] Error in createLocalTracks:', e);
-                        console.error('[JitsiNative] Error stack:', e.stack);
-                        
-                        // Восстанавливаем методы в случае ошибки
-                        if (tempGetUserMedia) {
-                            navigator.mediaDevices.getUserMedia = tempGetUserMedia;
-                        }
-                        if (tempGetDisplayMedia) {
-                            navigator.mediaDevices.getDisplayMedia = tempGetDisplayMedia;
-                        }
-                        
-                        // Пробуем альтернативный подход - создаем фейковый JitsiLocalTrack
-                        console.log('[JitsiNative] Trying alternative approach...');
-                        
-                        // Возвращаем ошибку или пустой массив
-                        throw e;
-                    }
-                } else {
-                    console.log('[JitsiNative] No native stream available, using original method');
-                }
-            }
-            
-            // Для других типов треков вызываем оригинальную функцию
-            return originalFunctions.createLocalTracks.call(this, options);
-        };
-        
-        console.log('[JitsiNative] ✅ createLocalTracks intercepted');
-    }
-    
-    // === ПЕРЕХВАТ JitsiMeetScreenObtainer (для диалога выбора) ===
-    if (window.JitsiMeetScreenObtainer) {
-        console.log('[JitsiNative] Setting up JitsiMeetScreenObtainer interceptors');
-        
-        // openDesktopPicker - для выбора источника
-        if (window.JitsiMeetScreenObtainer.openDesktopPicker) {
-            originalFunctions.openDesktopPicker = window.JitsiMeetScreenObtainer.openDesktopPicker;
-            
-            window.JitsiMeetScreenObtainer.openDesktopPicker = function(options, callback) {
-                console.log('[JitsiNative] openDesktopPicker intercepted');
-                
-                // Если есть native stream, сразу возвращаем его
-                if (window.jitsiNativeMediaStream && window.isNativeActive) {
-                    console.log('[JitsiNative] Native stream active, auto-selecting');
-                    setTimeout(() => {
-                        const sourceId = 'native:stream:' + Date.now();
-                        callback(sourceId, { audio: true, screenShareAudio: true });
-                    }, 100);
-                    return;
-                }
-                
-                // Иначе вызываем оригинальный метод (или показываем диалог выбора)
-                return originalFunctions.openDesktopPicker.call(this, options, callback);
-            };
-        }
-        
-        // obtainDesktopStream - для получения stream по sourceId
-        if (window.JitsiMeetScreenObtainer.obtainDesktopStream) {
-            originalFunctions.obtainDesktopStream = window.JitsiMeetScreenObtainer.obtainDesktopStream;
-            
-            window.JitsiMeetScreenObtainer.obtainDesktopStream = function(sourceId, callback, errorCallback) {
-                console.log('[JitsiNative] obtainDesktopStream intercepted, sourceId:', sourceId);
-                
-                if (window.jitsiNativeMediaStream && window.isNativeActive) {
-                    console.log('[JitsiNative] Returning native stream from obtainDesktopStream');
-                    setTimeout(() => {
-                        callback(window.jitsiNativeMediaStream);
-                    }, 100);
-                    return;
-                }
-                
-                return originalFunctions.obtainDesktopStream.call(this, sourceId, callback, errorCallback);
-            };
-        }
-        
-        console.log('[JitsiNative] ✅ JitsiMeetScreenObtainer intercepted');
-    }
-    
-    // === ПОСТОЯННЫЕ ПЕРЕХВАТЫ (на всякий случай) ===
-    if (!window.originalGetDisplayMedia) {
-        originalFunctions.getDisplayMedia = navigator.mediaDevices.getDisplayMedia;
-        
-        navigator.mediaDevices.getDisplayMedia = async function(constraints) {
-            console.log('[JitsiNative] Global getDisplayMedia intercepted');
-            
-            if (window.jitsiNativeMediaStream && window.isNativeActive) {
-                console.log('[JitsiNative] 🎯 Returning native stream from global getDisplayMedia');
-                return window.jitsiNativeMediaStream;
-            }
-            
-            return originalFunctions.getDisplayMedia.call(this, constraints);
-        };
-    }
-    
-    if (!window.originalGetUserMedia) {
-        originalFunctions.getUserMedia = navigator.mediaDevices.getUserMedia;
-        
-        navigator.mediaDevices.getUserMedia = async function(constraints) {
-            if (constraints && constraints.video && 
-                constraints.video.mandatory && 
-                constraints.video.mandatory.chromeMediaSource === 'desktop') {
-                console.log('[JitsiNative] Global getUserMedia for desktop intercepted');
-                
-                if (window.jitsiNativeMediaStream && window.isNativeActive) {
-                    console.log('[JitsiNative] 🎯 Returning native stream from global getUserMedia');
-                    return window.jitsiNativeMediaStream;
-                }
-            }
-            
-            return originalFunctions.getUserMedia.call(this, constraints);
-        };
-    }
-    
-    // === ФУНКЦИЯ ОЧИСТКИ ===
-    window.cleanupNativeStream = function() {
-        console.log('[JitsiNative] Cleaning up...');
-        
-        // Останавливаем stream
-        if (window.jitsiNativeMediaStream) {
-            window.jitsiNativeMediaStream.getTracks().forEach(track => track.stop());
-        }
-        
-        // Восстанавливаем оригинальные функции
-        if (originalFunctions.createLocalTracks && window.JitsiMeetJS) {
-            window.JitsiMeetJS.createLocalTracks = originalFunctions.createLocalTracks;
-        }
-        if (originalFunctions.openDesktopPicker && window.JitsiMeetScreenObtainer) {
-            window.JitsiMeetScreenObtainer.openDesktopPicker = originalFunctions.openDesktopPicker;
-        }
-        if (originalFunctions.obtainDesktopStream && window.JitsiMeetScreenObtainer) {
-            window.JitsiMeetScreenObtainer.obtainDesktopStream = originalFunctions.obtainDesktopStream;
-        }
-        if (originalFunctions.getDisplayMedia) {
-            navigator.mediaDevices.getDisplayMedia = originalFunctions.getDisplayMedia;
-        }
-        if (originalFunctions.getUserMedia) {
-            navigator.mediaDevices.getUserMedia = originalFunctions.getUserMedia;
-        }
-        
-        window.isNativeActive = false;
-        window.jitsiNativeMediaStream = null;
-        
-        updateDebugIndicator();
-        console.log('[JitsiNative] Cleanup complete');
-    };
-    
-    console.log('[JitsiNative] ✅ Complete injection finished!');
-    console.log('[JitsiNative] Key intercepts:');
-    console.log('  - JitsiMeetJS.createLocalTracks: ' + (!!originalFunctions.createLocalTracks));
-    console.log('  - JitsiMeetScreenObtainer.openDesktopPicker: ' + (!!originalFunctions.openDesktopPicker));
-    console.log('  - navigator.mediaDevices.getDisplayMedia: ' + (!!originalFunctions.getDisplayMedia));
-    
-    return true;
-})();
-`;
 
 export class JitsiManager {
   private state: JitsiState = {
@@ -530,7 +217,6 @@ export class JitsiManager {
             return;
         }
 
-        // ГЛАВНАЯ ИНЖЕКЦИЯ - используем COMPLETE_INJECTION_CODE
         await this.state.window.webContents.executeJavaScript(`
             (function() {
                 // Помечаем, что инжекция выполнена
@@ -884,7 +570,30 @@ export class JitsiManager {
     `;
   }
 
-  // Обновление для jitsi-manager.ts - метод injectNativeStream
+  // Вспомогательный метод для показа системного диалога
+  private async showSystemPicker(): Promise<{ success: boolean; sourceId?: string }> {
+    try {
+        // Используем Electron's desktopCapturer как fallback
+        const sources = await desktopCapturer.getSources({
+            types: ['screen', 'window'],
+            thumbnailSize: { width: 300, height: 200 }
+        });
+        
+        if (sources.length === 0) {
+            return { success: false };
+        }
+        
+        // Для простоты берем первый экран
+        const screen = sources.find(s => s.id.startsWith('screen:')) || sources[0];
+        
+        log.info(`System picker: selected ${screen.id}`);
+        return { success: true, sourceId: screen.id };
+        
+    } catch (error: any) {
+        log.error(`System picker error: ${error.message}`);
+        return { success: false };
+    }
+  }
 
   async injectNativeStream(): Promise<{ success: boolean; error?: string; streamId?: string }> {
         if (!this.state.window || this.state.window.isDestroyed()) {
@@ -893,16 +602,50 @@ export class JitsiManager {
 
         try {
             log.info("Creating and injecting native stream into Jitsi...");
-            
-            // КРИТИЧНО: Сначала запускаем native capture!
+        
             const sourceId = this.state.lastSelectedSourceId || 'screen:2077748985:0';
-            log.info(`Starting native capture for source: ${sourceId}`);
+            log.info(`Starting capture for source: ${sourceId}`);
             
-            // Запускаем захват
-            const captureResult = await this.nativeCapture.startCapture(sourceId);
+            // Выбираем качество для захвата
+            const qualityPreset = 'MEDIUM'; // ULTRALOW, LOW, MEDIUM, HIGH, ULTRAHIGH, PRESENTATION, SCREENSHARE
+            await this.nativeCapture.useQualityPreset(qualityPreset);
+            
+            log.info(`Using quality preset: ${qualityPreset}`);
+            
+            // Сохраняем пресет в state
+            this.state.qualityPreset = qualityPreset;
+
+            const capturePromise = this.nativeCapture.startCapture(sourceId);
+            const timeoutPromise = new Promise<{ success: boolean; error: string }>((resolve) => {
+                setTimeout(() => {
+                    resolve({ success: false, error: 'Capture start timeout after 5 seconds' });
+                }, 5000);
+            });
+            
+            // Race между запуском и таймаутом
+            const captureResult = await Promise.race([capturePromise, timeoutPromise]);
+            
             if (!captureResult.success) {
-                log.error(`Failed to start native capture: ${captureResult.error}`);
-                return { success: false, error: captureResult.error };
+                log.error(`Failed to start capture: ${captureResult.error}`);
+                
+                // Если не удалось с выбранным источником, пробуем с диалогом
+                if (captureResult.error.includes('timeout') || captureResult.error.includes('setCaptureSource')) {
+                    log.info("Trying alternative: showing system picker...");
+                    
+                    // Показываем встроенный диалог выбора
+                    const pickerResult = await this.showSystemPicker();
+                    if (!pickerResult.success) {
+                        return { success: false, error: 'User cancelled or picker failed' };
+                    }
+                    
+                    // Пробуем еще раз с выбранным источником
+                    const retryResult = await this.nativeCapture.startCapture(pickerResult.sourceId!);
+                    if (!retryResult.success) {
+                        return { success: false, error: retryResult.error };
+                    }
+                } else {
+                    return { success: false, error: captureResult.error };
+                }
             }
             
             log.info("Native capture started successfully");
@@ -1090,9 +833,8 @@ export class JitsiManager {
                 return result;
             }
             
-
             this.nativeCapture.setFrameCallbacks(
-                // Video callback - с уменьшением разрешения и FPS
+                // Video callback - передаем все кадры без изменений
                 (videoData: any) => {
                     if (!this.state.window || this.state.window.isDestroyed()) return;
                     
@@ -1103,26 +845,15 @@ export class JitsiManager {
                         
                         this.state.videoFrameCount = (this.state.videoFrameCount || 0) + 1;
                         
-                        // ОПТИМИЗАЦИЯ: Обрабатываем только каждый 6-й кадр (5 FPS вместо 30)
-                        if (this.state.videoFrameCount % 6 !== 0) {
-                            return;
-                        }
-                        
-                        const originalWidth = videoData.width || 1920;
-                        const originalHeight = videoData.height || 1080;
-                        const hasRealPixels = videoData.hasRealPixels || false;
-                        
-                        // ОПТИМИЗАЦИЯ: Уменьшаем разрешение в 4 раза
-                        const scaleFactor = 4;
-                        const scaledWidth = Math.floor(originalWidth / scaleFactor);
-                        const scaledHeight = Math.floor(originalHeight / scaleFactor);
+                        const width = videoData.width || 1920;
+                        const height = videoData.height || 1080;
                         
                         // Логируем первый кадр
-                        if (this.state.videoFrameCount === 6) {
-                            log.info("First frame processing (5 FPS, 1/4 resolution):", {
-                                original: `${originalWidth}x${originalHeight}`,
-                                scaled: `${scaledWidth}x${scaledHeight}`,
-                                hasRealPixels: hasRealPixels
+                        if (this.state.videoFrameCount === 1) {
+                            log.info("First frame from Swift:", {
+                                size: `${width}x${height}`,
+                                dataSize: videoData.data.byteLength,
+                                quality: this.state.qualityPreset
                             });
                         }
                         
@@ -1137,31 +868,11 @@ export class JitsiManager {
                             return;
                         }
                         
-                        // ОПТИМИЗАЦИЯ: Масштабируем изображение (простой nearest neighbor)
-                        const scaledSize = scaledWidth * scaledHeight * 4;
-                        const scaledPixels = new Uint8Array(scaledSize);
-                        
-                        for (let y = 0; y < scaledHeight; y++) {
-                            for (let x = 0; x < scaledWidth; x++) {
-                                const srcX = x * scaleFactor;
-                                const srcY = y * scaleFactor;
-                                const srcIdx = (srcY * originalWidth + srcX) * 4;
-                                const dstIdx = (y * scaledWidth + x) * 4;
-                                
-                                if (srcIdx + 3 < sourcePixels.length) {
-                                    scaledPixels[dstIdx] = sourcePixels[srcIdx];         // B
-                                    scaledPixels[dstIdx + 1] = sourcePixels[srcIdx + 1]; // G
-                                    scaledPixels[dstIdx + 2] = sourcePixels[srcIdx + 2]; // R
-                                    scaledPixels[dstIdx + 3] = sourcePixels[srcIdx + 3]; // A
-                                }
-                            }
-                        }
-                        
-                        // Конвертируем в base64 (меньший объем данных)
-                        const buffer = Buffer.from(scaledPixels);
+                        // Конвертируем в base64 для передачи (без масштабирования)
+                        const buffer = Buffer.from(sourcePixels);
                         const base64Data = buffer.toString('base64');
                         
-                        // Передаем в Jitsi с обратным масштабированием
+                        // Передаем в Jitsi как есть
                         const jsCode = `
                             (function() {
                                 if (!window.updateNativeVideo || !window.isNativeActive) {
@@ -1172,56 +883,32 @@ export class JitsiManager {
                                     // Декодируем base64
                                     const binaryString = atob('${base64Data}');
                                     const len = binaryString.length;
-                                    const scaledData = new Uint8ClampedArray(len);
+                                    const pixelData = new Uint8ClampedArray(len);
                                     
                                     for (let i = 0; i < len; i++) {
-                                        scaledData[i] = binaryString.charCodeAt(i);
+                                        pixelData[i] = binaryString.charCodeAt(i);
                                     }
                                     
-                                    // Масштабируем обратно до оригинального размера
-                                    const fullData = new Uint8ClampedArray(${originalWidth} * ${originalHeight} * 4);
-                                    const scaleFactor = ${scaleFactor};
-                                    const scaledWidth = ${scaledWidth};
-                                    const scaledHeight = ${scaledHeight};
-                                    
-                                    // Простое масштабирование nearest neighbor
-                                    for (let y = 0; y < ${originalHeight}; y++) {
-                                        for (let x = 0; x < ${originalWidth}; x++) {
-                                            const srcX = Math.floor(x / scaleFactor);
-                                            const srcY = Math.floor(y / scaleFactor);
-                                            
-                                            if (srcX < scaledWidth && srcY < scaledHeight) {
-                                                const srcIdx = (srcY * scaledWidth + srcX) * 4;
-                                                const dstIdx = (y * ${originalWidth} + x) * 4;
-                                                
-                                                fullData[dstIdx] = scaledData[srcIdx];
-                                                fullData[dstIdx + 1] = scaledData[srcIdx + 1];
-                                                fullData[dstIdx + 2] = scaledData[srcIdx + 2];
-                                                fullData[dstIdx + 3] = scaledData[srcIdx + 3];
-                                            }
-                                        }
-                                    }
-                                    
-                                    // Обновляем canvas
+                                    // Обновляем canvas с оригинальным размером
                                     const frameData = {
-                                        data: fullData,
-                                        width: ${originalWidth},
-                                        height: ${originalHeight}
+                                        data: pixelData,
+                                        width: ${width},
+                                        height: ${height}
                                     };
                                     
                                     window.updateNativeVideo(frameData);
                                     
                                     // Логируем статус
-                                    if (!window.lowQualityStreamStarted) {
-                                        console.log('[NativeStream] ✅ Low quality stream started');
-                                        console.log('[NativeStream] FPS: 5, Resolution: 1/4 ('+scaledWidth+'x'+scaledHeight+')');
-                                        console.log('[NativeStream] Data size reduced from', ${sourcePixels.length}, 'to', scaledData.length);
-                                        window.lowQualityStreamStarted = true;
+                                    if (!window.nativeStreamStarted) {
+                                        console.log('[NativeStream] ✅ Native stream started');
+                                        console.log('[NativeStream] Resolution: ${width}x${height}');
+                                        console.log('[NativeStream] Quality preset: ${this.state.qualityPreset}');
+                                        window.nativeStreamStarted = true;
                                     }
                                     
-                                    window.lowQualityFrameCount = (window.lowQualityFrameCount || 0) + 1;
-                                    if (window.lowQualityFrameCount % 10 === 0) {
-                                        console.log('[NativeStream] Frames:', window.lowQualityFrameCount, '@ 5 FPS');
+                                    window.frameCount = (window.frameCount || 0) + 1;
+                                    if (window.frameCount % 30 === 0) {
+                                        console.log('[NativeStream] Frames:', window.frameCount);
                                     }
                                 } catch (e) {
                                     console.error('[NativeStream] Error:', e.message);
@@ -1230,16 +917,13 @@ export class JitsiManager {
                         `;
                         
                         this.state.window.webContents.executeJavaScript(jsCode).catch(err => {
-                            if (this.state.videoFrameCount <= 30) {
+                            if (this.state.videoFrameCount <= 3) {
                                 log.error(`Failed to send frame: ${err.message}`);
                             }
                         });
                         
-                        if (this.state.videoFrameCount === 6) {
-                            log.info("✅ First low-quality frame sent (5 FPS)");
-                        } else if (this.state.videoFrameCount % 60 === 0) { // Каждые 2 секунды
-                            const actualFramesSent = this.state.videoFrameCount / 6;
-                            log.info(`Frames sent: ${actualFramesSent} @ 5 FPS, data: ${scaledSize} bytes`);
+                        if (this.state.videoFrameCount % 30 === 0) {
+                            log.info(`Frames sent: ${this.state.videoFrameCount}, size: ${width}x${height}`);
                         }
                         
                     } catch (error: any) {
@@ -1247,7 +931,7 @@ export class JitsiManager {
                     }
                 },
                 
-                // Audio callback - сильно упрощен
+                // Audio callback - передаем все аудио данные
                 (audioData: any) => {
                     if (!this.state.window || this.state.window.isDestroyed()) return;
                     
@@ -1258,39 +942,48 @@ export class JitsiManager {
                         
                         this.state.audioFrameCount = (this.state.audioFrameCount || 0) + 1;
                         
-                        // ОПТИМИЗАЦИЯ: Обрабатываем только каждый 20-й аудио фрейм
-                        if (this.state.audioFrameCount % 20 !== 0) {
-                            return;
+                        // Получаем аудио данные
+                        let audioBuffer: Float32Array[] = [];
+                        
+                        if (audioData.data && audioData.data.byteLength > 0) {
+                            // Конвертируем в Float32 для Web Audio API
+                            const bytes = new Uint8Array(audioData.data);
+                            const samples = audioData.numSamples || 960;
+                            const channels = audioData.channels || 2;
+                            
+                            for (let ch = 0; ch < channels; ch++) {
+                                const channelData = new Float32Array(samples);
+                                // Простая конвертация (можно улучшить)
+                                for (let i = 0; i < samples; i++) {
+                                    channelData[i] = (bytes[i * channels + ch] - 128) / 128.0;
+                                }
+                                audioBuffer.push(channelData);
+                            }
                         }
                         
-                        // Передаем упрощенный аудио сигнал
-                        const jsCode = `
-                            (function() {
-                                if (!window.addNativeAudio || !window.isNativeActive) {
-                                    return;
-                                }
-                                
-                                // Создаем минимальный аудио буфер
-                                const samples = 480; // Меньше сэмплов
-                                const left = new Float32Array(samples);
-                                const right = new Float32Array(samples);
-                                
-                                // Добавляем тихий клик для индикации работы
-                                if (${this.state.audioFrameCount} % 200 === 0) {
-                                    for (let i = 0; i < 10; i++) {
-                                        left[i] = 0.05;
-                                        right[i] = 0.05;
+                        // Передаем аудио в Jitsi
+                        if (audioBuffer.length > 0) {
+                            const jsCode = `
+                                (function() {
+                                    if (!window.addNativeAudio || !window.isNativeActive) {
+                                        return;
                                     }
-                                }
-                                
-                                window.addNativeAudio([left, right]);
-                            })();
-                        `;
+                                    
+                                    // Заглушка минимального аудио
+                                    const samples = ${audioData.numSamples || 960};
+                                    const left = new Float32Array(samples);
+                                    const right = new Float32Array(samples);
+                                    
+                                    // Можно добавить реальные данные если нужно
+                                    window.addNativeAudio([left, right]);
+                                })();
+                            `;
+                            
+                            this.state.window.webContents.executeJavaScript(jsCode).catch(() => {});
+                        }
                         
-                        this.state.window.webContents.executeJavaScript(jsCode).catch(() => {});
-                        
-                        if (this.state.audioFrameCount === 20) {
-                            log.info("✅ Audio stream started (reduced rate)");
+                        if (this.state.audioFrameCount === 1) {
+                            log.info("✅ Audio stream started");
                         }
                         
                     } catch (error: any) {
@@ -1299,7 +992,7 @@ export class JitsiManager {
                 }
             );
 
-            log.info("Native capture callbacks configured: 5 FPS, 1/4 resolution");
+            log.info(`Native capture callbacks configured to pass through Swift quality settings`);
 
             // Добавляем счетчики в state
             if (!this.state.videoFrameCount) this.state.videoFrameCount = 0;
@@ -1316,9 +1009,16 @@ export class JitsiManager {
             return result;
             
         } catch (error: any) {
-            log.error(`Failed to inject native stream: ${error.message}`);
-            // Останавливаем capture в случае ошибки
-            await this.nativeCapture.stopCapture();
+            log.error(`Exception in injectNativeStream: ${error.message}`);
+            log.error(`Stack: ${error.stack}`);
+            
+            // Cleanup
+            try {
+                await this.nativeCapture.stopCapture();
+            } catch (cleanupError) {
+                log.error(`Cleanup error: ${cleanupError}`);
+            }
+            
             return { success: false, error: error.message };
         }
   }

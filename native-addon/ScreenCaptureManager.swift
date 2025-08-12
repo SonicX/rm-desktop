@@ -174,10 +174,28 @@ actor CaptureActor {
     var webrtcVideoCallback: (([String: Any]) -> Void)?
     var webrtcAudioCallback: ((CMSampleBuffer) -> Void)?
 
+    // Параметры качества
+    private var requestedWidth: Int = 1920
+    private var requestedHeight: Int = 1080
+    private var requestedFPS: Int = 30
+    private var scaleFactor: Double = 1.0
+
     init() {
         let delegate = CaptureOutputDelegate()
         self.outputDelegate = delegate
         delegate.actor = self
+    }
+
+    // Метод для установки параметров качества
+    func setCaptureQuality(width: Int, height: Int, fps: Int) {
+        print("📐 Setting capture quality: \(width)x\(height) @ \(fps) fps")
+        
+        // Валидация параметров
+        requestedWidth = max(320, min(3840, width))   // От 320 до 4K
+        requestedHeight = max(240, min(2160, height))  // От 240 до 4K
+        requestedFPS = max(5, min(60, fps))           // От 5 до 60 fps
+        
+        print("📐 Validated quality: \(requestedWidth)x\(requestedHeight) @ \(requestedFPS) fps")
     }
 
     func setVideoCallback(_ callback: @escaping (CMSampleBuffer) -> Void) {
@@ -213,52 +231,91 @@ actor CaptureActor {
         isStreaming = false
     }
 
-    // Add these safety checks to your setCaptureSource method in ScreenCaptureManager.swift
-
     func setCaptureSource(type: String, id: String) async throws {
         print("🔍 setCaptureSource called with type: \(type), id: \(id)")
+        
+        // Reset filter but NOT dimensions if quality was set
+        contentFilter = nil
+        
+        // Сохраняем текущие настройки качества если они были установлены
+        // УБРАЛИ неиспользуемую переменную hasQualitySettings
+        let savedWidth = requestedWidth
+        let savedHeight = requestedHeight
+        let savedFPS = requestedFPS
         
         do {
             let contentTask = Task { @MainActor in
                 try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
             }
             let content = try await contentTask.value
+            
             print("✅ Got shareable content with \(content.displays.count) displays and \(content.windows.count) windows")
             
-            if type == "display" {
-                guard let displayID = UInt32(id) else {
-                    print("❌ Invalid display ID: \(id)")
-                    throw RecordingError("Invalid display ID: \(id)")
+            if type == "display" || type == "screen" {
+                var cleanId = id
+                cleanId = cleanId.replacingOccurrences(of: "screen:", with: "")
+                cleanId = cleanId.replacingOccurrences(of: "display:", with: "")
+                cleanId = cleanId.replacingOccurrences(of: ":0", with: "")
+                cleanId = cleanId.trimmingCharacters(in: .whitespacesAndNewlines)
+                
+                print("🔍 Cleaned display ID: '\(cleanId)'")
+                
+                guard let displayID = UInt32(cleanId) else {
+                    print("❌ Cannot parse display ID as UInt32: '\(cleanId)'")
+                    
+                    if let mainDisplay = content.displays.first {
+                        print("⚠️ Using main display as fallback: \(mainDisplay.displayID)")
+                        contentFilter = SCContentFilter(display: mainDisplay, excludingApplications: [], exceptingWindows: [])
+                        
+                        // Сохраняем исходные размеры
+                        captureWidth = mainDisplay.width
+                        captureHeight = mainDisplay.height
+                        
+                        print("✅ Main display configured: source size \(captureWidth)x\(captureHeight)")
+                        print("📐 Requested quality: \(savedWidth)x\(savedHeight) @ \(savedFPS) fps")
+                        return
+                    }
+                    
+                    throw RecordingError("Invalid display ID and no fallback available")
                 }
                 
-                guard let display = content.displays.first(where: { $0.displayID == displayID }) else {
-                    print("❌ Display not found with ID: \(displayID)")
-                    print("📋 Available displays: \(content.displays.map { $0.displayID })")
-                    throw RecordingError("Screen not found with ID: \(displayID)")
+                if let display = content.displays.first(where: { $0.displayID == displayID }) {
+                    print("✅ Found display: \(display.displayID), source size: \(display.width)x\(display.height)")
+                    contentFilter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
+                    
+                    // Сохраняем ИСХОДНЫЙ размер экрана
+                    captureWidth = display.width
+                    captureHeight = display.height
+                    
+                    print("📐 Source dimensions: \(captureWidth)x\(captureHeight)")
+                    print("📐 Requested quality: \(savedWidth)x\(savedHeight) @ \(savedFPS) fps")
+                    
+                } else {
+                    if let mainDisplay = content.displays.first {
+                        print("⚠️ Using main display as fallback")
+                        contentFilter = SCContentFilter(display: mainDisplay, excludingApplications: [], exceptingWindows: [])
+                        captureWidth = mainDisplay.width
+                        captureHeight = mainDisplay.height
+                    } else {
+                        throw RecordingError("No displays available")
+                    }
                 }
-                
-                print("✅ Found display: \(display.displayID), size: \(display.width)x\(display.height)")
-                contentFilter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
-                captureWidth = display.width
-                captureHeight = display.height
                 
             } else if type == "window" {
-                guard let windowID = UInt32(id) else {
-                    print("❌ Invalid window ID: \(id)")
-                    throw RecordingError("Invalid window ID: \(id)")
+                let cleanId = id.trimmingCharacters(in: .whitespacesAndNewlines)
+                
+                guard let windowID = UInt32(cleanId) else {
+                    print("❌ Invalid window ID: '\(cleanId)'")
+                    throw RecordingError("Invalid window ID")
                 }
                 
                 guard let window = content.windows.first(where: { $0.windowID == windowID }) else {
                     print("❌ Window not found with ID: \(windowID)")
-                    print("📋 Available windows: \(content.windows.prefix(10).map { "\($0.windowID): \($0.title ?? "No title")" })")
-                    throw RecordingError("Window not found with ID: \(windowID)")
+                    throw RecordingError("Window not found")
                 }
                 
-                print("✅ Found window: \(window.windowID), title: '\(window.title ?? "No title")', size: \(window.frame.width)x\(window.frame.height)")
-                
-                // Check if window is valid for capture
                 if window.frame.width < 10 || window.frame.height < 10 {
-                    print("⚠️ Window too small for capture: \(window.frame.width)x\(window.frame.height)")
+                    print("⚠️ Window too small: \(window.frame.width)x\(window.frame.height)")
                     throw RecordingError("Window too small for capture")
                 }
                 
@@ -266,28 +323,54 @@ actor CaptureActor {
                 captureWidth = Int(window.frame.width)
                 captureHeight = Int(window.frame.height)
                 
+                print("✅ Found window: source size \(captureWidth)x\(captureHeight)")
+                print("📐 Requested quality: \(savedWidth)x\(savedHeight) @ \(savedFPS) fps")
+            
             } else if type == "application" {
                 guard let app = content.applications.first(where: { $0.bundleIdentifier == id }) else {
                     print("❌ Application not found with bundle ID: \(id)")
-                    print("📋 Available apps: \(content.applications.prefix(5).map { $0.bundleIdentifier })")
-                    throw RecordingError("Application not found with bundle ID: \(id)")
+                    throw RecordingError("Application not found")
                 }
                 
-                let mainDisplay = content.displays.first!
+                guard let mainDisplay = content.displays.first else {
+                    throw RecordingError("No display available for application capture")
+                }
+                
                 contentFilter = SCContentFilter(display: mainDisplay, including: [app], exceptingWindows: [])
                 captureWidth = mainDisplay.width
                 captureHeight = mainDisplay.height
-                print("✅ Found application: \(app.applicationName)")
                 
+                print("✅ Found application: \(app.applicationName)")
+                print("📐 Source size: \(captureWidth)x\(captureHeight)")
+                print("📐 Requested quality: \(savedWidth)x\(savedHeight) @ \(savedFPS) fps")
             } else {
                 print("❌ Unsupported source type: \(type)")
-                throw RecordingError("Unsupported source type: \(type)")
+                
+                // Fallback to main display
+                if let mainDisplay = content.displays.first {
+                    print("⚠️ Using main display as fallback for unknown type")
+                    contentFilter = SCContentFilter(display: mainDisplay, excludingApplications: [], exceptingWindows: [])
+                    captureWidth = mainDisplay.width
+                    captureHeight = mainDisplay.height
+                } else {
+                    throw RecordingError("Unsupported source type and no fallback")
+                }
             }
             
-            print("✅ setCaptureSource completed successfully for \(type):\(id)")
+            guard contentFilter != nil else {
+                print("❌ Content filter is nil after setup")
+                throw RecordingError("Failed to create content filter")
+            }
+            
+            print("✅ setCaptureSource completed successfully")
+            print("📐 Will capture from \(captureWidth)x\(captureHeight) source")
+            print("📐 Will output at \(requestedWidth)x\(requestedHeight) @ \(requestedFPS) fps")
             
         } catch {
-            print("❌ setCaptureSource failed: \(error.localizedDescription)")
+            print("❌ setCaptureSource error: \(error)")
+            contentFilter = nil
+            captureWidth = 0
+            captureHeight = 0
             throw error
         }
     }
@@ -355,103 +438,164 @@ actor CaptureActor {
         }
     }
 
-    func startCapture() async throws {
-        errorMessage = nil
-
-        guard CGPreflightScreenCaptureAccess() else {
-            print("No screen capture permission")
-            errorMessage = "Screen capture permission denied."
-            DispatchQueue.main.async {
-                NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)
+    // Вспомогательная функция для таймаута
+    func withTimeout<T>(seconds: TimeInterval, operation: @escaping () async throws -> T) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask {
+                try await operation()
             }
+            
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                throw RecordingError("Operation timed out after \(seconds) seconds")
+            }
+            
+            let result = try await group.next()!
+            group.cancelAll()
+            return result
+        }
+    }
+
+    func startCapture() async throws {
+        print("🚀 startCapture called")
+        errorMessage = nil
+        
+        // Проверка прав доступа
+        guard CGPreflightScreenCaptureAccess() else {
+            print("❌ No screen capture permission")
+            errorMessage = "Screen capture permission denied."
             throw RecordingError("No screen capture permission")
         }
-
-        try await requestMicrophoneAccess()
-
-        if contentFilter == nil {
-            let selectedSource = try await selectSource()
-            try await setCaptureSource(type: selectedSource.type, id: selectedSource.id)
-        }
-
-        let streamConfig = SCStreamConfiguration()
-        streamConfig.width = captureWidth
-        streamConfig.height = captureHeight
         
-        if #available(macOS 13.0, *) {
-            // КРИТИЧНО: Включаем захват системного аудио
-            streamConfig.capturesAudio = true
-            streamConfig.excludesCurrentProcessAudio = true // Исключаем звук самого Electron приложения
-            streamConfig.sampleRate = 48000
-            streamConfig.channelCount = 2 // Стерео для системного звука
-            
-            // ВАЖНО: Для захвата звука конкретного приложения при типе "application"
-            if contentFilter != nil {
-                // Это автоматически настроит захват аудио от выбранного источника
-                print("Audio capture enabled for selected source")
+        // Проверка contentFilter
+        guard let filter = contentFilter else {
+            print("❌ No content filter set")
+            throw RecordingError("No content filter available")
+        }
+        
+        print("✅ Permissions OK, filter available")
+        
+        // Исходные размеры источника
+        let sourceWidth = captureWidth > 0 ? captureWidth : 1920
+        let sourceHeight = captureHeight > 0 ? captureHeight : 1080
+        
+        // ВАЖНО: Используем запрошенные размеры для конфигурации
+        var outputWidth = requestedWidth
+        var outputHeight = requestedHeight
+        
+        // Сохраняем пропорции источника
+        let sourceAspect = Double(sourceWidth) / Double(sourceHeight)
+        let requestedAspect = Double(requestedWidth) / Double(requestedHeight)
+        
+        if abs(sourceAspect - requestedAspect) > 0.01 {
+            // Если пропорции отличаются, корректируем выходной размер
+            if sourceAspect > requestedAspect {
+                // Источник шире - корректируем высоту
+                outputHeight = Int(Double(requestedWidth) / sourceAspect)
+            } else {
+                // Источник выше - корректируем ширину
+                outputWidth = Int(Double(requestedHeight) * sourceAspect)
             }
+            print("📐 Adjusted output to maintain aspect ratio: \(outputWidth)x\(outputHeight)")
         }
         
-        streamConfig.minimumFrameInterval = CMTime(value: 1, timescale: 30)
-        streamConfig.queueDepth = 3
+        print("📐 Configuration:")
+        print("   Source: \(sourceWidth)x\(sourceHeight)")
+        print("   Requested: \(requestedWidth)x\(requestedHeight) @ \(requestedFPS) fps")
+        print("   Output: \(outputWidth)x\(outputHeight) @ \(requestedFPS) fps")
+        
+        // Создаем конфигурацию потока
+        let streamConfig = SCStreamConfiguration()
+        
+        // ВАЖНО: Используем ВЫХОДНЫЕ размеры
+        streamConfig.width = outputWidth
+        streamConfig.height = outputHeight
+        
+        // FPS
+        let frameInterval = CMTime(value: 1, timescale: CMTimeScale(requestedFPS))
+        streamConfig.minimumFrameInterval = frameInterval
+        
+        // Базовые настройки
         streamConfig.pixelFormat = kCVPixelFormatType_32BGRA
         streamConfig.showsCursor = true
-
-        // Создаем сессию для микрофона (опционально)
-        let session = AVCaptureSession()
-        captureSession = session
+        streamConfig.queueDepth = requestedWidth <= 640 ? 2 : 3
         
-        // Добавляем микрофон только если нужно
-        if let audioDevice = AVCaptureDevice.default(for: .audio) {
-            do {
-                let audioInputDevice = try AVCaptureDeviceInput(device: audioDevice)
-                if session.canAddInput(audioInputDevice) {
-                    session.addInput(audioInputDevice)
-                    print("Microphone audio input added")
-                    
-                    let audioOutput = AVCaptureAudioDataOutput()
-                    audioOutput.setSampleBufferDelegate(outputDelegate, queue: sampleBufferQueue)
-                    if session.canAddOutput(audioOutput) {
-                        session.addOutput(audioOutput)
-                        print("Microphone audio output added")
-                    } else {
-                        print("Failed to add microphone audio output")
-                        captureSession = nil
-                    }
-                } else {
-                    print("Failed to add microphone audio input")
-                    captureSession = nil
-                }
-            } catch {
-                print("Microphone setup error: \(error), continuing without mic")
-                captureSession = nil
-            }
-        } else {
-            print("Microphone unavailable, continuing without mic capture")
-            captureSession = nil
-        }
-
-        let streamLocal = SCStream(filter: contentFilter!, configuration: streamConfig, delegate: outputDelegate)
-        try streamLocal.addStreamOutput(outputDelegate, type: .screen, sampleHandlerQueue: sampleBufferQueue)
-        
+        // Аудио если доступно
         if #available(macOS 13.0, *) {
-            // Добавляем обработчик для системного аудио
-            try streamLocal.addStreamOutput(outputDelegate, type: .audio, sampleHandlerQueue: sampleBufferQueue)
-            print("System audio output handler added")
+            streamConfig.capturesAudio = true
+            streamConfig.excludesCurrentProcessAudio = true
+            streamConfig.sampleRate = 48000
+            streamConfig.channelCount = 2
         }
         
-        try await streamLocal.startCapture()
+        print("📐 Creating SCStream with configuration")
         
-        // Запускаем сессию микрофона только если она была создана
-        if let session = captureSession {
-            session.startRunning()
-            print("Microphone capture started")
+        do {
+            // Создаем поток
+            let streamLocal = SCStream(filter: filter, configuration: streamConfig, delegate: outputDelegate)
+            
+            print("📐 Adding video output handler")
+            try streamLocal.addStreamOutput(outputDelegate, type: .screen, sampleHandlerQueue: sampleBufferQueue)
+            
+            if #available(macOS 13.0, *) {
+                print("📐 Adding audio output handler")
+                do {
+                    try streamLocal.addStreamOutput(outputDelegate, type: .audio, sampleHandlerQueue: sampleBufferQueue)
+                } catch {
+                    print("⚠️ Audio not added: \(error)")
+                }
+            }
+            
+            print("📐 Starting capture...")
+            
+            // Запускаем захват БЕЗ таймаута (упрощенная версия)
+            try await streamLocal.startCapture()
+            
+            self.stream = streamLocal
+            isCapturing = true
+            isStreaming = true
+            
+            print("✅ Capture started successfully!")
+            print("✅ Streaming at \(outputWidth)x\(outputHeight) @ \(requestedFPS) fps")
+            
+        } catch {
+            print("❌ Failed to start capture: \(error)")
+            self.stream = nil
+            isCapturing = false
+            isStreaming = false
+            throw error
+        }
+    }
+
+    // Метод для изменения качества во время захвата
+    func updateCaptureQuality(width: Int, height: Int, fps: Int) async throws {
+        if !isCapturing || stream == nil {
+            // Если не идет захват, просто сохраняем параметры
+            setCaptureQuality(width: width, height: height, fps: fps)
+            return
         }
         
-        self.stream = streamLocal
-        isCapturing = true
-        isStreaming = true
-        print("Video and audio capture started with system audio support")
+        print("📐 Updating capture quality on the fly...")
+        
+        // Для изменения качества на лету нужно пересоздать поток
+        // Сохраняем текущий фильтр
+        let currentFilter = contentFilter
+        
+        // Останавливаем текущий захват
+        if let stream = stream {
+            try await stream.stopCapture()
+        }
+        
+        // Устанавливаем новые параметры
+        setCaptureQuality(width: width, height: height, fps: fps)
+        
+        // Восстанавливаем фильтр
+        contentFilter = currentFilter
+        
+        // Перезапускаем с новыми параметрами
+        try await startCapture()
+        
+        print("📐 Quality updated successfully")
     }
 
     private func requestMicrophoneAccess() async throws {
@@ -598,44 +742,139 @@ actor CaptureActor {
         
         var sources: [[String: Any]] = []
         
-        // Добавляем дисплеи
+        // 1. Добавляем все дисплеи (экраны)
         for (i, display) in content.displays.enumerated() {
             sources.append([
                 "type": "display",
                 "id": "\(display.displayID)",
-                "name": "Screen \(i + 1)",
+                "name": "Экран \(i + 1)",
                 "width": display.width,
-                "height": display.height
+                "height": display.height,
+                "isDisplay": true  // Маркер для фронтенда
             ])
         }
         
-        // Добавляем окна
+        // 2. Группируем окна по приложениям
+        var appWindows: [String: [SCWindow]] = [:]
+        var appNames: [String: String] = [:]
+        
         for window in content.windows {
             // Пропускаем слишком маленькие окна
-            if window.frame.width < 10 || window.frame.height < 10 {
+            if window.frame.width < 100 || window.frame.height < 100 {
                 continue
             }
             
-            sources.append([
-                "type": "window",
-                "id": "\(window.windowID)",
-                "name": "\(window.title ?? "Untitled") - \(window.owningApplication?.applicationName ?? "Unknown")",
-                "appName": window.owningApplication?.applicationName ?? "Unknown",
-                "title": window.title ?? "Untitled",
-                "width": Int(window.frame.width),
-                "height": Int(window.frame.height)
-            ])
+            // Пропускаем окна без заголовка или приложения
+            guard let app = window.owningApplication,
+                !app.applicationName.isEmpty else {
+                continue
+            }
+            
+            let bundleId = app.bundleIdentifier
+            
+            // Фильтруем системные окна и "мусор"
+            let skipPatterns = [
+                "com.apple.dock",
+                "com.apple.controlcenter",
+                "com.apple.notificationcenterui",
+                "com.apple.systemuiserver",
+                "com.apple.WindowManager",
+                "com.apple.screencaptureui",
+                "com.apple.screenshot",
+                "com.apple.finder", // Можно оставить, если нужен Finder
+                "com.apple.loginwindow",
+                "com.apple.SecurityAgent",
+                "com.apple.CoreAuthentication",
+                "com.apple.Spotlight",
+                "com.apple.universalcontrol"
+            ]
+            
+            // Проверяем, не является ли это системным приложением
+            let shouldSkip = skipPatterns.contains { pattern in
+                bundleId.lowercased().contains(pattern.lowercased())
+            }
+            
+            if shouldSkip {
+                continue
+            }
+            
+            // Группируем окна по приложению
+            if appWindows[bundleId] == nil {
+                appWindows[bundleId] = []
+                appNames[bundleId] = app.applicationName
+            }
+            appWindows[bundleId]?.append(window)
         }
         
-        // Добавляем приложения
-        for app in content.applications {
-            sources.append([
-                "type": "application",
-                "id": app.bundleIdentifier,
-                "name": app.applicationName,
-                "bundleId": app.bundleIdentifier
-            ])
+        // 3. Добавляем приложения (берем самое большое окно каждого приложения)
+        for (bundleId, windows) in appWindows {
+            guard let appName = appNames[bundleId],
+                !windows.isEmpty else {
+                continue
+            }
+            
+            // Находим самое большое окно приложения
+            let largestWindow = windows.max { window1, window2 in
+                let area1 = window1.frame.width * window1.frame.height
+                let area2 = window2.frame.width * window2.frame.height
+                return area1 < area2
+            }
+            
+            if let window = largestWindow {
+                // Определяем тип приложения для лучшей сортировки
+                let isPopularApp = [
+                    "Chrome", "Safari", "Firefox", "Edge",
+                    "Slack", "Discord", "Telegram", "WhatsApp",
+                    "Visual Studio Code", "Xcode", "IntelliJ IDEA",
+                    "Zoom", "Skype", "Microsoft Teams",
+                    "Figma", "Sketch", "Photoshop"
+                ].contains { appName.contains($0) }
+                
+                sources.append([
+                    "type": "window",
+                    "id": "\(window.windowID)",
+                    "name": appName,
+                    "appName": appName,
+                    "bundleId": bundleId,
+                    "title": window.title ?? appName,
+                    "width": Int(window.frame.width),
+                    "height": Int(window.frame.height),
+                    "isApplication": true,  // Маркер для фронтенда
+                    "isPopular": isPopularApp  // Для приоритетной сортировки
+                ])
+            }
         }
+        
+        // 4. Сортируем источники:
+        // - Сначала экраны
+        // - Затем популярные приложения
+        // - Затем остальные приложения
+        sources.sort { source1, source2 in
+            // Экраны всегда первые
+            if source1["isDisplay"] as? Bool == true {
+                return true
+            }
+            if source2["isDisplay"] as? Bool == true {
+                return false
+            }
+            
+            // Популярные приложения идут перед обычными
+            let isPopular1 = source1["isPopular"] as? Bool ?? false
+            let isPopular2 = source2["isPopular"] as? Bool ?? false
+            
+            if isPopular1 != isPopular2 {
+                return isPopular1
+            }
+            
+            // Сортируем по имени
+            let name1 = source1["name"] as? String ?? ""
+            let name2 = source2["name"] as? String ?? ""
+            return name1 < name2
+        }
+        
+        print("📋 Filtered sources: \(sources.count) items")
+        print("   - Displays: \(sources.filter { $0["isDisplay"] as? Bool == true }.count)")
+        print("   - Applications: \(sources.filter { $0["isApplication"] as? Bool == true }.count)")
         
         return sources
     }
@@ -678,6 +917,28 @@ class CaptureOutputDelegate: NSObject, SCStreamDelegate, SCStreamOutput, AVCaptu
     }
 }
 
+// These need to be OUTSIDE the class, at file scope
+enum Either<Left, Right> {
+    case left(Left)
+    case right(Right)
+}
+
+extension Task where Success == Never, Failure == Never {
+    static func select<T1, T2>(_ task1: Task<T1, Error>, _ task2: Task<T2, Error>) async throws -> Either<T1, T2> {
+        return try await withThrowingTaskGroup(of: Either<T1, T2>.self) { group in
+            group.addTask { try await .left(task1.value) }
+            group.addTask { try await .right(task2.value) }
+            
+            guard let result = try await group.next() else {
+                throw RecordingError("No task completed")
+            }
+            
+            group.cancelAll()
+            return result
+        }
+    }
+}
+
 @available(macOS 12.3, *)
 @objc(CCaptureManager)
 public class ScreenCaptureManager: NSObject, SCContentSharingPickerObserver {
@@ -711,18 +972,72 @@ public class ScreenCaptureManager: NSObject, SCContentSharingPickerObserver {
 
     @objc public func setCaptureSource(_ source: [String: Any], completion: @escaping @Sendable (NSError?) -> Void) {
         print("setCaptureSource called with source: \(source)")
-        let type = source["type"] as! String
-        let id = source["id"] as! String
+        
+        // Validate input
+        guard let type = source["type"] as? String,
+            let id = source["id"] as? String else {
+            print("❌ Invalid source dictionary - missing type or id")
+            let error = NSError(domain: "CaptureManager", 
+                            code: -1, 
+                            userInfo: [NSLocalizedDescriptionKey: "Invalid source: missing type or id"])
+            DispatchQueue.main.async {
+                completion(error)
+            }
+            return
+        }
+        
+        print("📋 Source details - type: '\(type)', id: '\(id)'")
+        
+        // Simple timeout mechanism
+        var hasCompleted = false
+        let timeoutWorkItem = DispatchWorkItem {
+            if !hasCompleted {
+                hasCompleted = true
+                print("⏱️ setCaptureSource timeout after 5 seconds")
+                let error = NSError(domain: "CaptureManager",
+                                code: -2,
+                                userInfo: [NSLocalizedDescriptionKey: "Operation timeout"])
+                DispatchQueue.main.async {
+                    completion(error)
+                }
+            }
+        }
+        
+        // Schedule timeout
+        DispatchQueue.global().asyncAfter(deadline: .now() + 5.0, execute: timeoutWorkItem)
+        
         Task.detached { [captureActor = self.captureActor, type, id] in
             do {
                 try await captureActor.setCaptureSource(type: type, id: id)
-                DispatchQueue.main.async {
-                    completion(nil)
+                
+                // Cancel timeout if we succeeded
+                timeoutWorkItem.cancel()
+                
+                if !hasCompleted {
+                    hasCompleted = true
+                    print("✅ setCaptureSource completed successfully")
+                    DispatchQueue.main.async {
+                        completion(nil)
+                    }
                 }
             } catch {
-                print("setCaptureSource error: \(error)")
-                DispatchQueue.main.async {
-                    completion(error as NSError)
+                // Cancel timeout
+                timeoutWorkItem.cancel()
+                
+                if !hasCompleted {
+                    hasCompleted = true
+                    print("❌ setCaptureSource error: \(error)")
+                    DispatchQueue.main.async {
+                        let nsError: NSError
+                        if let recordingError = error as? RecordingError {
+                            nsError = recordingError
+                        } else {
+                            nsError = NSError(domain: "CaptureManager",
+                                            code: -1,
+                                            userInfo: [NSLocalizedDescriptionKey: error.localizedDescription])
+                        }
+                        completion(nsError)
+                    }
                 }
             }
         }
@@ -791,7 +1106,7 @@ public class ScreenCaptureManager: NSObject, SCContentSharingPickerObserver {
     }
 
     @objc public func getAvailableSourcesWithCompletion(_ completion: @escaping @Sendable (NSError?, [[String: Any]]?) -> Void) {
-    print("getAvailableSourcesWithCompletion called")
+        print("getAvailableSourcesWithCompletion called")
         Task.detached { [captureActor = self.captureActor] in
             do {
                 let sources = try await captureActor.getAvailableSources()
@@ -886,7 +1201,105 @@ public class ScreenCaptureManager: NSObject, SCContentSharingPickerObserver {
             await captureActor.clearPickerCompletion()
         }
     }
-}
+
+    @objc public func debugDisplayInfo(_ completion: @escaping @Sendable (String) -> Void) {
+        Task.detached {
+            do {
+                let contentTask = Task { @MainActor in
+                    try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
+                }
+                let content = try await contentTask.value
+                
+                var info = "=== DISPLAY DIAGNOSTIC INFO ===\n"
+                info += "Number of displays: \(content.displays.count)\n\n"
+                
+                for (index, display) in content.displays.enumerated() {
+                    info += "Display #\(index + 1):\n"
+                    info += "  - Display ID: \(display.displayID)\n"
+                    info += "  - Size: \(display.width) x \(display.height)\n"
+                    info += "  - Frame: \(display.frame)\n"
+                    info += "\n"
+                }
+                
+                info += "Number of windows: \(content.windows.count)\n"
+                info += "First 5 windows:\n"
+                for window in content.windows.prefix(5) {
+                    info += "  - Window ID: \(window.windowID), Title: \(window.title ?? "No title")\n"
+                }
+                
+                print(info)
+                
+                DispatchQueue.main.async {
+                    completion(info)
+                }
+            } catch {
+                let errorInfo = "Failed to get display info: \(error.localizedDescription)"
+                print(errorInfo)
+                DispatchQueue.main.async {
+                    completion(errorInfo)
+                }
+            }
+        }
+    }
+
+    @objc public func validateSourceId(_ sourceId: String, completion: @escaping @Sendable (Bool, String) -> Void) {
+        Task.detached {
+            do {
+                let contentTask = Task { @MainActor in
+                    try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
+                }
+                let content = try await contentTask.value
+                
+                // Parse the source ID
+                var cleanId = sourceId
+                cleanId = cleanId.replacingOccurrences(of: "screen:", with: "")
+                cleanId = cleanId.replacingOccurrences(of: "display:", with: "")
+                cleanId = cleanId.replacingOccurrences(of: ":0", with: "")
+                
+                if let displayID = UInt32(cleanId) {
+                    let found = content.displays.contains { $0.displayID == displayID }
+                    
+                    if found {
+                        DispatchQueue.main.async {
+                            completion(true, "Display \(displayID) found")
+                        }
+                    } else {
+                        let availableIDs = content.displays.map { String($0.displayID) }.joined(separator: ", ")
+                        DispatchQueue.main.async {
+                            completion(false, "Display \(displayID) not found. Available: \(availableIDs)")
+                        }
+                    }
+                } else {
+                    DispatchQueue.main.async {
+                        completion(false, "Invalid ID format: \(sourceId)")
+                    }
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    completion(false, "Error: \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+
+    @objc public func setCaptureQuality(_ width: Int32, height: Int32, fps: Int32) {
+        print("📐 ScreenCaptureManager.setCaptureQuality called")
+        print("   Width: \(width)")
+        print("   Height: \(height)")
+        print("   FPS: \(fps)")
+        
+        Task {
+            await captureActor.setCaptureQuality(width: Int(width), height: Int(height), fps: Int(fps))
+            print("📐 Quality set in actor")
+        }
+    }
+
+    // Альтернативный вариант с другим именем для теста
+    @objc public func testSetQuality(_ width: Int32, height: Int32, fps: Int32) {
+        print("📐 TEST: testSetQuality called: \(width)x\(height)@\(fps)")
+    }
+    
+}  // End of class
 
 class RecordingError: NSError, @unchecked Sendable {
     init(_ message: String) {

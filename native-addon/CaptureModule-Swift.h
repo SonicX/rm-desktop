@@ -344,6 +344,10 @@ SWIFT_CLASS_NAMED("ScreenCaptureManager") SWIFT_AVAILABILITY(macos,introduced=12
 - (void)contentSharingPicker:(SCContentSharingPicker * _Nonnull)picker didUpdateWithFilter:(SCContentFilter * _Nonnull)filter forStream:(SCStream * _Nullable)stream SWIFT_AVAILABILITY(macos,introduced=14.0);
 - (void)contentSharingPicker:(SCContentSharingPicker * _Nonnull)picker didCancelForStream:(SCStream * _Nullable)stream SWIFT_AVAILABILITY(macos,introduced=14.0);
 - (void)contentSharingPickerStartDidFailWithError:(NSError * _Nonnull)error SWIFT_AVAILABILITY(macos,introduced=14.0);
+- (void)debugDisplayInfo:(void (^ _Nonnull)(NSString * _Nonnull))completion;
+- (void)validateSourceId:(NSString * _Nonnull)sourceId completion:(void (^ _Nonnull)(BOOL, NSString * _Nonnull))completion;
+- (void)setCaptureQuality:(int32_t)width height:(int32_t)height fps:(int32_t)fps;
+- (void)testSetQuality:(int32_t)width height:(int32_t)height fps:(int32_t)fps;
 - (nonnull instancetype)init OBJC_DESIGNATED_INITIALIZER;
 @end
 

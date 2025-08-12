@@ -398,6 +398,11 @@ async function createMainWindow(): Promise<BrowserWindow> {
     log.info(`Loading native addon from: ${addonPath}`);
     screenCaptureAddon = require(addonPath);
     log.info(`✅ Native addon loaded successfully`);
+
+    if (screenCaptureAddon.testBasic) {
+        const result = screenCaptureAddon.testBasic();
+        log.info(`Basic test result: ${result}`);
+    }
     
     // Тест addon
     const testResult = screenCaptureAddon.testMethod();
@@ -410,10 +415,10 @@ async function createMainWindow(): Promise<BrowserWindow> {
         log.warn("⚠️ Native addon missing getAvailableSources method");
     }
     
-    } catch (error: any) {
-    log.error(`❌ Failed to load native addon: ${error.message}`);
-    screenCaptureAddon = null;
-    }
+  } catch (error: any) {
+        log.error(`❌ Failed to load native addon: ${error.message}`);
+        screenCaptureAddon = null;
+  }
 
   const nativeCaptureManager = new NativeCaptureManager(screenCaptureAddon);
   const jitsiManager = new JitsiManager(
