@@ -652,179 +652,254 @@ export class JitsiManager {
             
             // Теперь создаем MediaStream в Jitsi и подключаем callbacks
             const result = await this.state.window.webContents.executeJavaScript(`
-            (async function() {
-                console.log('[NativeStream] Creating native stream with capture...');
-                
-                // Если уже есть MediaStream - используем его
-                if (window.jitsiNativeMediaStream instanceof MediaStream && window.isNativeActive) {
-                    console.log('[NativeStream] MediaStream already exists');
-                    return { 
-                        success: true, 
-                        streamId: window.jitsiNativeMediaStream.id,
-                        message: 'Stream already active'
-                    };
-                }
-                
-                try {
-                    // === СОЗДАЕМ CANVAS ДЛЯ ВИДЕО ===
-                    const canvas = document.createElement('canvas');
-                    canvas.width = 1920;
-                    canvas.height = 1080;
-                    canvas.style.display = 'none';
-                    canvas.id = 'native-stream-canvas';
-                    document.body.appendChild(canvas);
+                (async function() {
+                    console.log('[NativeStream] Creating native stream with capture...');
                     
-                    const ctx = canvas.getContext('2d', {
-                        alpha: false,
-                        desynchronized: true,
-                        willReadFrequently: false
-                    });
-                    
-                    if (!ctx) {
-                        throw new Error('Failed to get canvas context');
+                    if (window.jitsiNativeMediaStream instanceof MediaStream && window.isNativeActive) {
+                        console.log('[NativeStream] MediaStream already exists');
+                        return { 
+                            success: true, 
+                            streamId: window.jitsiNativeMediaStream.id,
+                            message: 'Stream already active'
+                        };
                     }
                     
-                    // === СОЗДАЕМ AUDIO CONTEXT ===
-                    const audioContext = new (window.AudioContext || window.webkitAudioContext)({
-                        sampleRate: 48000,
-                        latencyHint: 'interactive'
-                    });
-                    
-                    const scriptProcessor = audioContext.createScriptProcessor(4096, 0, 2);
-                    const audioBufferQueue = [];
-                    let lastAudioTime = 0;
-                    
-                    scriptProcessor.onaudioprocess = (event) => {
-                        if (!window.isNativeActive) return;
+                    try {
+                        // === СОЗДАЕМ CANVAS ДЛЯ ВИДЕО ===
+                        const canvas = document.createElement('canvas');
+                        canvas.width = 1920;
+                        canvas.height = 1080;
+                        canvas.style.display = 'none';
+                        canvas.id = 'native-stream-canvas';
+                        document.body.appendChild(canvas);
                         
-                        const outputBuffer = event.outputBuffer;
-                        const currentTime = audioContext.currentTime;
+                        const ctx = canvas.getContext('2d', {
+                            alpha: false,
+                            desynchronized: true,
+                            willReadFrequently: false
+                        });
                         
-                        // Синхронизация аудио
-                        for (let channel = 0; channel < outputBuffer.numberOfChannels; channel++) {
-                            const outputData = outputBuffer.getChannelData(channel);
+                        if (!ctx) {
+                            throw new Error('Failed to get canvas context');
+                        }
+                        
+                        // === СОЗДАЕМ AUDIO CONTEXT С ПРАВИЛЬНОЙ ЧАСТОТОЙ ===
+                        const audioContext = new (window.AudioContext || window.webkitAudioContext)({
+                            sampleRate: 48000,  // ВАЖНО: Должно совпадать с источником
+                            latencyHint: 'interactive'
+                        });
+                        
+                        // КРИТИЧНО: Используем правильный размер буфера
+                        // 960 сэмплов при 48kHz = 20ms (совпадает с частотой кадров от Swift)
+                        const SAMPLES_PER_FRAME = 960;
+                        const bufferSize = 2048; // Ближайшая степень 2 к 960
+                        
+                        // Создаем ScriptProcessor с правильным размером
+                        const scriptProcessor = audioContext.createScriptProcessor(bufferSize, 0, 2);
+                        
+                        // Кольцевой буфер для точной синхронизации
+                        class RingBuffer {
+                            constructor(size) {
+                                this.buffer = new Float32Array(size);
+                                this.writeIndex = 0;
+                                this.readIndex = 0;
+                                this.availableSamples = 0;
+                                this.size = size;
+                            }
                             
-                            if (audioBufferQueue.length > 0) {
-                                const audioData = audioBufferQueue.shift();
-                                if (audioData && audioData[channel]) {
-                                    outputData.set(audioData[channel]);
-                                } else {
-                                    outputData.fill(0);
+                            write(data) {
+                                for (let i = 0; i < data.length; i++) {
+                                    this.buffer[this.writeIndex] = data[i];
+                                    this.writeIndex = (this.writeIndex + 1) % this.size;
+                                    this.availableSamples = Math.min(this.availableSamples + 1, this.size);
                                 }
-                            } else {
-                                outputData.fill(0);
+                            }
+                            
+                            read(output) {
+                                const samplesToRead = Math.min(output.length, this.availableSamples);
+                                
+                                for (let i = 0; i < samplesToRead; i++) {
+                                    output[i] = this.buffer[this.readIndex];
+                                    this.readIndex = (this.readIndex + 1) % this.size;
+                                }
+                                
+                                // Заполняем остаток тишиной
+                                for (let i = samplesToRead; i < output.length; i++) {
+                                    output[i] = 0;
+                                }
+                                
+                                this.availableSamples = Math.max(0, this.availableSamples - samplesToRead);
+                                return samplesToRead;
+                            }
+                            
+                            getAvailable() {
+                                return this.availableSamples;
+                            }
+                            
+                            reset() {
+                                this.writeIndex = 0;
+                                this.readIndex = 0;
+                                this.availableSamples = 0;
+                                this.buffer.fill(0);
                             }
                         }
-                    };
-                    
-                    const destination = audioContext.createMediaStreamDestination();
-                    scriptProcessor.connect(destination);
-                    
-                    // === СОЗДАЕМ STREAM ===
-                    const stream = canvas.captureStream(30);
-                    const videoTrack = stream.getVideoTracks()[0];
-                    const audioTrack = destination.stream.getAudioTracks()[0];
-                    
-                    if (videoTrack) {
-                        videoTrack.contentHint = 'detail';
-                        console.log('[NativeStream] Video track created');
+                        
+                        // Создаем кольцевые буферы для каждого канала
+                        const leftRingBuffer = new RingBuffer(48000); // 1 секунда буфер
+                        const rightRingBuffer = new RingBuffer(48000);
+                        
+                        // Переменные для синхронизации
+                        let lastAudioTime = 0;
+                        let audioStartTime = 0;
+                        let framesProcessed = 0;
+                        
+                        // Обработчик ScriptProcessor
+                        scriptProcessor.onaudioprocess = (event) => {
+                            if (!window.isNativeActive) {
+                                event.outputBuffer.getChannelData(0).fill(0);
+                                event.outputBuffer.getChannelData(1).fill(0);
+                                return;
+                            }
+                            
+                            const outputL = event.outputBuffer.getChannelData(0);
+                            const outputR = event.outputBuffer.getChannelData(1);
+                            
+                            // Читаем из кольцевых буферов
+                            const samplesRead = leftRingBuffer.read(outputL);
+                            rightRingBuffer.read(outputR);
+                            
+                            // Отладка синхронизации каждые 100 фреймов
+                            framesProcessed++;
+                            if (framesProcessed % 100 === 0) {
+                                const bufferLatency = leftRingBuffer.getAvailable() / 48000 * 1000; // в мс
+                                if (bufferLatency > 100) {
+                                    console.log('[Audio] Warning: Buffer latency:', bufferLatency.toFixed(0), 'ms');
+                                    // Если накопилось слишком много - пропускаем часть
+                                    if (bufferLatency > 200) {
+                                        const samplesToSkip = Math.floor((bufferLatency - 50) * 48);
+                                        leftRingBuffer.readIndex = (leftRingBuffer.readIndex + samplesToSkip) % leftRingBuffer.size;
+                                        rightRingBuffer.readIndex = (rightRingBuffer.readIndex + samplesToSkip) % rightRingBuffer.size;
+                                        leftRingBuffer.availableSamples = Math.max(0, leftRingBuffer.availableSamples - samplesToSkip);
+                                        rightRingBuffer.availableSamples = Math.max(0, rightRingBuffer.availableSamples - samplesToSkip);
+                                        console.log('[Audio] Skipped', samplesToSkip, 'samples to reduce latency');
+                                    }
+                                }
+                            }
+                        };
+                        
+                        // Создаем destination
+                        const destination = audioContext.createMediaStreamDestination();
+                        scriptProcessor.connect(destination);
+                        
+                        // === СОЗДАЕМ STREAM ===
+                        const stream = canvas.captureStream(30);
+                        
+                        // Добавляем аудио трек
+                        if (destination.stream.getAudioTracks().length > 0) {
+                            stream.addTrack(destination.stream.getAudioTracks()[0]);
+                            console.log('[NativeStream] Audio track added');
+                        }
+                        
+                        console.log('[NativeStream] Stream created with', stream.getTracks().length, 'tracks');
+                        
+                        // === СОХРАНЯЕМ ===
+                        window.jitsiNativeMediaStream = stream;
+                        window.nativeCanvas = canvas;
+                        window.nativeCtx = ctx;
+                        window.nativeAudioContext = audioContext;
+                        window.leftRingBuffer = leftRingBuffer;
+                        window.rightRingBuffer = rightRingBuffer;
+                        window.isNativeActive = true;
+                        window.frameCounter = 0;
+                        window.audioCounter = 0;
+                        window.audioDropped = 0;
+                        
+                        // === ФУНКЦИЯ ОБНОВЛЕНИЯ ВИДЕО (без изменений) ===
+                        window.updateNativeVideo = function(frameData) {
+                            if (!window.isNativeActive || !ctx) return;
+                            
+                            window.frameCounter = (window.frameCounter || 0) + 1;
+                            
+                            try {
+                                if (frameData && frameData.data && frameData.width && frameData.height) {
+                                    if (canvas.width !== frameData.width || canvas.height !== frameData.height) {
+                                        canvas.width = frameData.width;
+                                        canvas.height = frameData.height;
+                                    }
+                                    
+                                    const imageData = new ImageData(
+                                        new Uint8ClampedArray(frameData.data),
+                                        frameData.width,
+                                        frameData.height
+                                    );
+                                    
+                                    ctx.putImageData(imageData, 0, 0);
+                                }
+                            } catch (error) {
+                                console.error('[NativeStream] Error updating video:', error);
+                            }
+                        };
+                        
+                        // === ФУНКЦИЯ ДОБАВЛЕНИЯ АУДИО С СИНХРОНИЗАЦИЕЙ ===
+                        window.addNativeSystemAudio = function(audioData) {
+                            if (!window.isNativeActive || !audioData) return;
+                            
+                            window.audioCounter = (window.audioCounter || 0) + 1;
+                            
+                            if (audioData.left && audioData.right) {
+                                const currentTime = performance.now();
+                                
+                                // Инициализация времени
+                                if (!window.audioStartTime) {
+                                    window.audioStartTime = currentTime;
+                                    window.lastAudioTime = currentTime;
+                                    console.log('[NativeStream] Audio sync started');
+                                }
+                                
+                                // Записываем напрямую в кольцевые буферы без дополнительной обработки
+                                // Данные уже обработаны на стороне Electron
+                                window.leftRingBuffer.write(audioData.left);
+                                window.rightRingBuffer.write(audioData.right);
+                                
+                                window.lastAudioTime = currentTime;
+                                
+                                // Логирование
+                                if (window.audioCounter === 1) {
+                                    console.log('[NativeStream] ✅ First audio frame added');
+                                    const maxL = Math.max(...audioData.left.slice(0, 100));
+                                    const maxR = Math.max(...audioData.right.slice(0, 100));
+                                    console.log('[NativeStream] Input levels:', maxL.toFixed(4), maxR.toFixed(4));
+                                }
+                                
+                                if (window.audioCounter % 100 === 0) {
+                                    const bufferMs = window.leftRingBuffer.getAvailable() / 48;
+                                    console.log('[Audio] Frames:', window.audioCounter, 'Buffer:', bufferMs.toFixed(0), 'ms');
+                                }
+                            }
+                        };
+                        
+                        console.log('[NativeStream] Ring buffer audio system initialized');
+                        
+                        // Запускаем audio context
+                        if (audioContext.state === 'suspended') {
+                            await audioContext.resume();
+                            console.log('[NativeStream] Audio context resumed');
+                        }
+                        
+                        return { 
+                            success: true, 
+                            streamId: stream.id,
+                            message: 'Native MediaStream created with synchronized audio'
+                        };
+                        
+                    } catch (error) {
+                        console.error('[NativeStream] Error:', error);
+                        return { 
+                            success: false, 
+                            error: error.message 
+                        };
                     }
-                    
-                    if (audioTrack) {
-                        stream.addTrack(audioTrack);
-                        console.log('[NativeStream] Audio track added');
-                    }
-                    
-                    console.log('[NativeStream] Stream created with', stream.getTracks().length, 'tracks');
-                    console.log('[NativeStream] Stream ID:', stream.id);
-                    
-                    // === СОХРАНЯЕМ ===
-                    window.jitsiNativeMediaStream = stream;
-                    window.nativeCanvas = canvas;
-                    window.nativeCtx = ctx;
-                    window.nativeAudioQueue = audioBufferQueue;
-                    window.isNativeActive = true;
-                    window.hasRealPixelData = false;
-                    window.frameCounter = 0;
-                    window.audioCounter = 0;
-                    
-                    // === ФУНКЦИИ ОБНОВЛЕНИЯ ДЛЯ NATIVE CAPTURE ===
-                    window.updateNativeVideo = function(frameData) {
-                        if (!window.isNativeActive || !ctx) return;
-                        
-                        window.frameCounter = (window.frameCounter || 0) + 1;
-                        
-                        try {
-                            if (frameData && frameData.data && frameData.width && frameData.height) {
-                                // Обновляем размер canvas если нужно
-                                if (canvas.width !== frameData.width || canvas.height !== frameData.height) {
-                                    canvas.width = frameData.width;
-                                    canvas.height = frameData.height;
-                                    console.log('[NativeStream] Canvas resized to', frameData.width, 'x', frameData.height);
-                                }
-                                
-                                // Конвертируем BGRA в RGBA
-                                const pixelData = new Uint8ClampedArray(frameData.data);
-                                for (let i = 0; i < pixelData.length; i += 4) {
-                                    const b = pixelData[i];
-                                    const r = pixelData[i + 2];
-                                    pixelData[i] = r;
-                                    pixelData[i + 2] = b;
-                                }
-                                
-                                const imageData = new ImageData(pixelData, frameData.width, frameData.height);
-                                ctx.putImageData(imageData, 0, 0);
-                                
-                                if (!window.hasRealPixelData) {
-                                    window.hasRealPixelData = true;
-                                    console.log('[NativeStream] ✅ First real frame rendered!');
-                                }
-                                
-                                if (window.frameCounter % 30 === 0) {
-                                    console.log('[NativeStream] Video frames:', window.frameCounter);
-                                }
-                            }
-                        } catch (error) {
-                            console.error('[NativeStream] Error updating video:', error);
-                        }
-                    };
-                    
-                    window.addNativeAudio = function(audioData) {
-                        if (!window.isNativeActive) return;
-                        
-                        window.audioCounter = (window.audioCounter || 0) + 1;
-                        
-                        if (audioData && audioData.length === 2) {
-                            audioBufferQueue.push(audioData);
-                            
-                            // Ограничиваем размер очереди
-                            if (audioBufferQueue.length > 20) {
-                                audioBufferQueue.shift();
-                            }
-                            
-                            if (window.audioCounter % 100 === 0) {
-                                console.log('[NativeStream] Audio frames:', window.audioCounter);
-                            }
-                        }
-                    };
-                    
-                    console.log('[NativeStream] Update functions registered');
-                    console.log('[NativeStream] Ready to receive native capture data');
-                    
-                    return { 
-                        success: true, 
-                        streamId: stream.id,
-                        message: 'Native MediaStream created and ready for capture data'
-                    };
-                    
-                } catch (error) {
-                    console.error('[NativeStream] Error:', error);
-                    return { 
-                        success: false, 
-                        error: error.message 
-                    };
-                }
-            })();
+                })();
             `);
             
             if (!result.success) {
@@ -834,96 +909,73 @@ export class JitsiManager {
             }
             
             this.nativeCapture.setFrameCallbacks(
-                // Video callback - передаем все кадры без изменений
+                // Video callback - упрощенная версия без лишних преобразований
                 (videoData: any) => {
                     if (!this.state.window || this.state.window.isDestroyed()) return;
                     
                     try {
-                        if (!videoData || !videoData.data) {
-                            return;
-                        }
+                        if (!videoData || !videoData.data) return;
                         
                         this.state.videoFrameCount = (this.state.videoFrameCount || 0) + 1;
                         
                         const width = videoData.width || 1920;
                         const height = videoData.height || 1080;
                         
-                        // Логируем первый кадр
-                        if (this.state.videoFrameCount === 1) {
-                            log.info("First frame from Swift:", {
-                                size: `${width}x${height}`,
-                                dataSize: videoData.data.byteLength,
-                                quality: this.state.qualityPreset
-                            });
-                        }
-                        
-                        // Получаем пиксели из ArrayBuffer
-                        let sourcePixels: Uint8Array;
-                        
+                        // Получаем пиксели
+                        let pixelArray: Uint8Array;
                         if (videoData.data.byteLength !== undefined) {
-                            sourcePixels = new Uint8Array(videoData.data);
+                            pixelArray = new Uint8Array(videoData.data);
                         } else if (Buffer.isBuffer(videoData.data)) {
-                            sourcePixels = new Uint8Array(videoData.data);
+                            pixelArray = new Uint8Array(videoData.data);
                         } else {
                             return;
                         }
                         
-                        // Конвертируем в base64 для передачи (без масштабирования)
-                        const buffer = Buffer.from(sourcePixels);
-                        const base64Data = buffer.toString('base64');
+                        // ВАЖНО: НЕ меняем порядок байтов здесь!
+                        // Swift уже отдает в правильном формате BGRA
                         
-                        // Передаем в Jitsi как есть
+                        // Передаем в Jitsi через base64
+                        const base64Data = Buffer.from(pixelArray).toString('base64');
+                        
                         const jsCode = `
                             (function() {
-                                if (!window.updateNativeVideo || !window.isNativeActive) {
-                                    return;
-                                }
+                                if (!window.updateNativeVideo || !window.isNativeActive) return;
                                 
                                 try {
                                     // Декодируем base64
                                     const binaryString = atob('${base64Data}');
                                     const len = binaryString.length;
-                                    const pixelData = new Uint8ClampedArray(len);
+                                    const bytes = new Uint8Array(len);
                                     
                                     for (let i = 0; i < len; i++) {
-                                        pixelData[i] = binaryString.charCodeAt(i);
+                                        bytes[i] = binaryString.charCodeAt(i);
                                     }
                                     
-                                    // Обновляем canvas с оригинальным размером
-                                    const frameData = {
-                                        data: pixelData,
+                                    // Конвертируем BGRA в RGBA для canvas
+                                    const rgbaData = new Uint8ClampedArray(len);
+                                    for (let i = 0; i < len; i += 4) {
+                                        rgbaData[i] = bytes[i + 2];     // R (from B position)
+                                        rgbaData[i + 1] = bytes[i + 1]; // G
+                                        rgbaData[i + 2] = bytes[i];     // B (from R position)
+                                        rgbaData[i + 3] = bytes[i + 3]; // A
+                                    }
+                                    
+                                    window.updateNativeVideo({
+                                        data: rgbaData,
                                         width: ${width},
                                         height: ${height}
-                                    };
+                                    });
                                     
-                                    window.updateNativeVideo(frameData);
-                                    
-                                    // Логируем статус
-                                    if (!window.nativeStreamStarted) {
-                                        console.log('[NativeStream] ✅ Native stream started');
-                                        console.log('[NativeStream] Resolution: ${width}x${height}');
-                                        console.log('[NativeStream] Quality preset: ${this.state.qualityPreset}');
-                                        window.nativeStreamStarted = true;
-                                    }
-                                    
-                                    window.frameCount = (window.frameCount || 0) + 1;
-                                    if (window.frameCount % 30 === 0) {
-                                        console.log('[NativeStream] Frames:', window.frameCount);
-                                    }
                                 } catch (e) {
-                                    console.error('[NativeStream] Error:', e.message);
+                                    console.error('[NativeStream] Video error:', e);
                                 }
                             })();
                         `;
                         
-                        this.state.window.webContents.executeJavaScript(jsCode).catch(err => {
-                            if (this.state.videoFrameCount <= 3) {
-                                log.error(`Failed to send frame: ${err.message}`);
-                            }
-                        });
+                        this.state.window.webContents.executeJavaScript(jsCode).catch(() => {});
                         
-                        if (this.state.videoFrameCount % 30 === 0) {
-                            log.info(`Frames sent: ${this.state.videoFrameCount}, size: ${width}x${height}`);
+                        if (this.state.videoFrameCount === 1) {
+                            log.info("✅ First video frame sent");
                         }
                         
                     } catch (error: any) {
@@ -931,7 +983,7 @@ export class JitsiManager {
                     }
                 },
                 
-                // Audio callback - передаем все аудио данные
+                // Audio callback - исправленная обработка PCM данных
                 (audioData: any) => {
                     if (!this.state.window || this.state.window.isDestroyed()) return;
                     
@@ -942,49 +994,212 @@ export class JitsiManager {
                         
                         this.state.audioFrameCount = (this.state.audioFrameCount || 0) + 1;
                         
-                        // Получаем аудио данные
-                        let audioBuffer: Float32Array[] = [];
+                        const arrayBuffer = audioData.data;
+                        const samples = audioData.numSamples || 960;
+                        const channels = audioData.channels || 2;
                         
-                        if (audioData.data && audioData.data.byteLength > 0) {
-                            // Конвертируем в Float32 для Web Audio API
-                            const bytes = new Uint8Array(audioData.data);
-                            const samples = audioData.numSamples || 960;
-                            const channels = audioData.channels || 2;
+                        // КРИТИЧНО: Swift отправляет данные в особом формате
+                        // Format 1819304813 = kAudioFormatLinearPCM
+                        // Но данные могут быть в нестандартном порядке
+                        
+                        if (this.state.audioFrameCount === 1) {
+                            log.info("Analyzing Swift audio data structure:");
+                            log.info("- Buffer size:", arrayBuffer.byteLength, "bytes");
+                            log.info("- Samples:", samples);
+                            log.info("- Channels:", channels);
+                            log.info("- Expected size for Float32:", samples * channels * 4);
+                            log.info("- Expected size for Int16:", samples * channels * 2);
                             
-                            for (let ch = 0; ch < channels; ch++) {
-                                const channelData = new Float32Array(samples);
-                                // Простая конвертация (можно улучшить)
-                                for (let i = 0; i < samples; i++) {
-                                    channelData[i] = (bytes[i * channels + ch] - 128) / 128.0;
+                            // Анализируем структуру данных
+                            const view = new DataView(arrayBuffer);
+                            const uint8Array = new Uint8Array(arrayBuffer);
+                            
+                            // Проверяем паттерны в данных
+                            let nonZeroBytes = 0;
+                            for (let i = 0; i < Math.min(100, uint8Array.length); i++) {
+                                if (uint8Array[i] !== 0) nonZeroBytes++;
+                            }
+                            log.info("Non-zero bytes in first 100:", nonZeroBytes);
+                            
+                            // Проверяем разные интерпретации
+                            for (let offset = 0; offset < 32 && offset < arrayBuffer.byteLength - 4; offset += 4) {
+                                const asFloat32LE = view.getFloat32(offset, true);
+                                const asFloat32BE = view.getFloat32(offset, false);
+                                const asInt32LE = view.getInt32(offset, true);
+                                
+                                if (Math.abs(asFloat32LE) > 0.00001 && Math.abs(asFloat32LE) < 1.0) {
+                                    log.info(`Offset ${offset}: Float32LE = ${asFloat32LE}`);
                                 }
-                                audioBuffer.push(channelData);
                             }
                         }
                         
-                        // Передаем аудио в Jitsi
-                        if (audioBuffer.length > 0) {
-                            const jsCode = `
-                                (function() {
-                                    if (!window.addNativeAudio || !window.isNativeActive) {
-                                        return;
-                                    }
-                                    
-                                    // Заглушка минимального аудио
-                                    const samples = ${audioData.numSamples || 960};
-                                    const left = new Float32Array(samples);
-                                    const right = new Float32Array(samples);
-                                    
-                                    // Можно добавить реальные данные если нужно
-                                    window.addNativeAudio([left, right]);
-                                })();
-                            `;
+                        // ВАЖНО: Попробуем другой подход к декодированию
+                        // Swift может отправлять данные как Int16 или как специальный формат
+                        
+                        let leftChannel: Float32Array;
+                        let rightChannel: Float32Array;
+                        
+                        // Проверяем размер - если 7680 байт для 960 сэмплов стерео
+                        // То это 7680 / (960 * 2) = 4 байта на сэмпл = Float32
+                        
+                        if (arrayBuffer.byteLength === samples * channels * 4) {
+                            // Float32 формат, но возможно не в стандартном порядке
+                            const dataView = new DataView(arrayBuffer);
+                            leftChannel = new Float32Array(samples);
+                            rightChannel = new Float32Array(samples);
                             
-                            this.state.window.webContents.executeJavaScript(jsCode).catch(() => {});
+                            // Пробуем правильный деинтерливинг для Swift/CoreAudio
+                            // CoreAudio может использовать non-interleaved (планарный) формат
+                            
+                            // Вариант 1: Планарный формат (все левые сэмплы, затем все правые)
+                            const halfSize = arrayBuffer.byteLength / 2;
+                            let hasValidData = false;
+                            
+                            // Пробуем планарный формат
+                            for (let i = 0; i < samples; i++) {
+                                leftChannel[i] = dataView.getFloat32(i * 4, true);
+                                rightChannel[i] = dataView.getFloat32(halfSize + i * 4, true);
+                                
+                                if (Math.abs(leftChannel[i]) > 0.00001 || Math.abs(rightChannel[i]) > 0.00001) {
+                                    hasValidData = true;
+                                }
+                            }
+                            
+                            if (!hasValidData) {
+                                // Вариант 2: Интерливд формат (L0, R0, L1, R1, ...)
+                                for (let i = 0; i < samples; i++) {
+                                    leftChannel[i] = dataView.getFloat32(i * 8, true);      // i*8 = i*2*4
+                                    rightChannel[i] = dataView.getFloat32(i * 8 + 4, true); // следующие 4 байта
+                                    
+                                    if (Math.abs(leftChannel[i]) > 0.00001 || Math.abs(rightChannel[i]) > 0.00001) {
+                                        hasValidData = true;
+                                    }
+                                }
+                            }
+                            
+                            // Если все еще тишина, возможно данные в другом endianness
+                            if (!hasValidData) {
+                                for (let i = 0; i < samples; i++) {
+                                    leftChannel[i] = dataView.getFloat32(i * 8, false);      // big-endian
+                                    rightChannel[i] = dataView.getFloat32(i * 8 + 4, false);
+                                }
+                            }
+                            
+                        } else if (arrayBuffer.byteLength === samples * channels * 2) {
+                            // Int16 формат
+                            const dataView = new DataView(arrayBuffer);
+                            leftChannel = new Float32Array(samples);
+                            rightChannel = new Float32Array(samples);
+                            
+                            for (let i = 0; i < samples; i++) {
+                                leftChannel[i] = dataView.getInt16(i * 4, true) / 32768.0;
+                                rightChannel[i] = dataView.getInt16(i * 4 + 2, true) / 32768.0;
+                            }
+                        } else {
+                            log.error(`Unexpected buffer size: ${arrayBuffer.byteLength}`);
+                            return;
                         }
                         
-                        if (this.state.audioFrameCount === 1) {
-                            log.info("✅ Audio stream started");
+                        // Анализ данных
+                        let maxLeft = 0, maxRight = 0;
+                        let validSamples = 0;
+                        
+                        for (let i = 0; i < samples; i++) {
+                            const absL = Math.abs(leftChannel[i]);
+                            const absR = Math.abs(rightChannel[i]);
+                            
+                            maxLeft = Math.max(maxLeft, absL);
+                            maxRight = Math.max(maxRight, absR);
+                            
+                            if (absL > 0.00001 || absR > 0.00001) {
+                                validSamples++;
+                            }
                         }
+                        
+                        const hasAudio = validSamples > 0;
+                        
+                        if (this.state.audioFrameCount === 1 || this.state.audioFrameCount % 50 === 0) {
+                            log.info(`Audio: Frame ${this.state.audioFrameCount}, ` +
+                                    `Max L=${maxLeft.toFixed(4)} R=${maxRight.toFixed(4)}, ` +
+                                    `Valid samples: ${validSamples}/${samples}`);
+                            
+                            if (this.state.audioFrameCount === 1 && hasAudio) {
+                                // Логируем первые не-нулевые сэмплы
+                                for (let i = 0; i < Math.min(10, samples); i++) {
+                                    if (Math.abs(leftChannel[i]) > 0.00001) {
+                                        log.info(`First non-zero at index ${i}: L=${leftChannel[i]}, R=${rightChannel[i]}`);
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        
+                        // Обработка только если есть звук
+                        const processedLeft = new Float32Array(samples);
+                        const processedRight = new Float32Array(samples);
+                        
+                        if (hasAudio) {
+                            // Минимальная обработка - только нормализация уровня
+                            const targetPeak = 0.7;
+                            const currentPeak = Math.max(maxLeft, maxRight);
+                            const gain = currentPeak > 0.001 ? Math.min(targetPeak / currentPeak, 3.0) : 1.0;
+                            
+                            for (let i = 0; i < samples; i++) {
+                                processedLeft[i] = Math.max(-1, Math.min(1, leftChannel[i] * gain));
+                                processedRight[i] = Math.max(-1, Math.min(1, rightChannel[i] * gain));
+                            }
+                            
+                            if (this.state.audioFrameCount === 1) {
+                                log.info(`Audio gain applied: ${gain.toFixed(2)}x`);
+                            }
+                        } else {
+                            processedLeft.set(leftChannel);
+                            processedRight.set(rightChannel);
+                        }
+                        
+                        // Передаем в Jitsi с правильной частотой
+                        const jsCode = `
+                            (function() {
+                                if (!window.isNativeActive || !window.leftRingBuffer || !window.rightRingBuffer) return;
+                                
+                                try {
+                                    const samples = ${samples};
+                                    const leftData = [${Array.from(processedLeft).join(',')}];
+                                    const rightData = [${Array.from(processedRight).join(',')}];
+                                    
+                                    const leftFloat = new Float32Array(leftData);
+                                    const rightFloat = new Float32Array(rightData);
+                                    
+                                    // ВАЖНО: Проверяем частоту дискретизации
+                                    if (window.nativeAudioContext.sampleRate !== 48000) {
+                                        console.warn('[Audio] Sample rate mismatch:', window.nativeAudioContext.sampleRate);
+                                    }
+                                    
+                                    // Записываем в кольцевой буфер
+                                    window.leftRingBuffer.write(leftFloat);
+                                    window.rightRingBuffer.write(rightFloat);
+                                    
+                                    // Отладка первого фрейма с данными
+                                    if (!window.firstAudioLogged && Math.max(...leftData) > 0.001) {
+                                        console.log('[Audio] First audio data received');
+                                        console.log('[Audio] Max levels:', Math.max(...leftData).toFixed(4), Math.max(...rightData).toFixed(4));
+                                        console.log('[Audio] Sample rate:', window.nativeAudioContext.sampleRate);
+                                        window.firstAudioLogged = true;
+                                    }
+                                    
+                                    window.audioCounter = (window.audioCounter || 0) + 1;
+                                    if (window.audioCounter % 100 === 0) {
+                                        const bufferMs = window.leftRingBuffer.getAvailable() / 48;
+                                        console.log('[Audio] Frames:', window.audioCounter, 'Buffer:', bufferMs.toFixed(0), 'ms');
+                                    }
+                                    
+                                } catch (e) {
+                                    console.error('[Audio] Error:', e);
+                                }
+                            })();
+                        `;
+                        
+                        this.state.window.webContents.executeJavaScript(jsCode).catch(() => {});
                         
                     } catch (error: any) {
                         log.error(`Error in audio callback: ${error.message}`);

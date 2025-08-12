@@ -32,7 +32,7 @@ export interface CapturePreset {
 export const CAPTURE_PRESETS: { [key: string]: CapturePreset } = {
     ULTRALOW: {
         name: 'Очень низкое',
-        quality: { width: 320, height: 240, fps: 10 },
+        quality: { width: 320, height: 240, fps: 15 },
         description: 'Экономия трафика, 480p @ 10fps'
     },
     LOW: {
