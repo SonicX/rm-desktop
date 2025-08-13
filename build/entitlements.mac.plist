@@ -2,27 +2,28 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
   <dict>
+    <!-- 🔐 ОБЯЗАТЕЛЬНО: включить App Sandbox -->
     <key>com.apple.security.app-sandbox</key>
-    <false/>
-    <key>com.apple.security.network.client</key>
     <true/>
-    <key>com.apple.security.network.server</key>
-    <true/>
-    <key>com.apple.security.files.user-selected.read-write</key>
-    <true/>
-    <key>com.apple.security.device.audio-input</key>
-    <true/>
-    <key>com.apple.security.device.camera</key>
-    <true/>
-    <key>com.apple.security.device.microphone</key>
-    <true/>
-    <key>com.apple.security.device.screen-recording</key>
-    <true/>
-    <key>com.apple.security.device.screen-capture</key>
-    <true/>
+
+    <!-- 🛡️ ОБЯЗАТЕЛЬНО: hardened runtime -->
     <key>com.apple.security.cs.allow-jit</key>
     <true/>
-    <key>com.apple.security.inherit</key>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <key>com.apple.security.cs.debugger</key>
+    <true/>
+
+    <!-- 🎤 Микрофон -->
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
+
+    <!-- 📷 Камера -->
+    <key>com.apple.security.device.camera</key>
+    <true/>
+
+    <!-- 📁 Доступ к выбранным пользователем файлам -->
+    <key>com.apple.security.files.user-selected.read-write</key>
     <true/>
   </dict>
 </plist>
