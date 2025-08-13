@@ -1160,15 +1160,29 @@ export class JitsiManager {
         log.info("[STREAM-ELECTRON] >>> startNativeAudioCapture");
         
         try {
-            // Устанавливаем минимальное качество видео (не используется)
-            await this.nativeCapture.useQualityPreset('ULTRALOW');
-            log.info("[STREAM-ELECTRON] Video quality set to ULTRALOW (not used)");
+            // Для гибридного режима используем оптимизированный audio-only захват
+            if (this.config.useHybridMode) {
+                log.info("[STREAM-ELECTRON] Using optimized audio-only capture for hybrid mode");
+                
+                // Используем новый оптимизированный метод
+                const result = await this.nativeCapture.startAudioOnlyCapture(sourceId);
+                
+                if (result.success) {
+                    log.info("[STREAM-ELECTRON] ✅ Audio-only capture started (CPU optimized)");
+                } else {
+                    log.error(`[STREAM-ELECTRON] ❌ Audio-only capture failed: ${result.error}`);
+                }
+                
+                log.info("[STREAM-ELECTRON] <<< startNativeAudioCapture");
+                return result;
+            }
             
-            // Запускаем захват
-            const result = await this.nativeCapture.startCapture(sourceId);
+            // Для non-hybrid режима используем полный захват
+            log.info("[STREAM-ELECTRON] Using full audio+video capture for native mode");
+            const result = await this.nativeCapture.startAudioVideoCapture(sourceId);
             
             if (result.success) {
-                log.info("[STREAM-ELECTRON] <<< startNativeAudioCapture SUCCESS");
+                log.info("[STREAM-ELECTRON] <<< startNativeAudioCapture SUCCESS (full capture)");
             } else {
                 log.error(`[STREAM-ELECTRON] <<< startNativeAudioCapture FAILED: ${result.error}`);
             }

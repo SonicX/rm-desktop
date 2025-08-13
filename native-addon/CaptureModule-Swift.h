@@ -334,6 +334,8 @@ SWIFT_CLASS_NAMED("ScreenCaptureManager") SWIFT_AVAILABILITY(macos,introduced=12
 - (void)setCaptureSource:(NSDictionary<NSString *, id> * _Nonnull)source completion:(void (^ _Nonnull)(NSError * _Nullable))completion;
 - (void)startCaptureWithCompletion:(void (^ _Nonnull)(NSError * _Nullable))completion;
 - (void)stopCaptureWithCompletion:(void (^ _Nonnull)(NSError * _Nullable))completion;
+- (void)startAudioOnlyCapture:(void (^ _Nonnull)(NSError * _Nullable))completion;
+- (void)startAudioVideoCapture:(void (^ _Nonnull)(NSError * _Nullable))completion;
 - (void)testMethod;
 - (void)setVideoBufferCallback:(void (^ _Nonnull)(CMSampleBufferRef _Nonnull))callback;
 - (void)setAudioBufferCallback:(void (^ _Nonnull)(CMSampleBufferRef _Nonnull))callback;

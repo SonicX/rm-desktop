@@ -148,6 +148,12 @@ class Box<T>: @unchecked Sendable {
     }
 }
 
+enum CaptureMode {
+    case audioOnly
+    case audioAndVideo
+    case videoOnly
+}
+
 @available(macOS 12.3, *)
 actor CaptureActor {
     var isCapturing = false
@@ -180,10 +186,18 @@ actor CaptureActor {
     private var requestedFPS: Int = 30
     private var scaleFactor: Double = 1.0
 
+    private var captureMode: CaptureMode = .audioAndVideo
+
     init() {
         let delegate = CaptureOutputDelegate()
         self.outputDelegate = delegate
         delegate.actor = self
+    }
+
+    // Метод для установки режима захвата
+    func setCaptureMode(_ mode: CaptureMode) {
+        self.captureMode = mode
+        print("📹 Capture mode set to: \(mode)")
     }
 
     // Метод для установки параметров качества
@@ -457,7 +471,7 @@ actor CaptureActor {
     }
 
     func startCapture() async throws {
-        print("🚀 startCapture called")
+        print("🚀 startCapture called with mode: \(captureMode)")
         errorMessage = nil
         
         // Проверка прав доступа
@@ -467,96 +481,87 @@ actor CaptureActor {
             throw RecordingError("No screen capture permission")
         }
         
-        // Проверка contentFilter
+        // Для режима audioOnly не требуется contentFilter
+        if captureMode == .audioOnly {
+            print("🎵 Audio-only mode - skipping video setup")
+            // Создаем минимальный фильтр для аудио
+            if let mainDisplay = try? await getMainDisplay() {
+                contentFilter = SCContentFilter(display: mainDisplay, excludingApplications: [], exceptingWindows: [])
+            }
+        } else {
+            // Проверка contentFilter для видео режимов
+            guard let filter = contentFilter else {
+                print("❌ No content filter set")
+                throw RecordingError("No content filter available")
+            }
+        }
+        
         guard let filter = contentFilter else {
-            print("❌ No content filter set")
             throw RecordingError("No content filter available")
         }
-        
-        print("✅ Permissions OK, filter available")
-        
-        // Исходные размеры источника
-        let sourceWidth = captureWidth > 0 ? captureWidth : 1920
-        let sourceHeight = captureHeight > 0 ? captureHeight : 1080
-        
-        // ВАЖНО: Используем запрошенные размеры для конфигурации
-        var outputWidth = requestedWidth
-        var outputHeight = requestedHeight
-        
-        // Сохраняем пропорции источника
-        let sourceAspect = Double(sourceWidth) / Double(sourceHeight)
-        let requestedAspect = Double(requestedWidth) / Double(requestedHeight)
-        
-        if abs(sourceAspect - requestedAspect) > 0.01 {
-            // Если пропорции отличаются, корректируем выходной размер
-            if sourceAspect > requestedAspect {
-                // Источник шире - корректируем высоту
-                outputHeight = Int(Double(requestedWidth) / sourceAspect)
-            } else {
-                // Источник выше - корректируем ширину
-                outputWidth = Int(Double(requestedHeight) * sourceAspect)
-            }
-            print("📐 Adjusted output to maintain aspect ratio: \(outputWidth)x\(outputHeight)")
-        }
-        
-        print("📐 Configuration:")
-        print("   Source: \(sourceWidth)x\(sourceHeight)")
-        print("   Requested: \(requestedWidth)x\(requestedHeight) @ \(requestedFPS) fps")
-        print("   Output: \(outputWidth)x\(outputHeight) @ \(requestedFPS) fps")
         
         // Создаем конфигурацию потока
         let streamConfig = SCStreamConfiguration()
         
-        // ВАЖНО: Используем ВЫХОДНЫЕ размеры
-        streamConfig.width = outputWidth
-        streamConfig.height = outputHeight
-        
-        // FPS
-        let frameInterval = CMTime(value: 1, timescale: CMTimeScale(requestedFPS))
-        streamConfig.minimumFrameInterval = frameInterval
-        
-        // Базовые настройки
-        streamConfig.pixelFormat = kCVPixelFormatType_32BGRA
-        streamConfig.showsCursor = true
-        streamConfig.queueDepth = requestedWidth <= 640 ? 2 : 3
-        
-        // Аудио если доступно
-        if #available(macOS 13.0, *) {
-            streamConfig.capturesAudio = true
-            streamConfig.excludesCurrentProcessAudio = true
-            streamConfig.sampleRate = 48000
-            streamConfig.channelCount = 2
+        // Настройки видео только если нужно
+        if captureMode == .audioAndVideo || captureMode == .videoOnly {
+            streamConfig.width = requestedWidth
+            streamConfig.height = requestedHeight
+            let frameInterval = CMTime(value: 1, timescale: CMTimeScale(requestedFPS))
+            streamConfig.minimumFrameInterval = frameInterval
+            streamConfig.pixelFormat = kCVPixelFormatType_32BGRA
+            streamConfig.showsCursor = true
+            streamConfig.queueDepth = requestedWidth <= 640 ? 2 : 3
+            print("📹 Video configured: \(requestedWidth)x\(requestedHeight) @ \(requestedFPS) fps")
+        } else {
+            // Минимальные настройки для audio-only
+            streamConfig.width = 1
+            streamConfig.height = 1
+            streamConfig.minimumFrameInterval = CMTime(value: 1, timescale: 1)
+            print("🎵 Audio-only mode: minimal video config")
         }
         
-        print("📐 Creating SCStream with configuration")
+        // Настройки аудио
+        if captureMode == .audioOnly || captureMode == .audioAndVideo {
+            if #available(macOS 13.0, *) {
+                streamConfig.capturesAudio = true
+                streamConfig.excludesCurrentProcessAudio = true
+                streamConfig.sampleRate = 48000
+                streamConfig.channelCount = 2
+                print("🎵 Audio configured: 48kHz, 2 channels")
+            }
+        }
+        
+        print("📋 Creating SCStream with configuration")
         
         do {
-            // Создаем поток
             let streamLocal = SCStream(filter: filter, configuration: streamConfig, delegate: outputDelegate)
             
-            print("📐 Adding video output handler")
-            try streamLocal.addStreamOutput(outputDelegate, type: .screen, sampleHandlerQueue: sampleBufferQueue)
+            // Добавляем обработчики в зависимости от режима
+            if captureMode == .audioAndVideo || captureMode == .videoOnly {
+                print("📹 Adding video output handler")
+                try streamLocal.addStreamOutput(outputDelegate, type: .screen, sampleHandlerQueue: sampleBufferQueue)
+            }
             
-            if #available(macOS 13.0, *) {
-                print("📐 Adding audio output handler")
-                do {
-                    try streamLocal.addStreamOutput(outputDelegate, type: .audio, sampleHandlerQueue: sampleBufferQueue)
-                } catch {
-                    print("⚠️ Audio not added: \(error)")
+            if captureMode == .audioOnly || captureMode == .audioAndVideo {
+                if #available(macOS 13.0, *) {
+                    print("🎵 Adding audio output handler")
+                    do {
+                        try streamLocal.addStreamOutput(outputDelegate, type: .audio, sampleHandlerQueue: sampleBufferQueue)
+                    } catch {
+                        print("⚠️ Audio not added: \(error)")
+                    }
                 }
             }
             
-            print("📐 Starting capture...")
-            
-            // Запускаем захват БЕЗ таймаута (упрощенная версия)
+            print("📋 Starting capture...")
             try await streamLocal.startCapture()
             
             self.stream = streamLocal
             isCapturing = true
             isStreaming = true
             
-            print("✅ Capture started successfully!")
-            print("✅ Streaming at \(outputWidth)x\(outputHeight) @ \(requestedFPS) fps")
+            print("✅ Capture started successfully in \(captureMode) mode!")
             
         } catch {
             print("❌ Failed to start capture: \(error)")
@@ -565,6 +570,12 @@ actor CaptureActor {
             isStreaming = false
             throw error
         }
+    }
+
+    // Вспомогательный метод для получения главного дисплея
+    private func getMainDisplay() async throws -> SCDisplay? {
+        let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
+        return content.displays.first
     }
 
     // Метод для изменения качества во время захвата
@@ -1070,6 +1081,42 @@ public class ScreenCaptureManager: NSObject, SCContentSharingPickerObserver {
                 }
             } catch {
                 print("stopCapture error: \(error)")
+                DispatchQueue.main.async {
+                    completion(error as NSError)
+                }
+            }
+        }
+    }
+
+    @objc public func startAudioOnlyCapture(_ completion: @escaping @Sendable (NSError?) -> Void) {
+        print("🎵 startAudioOnlyCapture called")
+        Task.detached { [captureActor = self.captureActor] in
+            do {
+                await captureActor.setCaptureMode(.audioOnly)
+                try await captureActor.startCapture()
+                DispatchQueue.main.async {
+                    completion(nil)
+                }
+            } catch {
+                print("startAudioOnlyCapture error: \(error)")
+                DispatchQueue.main.async {
+                    completion(error as NSError)
+                }
+            }
+        }
+    }
+
+    @objc public func startAudioVideoCapture(_ completion: @escaping @Sendable (NSError?) -> Void) {
+        print("📹🎵 startAudioVideoCapture called")
+        Task.detached { [captureActor = self.captureActor] in
+            do {
+                await captureActor.setCaptureMode(.audioAndVideo)
+                try await captureActor.startCapture()
+                DispatchQueue.main.async {
+                    completion(nil)
+                }
+            } catch {
+                print("startAudioVideoCapture error: \(error)")
                 DispatchQueue.main.async {
                     completion(error as NSError)
                 }

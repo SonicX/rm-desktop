@@ -93,27 +93,201 @@ export class NativeCaptureManager {
             return { success: false, error: "Native addon not loaded" };
         }
         
+        if (this.state.isCapturing) {
+            await this.stopCapture();
+        }
+        
         try {
-            // Устанавливаем минимальное качество видео (т.к. не используем)
-            // Это снизит нагрузку на Swift addon
-            if (typeof this.state.addon.setCaptureQuality === 'function') {
-                // Минимальное разрешение и FPS для экономии ресурсов
-                this.state.addon.setCaptureQuality(320, 240, 1);
-                log.info("Set minimal video quality for audio-only mode");
+            log.info("[NATIVE-CAPTURE] Starting AUDIO-ONLY capture (optimized)");
+            
+            // Парсим sourceId
+            let sourceType = 'display';
+            let realSourceId = sourceId;
+            
+            if (sourceId.includes(':')) {
+                const parts = sourceId.split(':');
+                if (parts[0] === 'screen' && parts.length >= 2) {
+                    sourceType = 'display';
+                    realSourceId = parts[1];
+                } else if (parts[0] === 'window') {
+                    sourceType = 'window';
+                    realSourceId = parts[1];
+                }
             }
             
-            // Или если в Swift есть метод отключения видео
-            if (typeof this.state.addon.setAudioOnlyMode === 'function') {
-                this.state.addon.setAudioOnlyMode(true);
+            log.info(`[NATIVE-CAPTURE] Audio-only source: type='${sourceType}', id='${realSourceId}'`);
+            
+            // Сбрасываем счетчики
+            this.state.videoFrameCount = 0;
+            this.state.audioFrameCount = 0;
+            
+            // ВАЖНО: Настраиваем ТОЛЬКО аудио callback
+            this.setupAudioOnlyCallbacks();
+            
+            // Устанавливаем источник
+            if (typeof this.state.addon.setCaptureSourceById === 'function') {
+                const sourceTypeNum = sourceType === 'display' ? 0 : 1;
+                const sourceIdNum = parseInt(realSourceId) || 1;
+                await this.state.addon.setCaptureSourceById(sourceTypeNum, sourceIdNum);
+            } else {
+                await this.state.addon.setCaptureSource(sourceType, realSourceId);
             }
             
-            // Запускаем захват
-            return this.startCapture(sourceId);
+            // ИСПОЛЬЗУЕМ НОВЫЙ МЕТОД startAudioOnlyCapture
+            if (typeof this.state.addon.startAudioOnlyCapture === 'function') {
+                log.info("[NATIVE-CAPTURE] ✅ Using new startAudioOnlyCapture method");
+                const result = await this.state.addon.startAudioOnlyCapture();
+                log.info(`[NATIVE-CAPTURE] startAudioOnlyCapture result: ${JSON.stringify(result)}`);
+                
+                this.state.isCapturing = true;
+                this.state.currentSourceId = sourceId;
+                
+                log.info("[NATIVE-CAPTURE] ✅ Audio-only capture started (CPU optimized, no video processing)");
+                return { success: true };
+                
+            } else {
+                // Fallback на старый метод если новый недоступен
+                log.warn("[NATIVE-CAPTURE] startAudioOnlyCapture not available, falling back to regular capture");
+                
+                // Устанавливаем минимальное качество для старого метода
+                if (typeof this.state.addon.setCaptureQuality === 'function') {
+                    this.state.addon.setCaptureQuality(320, 240, 1);
+                }
+                
+                const result = await this.state.addon.startCapture();
+                log.info(`[NATIVE-CAPTURE] Fallback startCapture result: ${JSON.stringify(result)}`);
+                
+                this.state.isCapturing = true;
+                this.state.currentSourceId = sourceId;
+                
+                return { success: true };
+            }
             
         } catch (error: any) {
-            log.error(`Failed to start audio-only capture: ${error.message}`);
+            log.error(`[NATIVE-CAPTURE] Failed to start audio-only capture: ${error.message}`);
+            this.state.isCapturing = false;
+            this.state.currentSourceId = null;
             return { success: false, error: error.message };
         }
+    }
+
+    async startAudioVideoCapture(sourceId: string): Promise<{ success: boolean; error?: string }> {
+        if (!this.state.addon) {
+            return { success: false, error: "Native addon not loaded" };
+        }
+        
+        if (this.state.isCapturing) {
+            await this.stopCapture();
+        }
+        
+        try {
+            log.info("[NATIVE-CAPTURE] Starting AUDIO+VIDEO capture");
+            log.info(`[NATIVE-CAPTURE] Quality: ${this.currentQuality.width}x${this.currentQuality.height} @ ${this.currentQuality.fps}fps`);
+            
+            // Парсим sourceId
+            let sourceType = 'display';
+            let realSourceId = sourceId;
+            
+            if (sourceId.includes(':')) {
+                const parts = sourceId.split(':');
+                if (parts[0] === 'screen' && parts.length >= 2) {
+                    sourceType = 'display';
+                    realSourceId = parts[1];
+                } else if (parts[0] === 'window') {
+                    sourceType = 'window';
+                    realSourceId = parts[1];
+                }
+            }
+            
+            // Сбрасываем счетчики
+            this.state.videoFrameCount = 0;
+            this.state.audioFrameCount = 0;
+            
+            // Настраиваем callbacks для аудио И видео
+            this.setupCallbacks();
+            
+            // Устанавливаем источник
+            if (typeof this.state.addon.setCaptureSourceById === 'function') {
+                const sourceTypeNum = sourceType === 'display' ? 0 : 1;
+                const sourceIdNum = parseInt(realSourceId) || 1;
+                await this.state.addon.setCaptureSourceById(sourceTypeNum, sourceIdNum);
+            } else {
+                await this.state.addon.setCaptureSource(sourceType, realSourceId);
+            }
+            
+            // Устанавливаем качество видео
+            if (typeof this.state.addon.setCaptureQuality === 'function') {
+                this.state.addon.setCaptureQuality(
+                    this.currentQuality.width,
+                    this.currentQuality.height,
+                    this.currentQuality.fps
+                );
+            }
+            
+            // ИСПОЛЬЗУЕМ НОВЫЙ МЕТОД startAudioVideoCapture
+            if (typeof this.state.addon.startAudioVideoCapture === 'function') {
+                log.info("[NATIVE-CAPTURE] ✅ Using new startAudioVideoCapture method");
+                const result = await this.state.addon.startAudioVideoCapture();
+                log.info(`[NATIVE-CAPTURE] startAudioVideoCapture result: ${JSON.stringify(result)}`);
+                
+                this.state.isCapturing = true;
+                this.state.currentSourceId = sourceId;
+                
+                log.info("[NATIVE-CAPTURE] ✅ Audio+Video capture started");
+                return { success: true };
+                
+            } else {
+                // Fallback на старый метод
+                log.warn("[NATIVE-CAPTURE] startAudioVideoCapture not available, using regular startCapture");
+                return this.startCapture(sourceId);
+            }
+            
+        } catch (error: any) {
+            log.error(`[NATIVE-CAPTURE] Failed to start audio+video capture: ${error.message}`);
+            this.state.isCapturing = false;
+            this.state.currentSourceId = null;
+            return { success: false, error: error.message };
+        }
+    }
+
+    private setupAudioOnlyCallbacks(): void {
+        if (!this.state.addon) return;
+        
+        log.info("[NATIVE-CAPTURE] Setting up AUDIO-ONLY callbacks (no video processing)");
+        
+        // Устанавливаем ТОЛЬКО аудио callback
+        this.state.addon.setWebRTCAudioCallback((audioData: any) => {
+            this.state.audioFrameCount++;
+            
+            if (this.state.audioFrameCount === 1) {
+                log.info("[NATIVE-CAPTURE] First audio frame in audio-only mode:", {
+                    hasData: !!audioData?.data,
+                    dataByteLength: audioData?.data?.byteLength,
+                    sampleRate: audioData?.sampleRate,
+                    channels: audioData?.channels,
+                    source: audioData?.source
+                });
+            }
+            
+            if (audioData && audioData.data && audioData.data.byteLength > 0) {
+                if (this.state.callbacks.audio) {
+                    this.state.callbacks.audio({
+                        data: audioData.data,
+                        sampleRate: audioData?.sampleRate || 48000,
+                        channels: audioData?.channels || 2,
+                        numSamples: audioData?.numSamples || 960,
+                        source: audioData?.source || 'unknown'
+                    });
+                }
+            }
+            
+            if (this.state.audioFrameCount % 100 === 0) {
+                log.info(`[NATIVE-CAPTURE] Audio-only: ${this.state.audioFrameCount} frames`);
+            }
+        });
+        
+        // НЕ устанавливаем video callback для экономии ресурсов!
+        log.info("[NATIVE-CAPTURE] ✅ Audio-only callbacks configured (video skipped for performance)");
     }
 
     private loadAddon(): boolean {
@@ -260,13 +434,16 @@ export class NativeCaptureManager {
         
         // Проверяем основные методы
         const methods = [
-            'setCaptureSource',           // Основной метод
-            'setCaptureQuality',          // Установка качества (отдельно)
-            'startCapture', 
+            'setCaptureSource',
+            'setCaptureQuality',
+            'startCapture',
             'stopCapture',
             'setWebRTCVideoCallback',
             'setWebRTCAudioCallback',
-            'getAvailableSources'
+            'getAvailableSources',
+            // НОВЫЕ МЕТОДЫ
+            'startAudioOnlyCapture',    // Новый оптимизированный метод
+            'startAudioVideoCapture'     // Новый метод для полного захвата
         ];
         
         for (const method of methods) {
@@ -277,17 +454,15 @@ export class NativeCaptureManager {
             }
         }
         
-        // Проверяем проблемный метод отдельно
-        if (typeof this.state.addon.setCaptureSourceWithQuality === 'function') {
-            tests.push(`⚠️ setCaptureSourceWithQuality: exists but may be broken`);
-        }
+        // Проверяем новые оптимизированные методы отдельно
+        const hasOptimizedMethods = 
+            typeof this.state.addon.startAudioOnlyCapture === 'function' &&
+            typeof this.state.addon.startAudioVideoCapture === 'function';
         
-        // Тест получения источников
-        try {
-            const sources = await this.state.addon.getAvailableSources();
-            tests.push(`✅ getAvailableSources: returned ${sources?.length || 0} sources`);
-        } catch (error: any) {
-            tests.push(`❌ getAvailableSources error: ${error.message}`);
+        if (hasOptimizedMethods) {
+            tests.push(`🚀 OPTIMIZED METHODS AVAILABLE - Better performance!`);
+        } else {
+            tests.push(`⚠️ Using legacy methods - consider updating Swift addon`);
         }
         
         const details = tests.join('\n');

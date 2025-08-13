@@ -433,6 +433,94 @@ void StopCapture(const FunctionCallbackInfo<Value>& args) {
     uv_queue_work(uv_default_loop(), &data->request, WorkAsync, WorkAsyncComplete);
 }
 
+void StartAudioOnlyCapture(const FunctionCallbackInfo<Value>& args) {
+    NSLog(@"🎵 StartAudioOnlyCapture called from JS");
+    
+    Isolate* isolate = args.GetIsolate();
+    Local<Context> context = isolate->GetCurrentContext();
+    auto resolver = Promise::Resolver::New(context).ToLocalChecked();
+    args.GetReturnValue().Set(resolver->GetPromise());
+    
+    WorkData* data = new WorkData();
+    data->isolate = isolate;
+    data->resolver.Reset(isolate, resolver);
+    data->operation = "startAudioOnlyCapture";
+    
+    uv_queue_work(uv_default_loop(), &data->request, 
+        [](uv_work_t* req) {
+            @autoreleasepool {
+                WorkData* data = static_cast<WorkData*>(req->data);
+                
+                if (!g_manager) {
+                    g_manager = [[CCaptureManager alloc] init];
+                }
+                
+                dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
+                
+                [g_manager startAudioOnlyCapture:^(NSError* error) {
+                    if (error) {
+                        data->error = error;
+                        data->success = false;
+                        data->message = [[error localizedDescription] UTF8String];
+                    } else {
+                        data->success = true;
+                        data->message = "Audio-only capture started";
+                        g_capture_active.store(true);
+                    }
+                    dispatch_semaphore_signal(semaphore);
+                }];
+                
+                dispatch_semaphore_wait(semaphore, DISPATCH_TIME_FOREVER);
+            }
+        },
+        WorkAsyncComplete
+    );
+}
+
+void StartAudioVideoCapture(const FunctionCallbackInfo<Value>& args) {
+    NSLog(@"📹🎵 StartAudioVideoCapture called from JS");
+    
+    Isolate* isolate = args.GetIsolate();
+    Local<Context> context = isolate->GetCurrentContext();
+    auto resolver = Promise::Resolver::New(context).ToLocalChecked();
+    args.GetReturnValue().Set(resolver->GetPromise());
+    
+    WorkData* data = new WorkData();
+    data->isolate = isolate;
+    data->resolver.Reset(isolate, resolver);
+    data->operation = "startAudioVideoCapture";
+    
+    uv_queue_work(uv_default_loop(), &data->request,
+        [](uv_work_t* req) {
+            @autoreleasepool {
+                WorkData* data = static_cast<WorkData*>(req->data);
+                
+                if (!g_manager) {
+                    g_manager = [[CCaptureManager alloc] init];
+                }
+                
+                dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
+                
+                [g_manager startAudioVideoCapture:^(NSError* error) {
+                    if (error) {
+                        data->error = error;
+                        data->success = false;
+                        data->message = [[error localizedDescription] UTF8String];
+                    } else {
+                        data->success = true;
+                        data->message = "Audio+Video capture started";
+                        g_capture_active.store(true);
+                    }
+                    dispatch_semaphore_signal(semaphore);
+                }];
+                
+                dispatch_semaphore_wait(semaphore, DISPATCH_TIME_FOREVER);
+            }
+        },
+        WorkAsyncComplete
+    );
+}
+
 void SelectSourceWithPicker(const FunctionCallbackInfo<Value>& args) {
     Isolate* isolate = args.GetIsolate();
     Local<Context> context = isolate->GetCurrentContext();
@@ -1518,6 +1606,10 @@ void Init(Local<Object> exports, Local<Value> module, void* context) {
     // Методы для управления качеством
     NODE_SET_METHOD(exports, "setCaptureQuality", SetCaptureQuality);
     NODE_SET_METHOD(exports, "setCaptureSourceWithQuality", SetCaptureSourceWithQuality);
+
+    // Новые методы для разных режимов захвата
+    NODE_SET_METHOD(exports, "startAudioOnlyCapture", StartAudioOnlyCapture);
+    NODE_SET_METHOD(exports, "startAudioVideoCapture", StartAudioVideoCapture);
     
     // Остальные методы
     NODE_SET_METHOD(exports, "startCapture", StartCapture);
