@@ -424,7 +424,13 @@ async function createMainWindow(): Promise<BrowserWindow> {
   const jitsiManager = new JitsiManager(
     nativeCaptureManager,
     bundlePath,
-    iconPath()
+    iconPath(),
+    {
+        videoQuality: 'MEDIUM',  // 720p для экономии ресурсов
+        useHybridMode: true,
+        enableDebugUI: process.env.NODE_ENV === 'development',
+        enablePerformanceMonitoring: true
+    }
   );
 
   
@@ -643,6 +649,15 @@ async function createMainWindow(): Promise<BrowserWindow> {
   });
 
   ipcMain.handle("create-native-stream-for-jitsi", async (event) => {
+    log.info("[STREAM-ELECTRON] Create native stream requested");
+    
+    // Проверяем состояние
+    const debugInfo = await this.getDebugInfo();
+    if (debugInfo.isStreamActive) {
+        log.warn("[STREAM-ELECTRON] Stream already active, resetting...");
+        await this.cleanup();
+        await new Promise(resolve => setTimeout(resolve, 500));
+    }
     return jitsiManager.injectNativeStream();
   });
 
