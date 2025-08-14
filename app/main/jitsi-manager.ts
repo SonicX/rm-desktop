@@ -269,6 +269,8 @@ export class JitsiManager {
     private videoQualityManager: VideoQualityManager;
     private performanceMonitoringInterval?: NodeJS.Timer;
 
+    private static handlersRegistered = false;
+
     constructor(
         nativeCapture: NativeCaptureManager,
         bundlePath: string,
@@ -328,6 +330,7 @@ export class JitsiManager {
     }
 
     private registerHandlers(): void {
+
         // Основной обработчик для создания окна
         ipcMain.handle("jitsi:create-window", async (event, options: JitsiOptions) => {
         return this.createWindow(options);
@@ -442,6 +445,43 @@ export class JitsiManager {
             return { success: true };
         });
 
+        ipcMain.handle("create-native-stream-for-jitsi", async () => {
+            log.info("[STREAM-ELECTRON] Create native stream requested");
+            
+            try {
+                // Проверяем состояние
+                if (this.state.isStreamActive) {
+                    log.warn("[STREAM-ELECTRON] Stream already active, resetting...");
+                    await this.cleanup();
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                }
+                
+                return await this.injectNativeStream();
+                
+            } catch (error: any) {
+                log.error("[STREAM-ELECTRON] Error creating native stream:", error);
+                return { success: false, error: error.message };
+            }
+        });
+
+    }
+
+    async getDebugInfo(): Promise<any> {
+        const debugInfo = {
+            hasWindow: !!this.state.window && !this.state.window.isDestroyed(),
+            isStreamActive: this.state.isStreamActive,
+            streamId: this.state.streamId,
+            nativeCaptureActive: this.nativeCapture.isCapturing,
+            videoFrameCount: this.state.videoFrameCount || 0,
+            audioFrameCount: this.state.audioFrameCount || 0,
+            lastSelectedSource: this.state.lastSelectedSourceId,
+            currentQuality: this.videoQualityManager?.getCurrentSettings()?.name || 'unknown',
+            useHybridMode: this.config.useHybridMode,
+            timestamp: new Date().toISOString()
+        };
+        
+        log.info("[STREAM-ELECTRON] Debug info:", debugInfo);
+        return debugInfo;
     }
 
     // Метод для изменения качества видео
@@ -1546,9 +1586,13 @@ export class JitsiManager {
     // ===== 6. ОБРАБОТКА NATIVE АУДИО =====
     private processNativeAudio(audioData: any): void {
         if (!this.state.window || this.state.window.isDestroyed()) return;
-        if (!audioData || !audioData.data || audioData.source !== 'system') return;
+        // if (!audioData || !audioData.data || audioData.source !== 'system') return;
         
         this.state.audioFrameCount++;
+
+        if (this.state.audioFrameCount === 1) {
+            log.info("[STREAM-ELECTRON] First audio frame - source:", audioData.source);
+        }
         
         if (this.state.audioFrameCount === 1) {
             log.info("[STREAM-ELECTRON] >>> processNativeAudio FIRST FRAME");

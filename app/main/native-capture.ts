@@ -99,6 +99,7 @@ export class NativeCaptureManager {
         
         try {
             log.info("[NATIVE-CAPTURE] Starting AUDIO-ONLY capture (optimized)");
+            log.info(`[NATIVE-CAPTURE] Raw sourceId: ${sourceId}`);
             
             // Парсим sourceId
             let sourceType = 'display';
@@ -115,59 +116,99 @@ export class NativeCaptureManager {
                 }
             }
             
-            log.info(`[NATIVE-CAPTURE] Audio-only source: type='${sourceType}', id='${realSourceId}'`);
+            log.info(`[NATIVE-CAPTURE] Parsed - type: '${sourceType}', id: '${realSourceId}'`);
             
             // Сбрасываем счетчики
             this.state.videoFrameCount = 0;
             this.state.audioFrameCount = 0;
             
-            // ВАЖНО: Настраиваем ТОЛЬКО аудио callback
-            this.setupAudioOnlyCallbacks();
+            // ВАЖНО: Настраиваем callbacks ДО установки источника
+            this.setupCallbacks();
             
-            // Устанавливаем источник
-            if (typeof this.state.addon.setCaptureSourceById === 'function') {
-                const sourceTypeNum = sourceType === 'display' ? 0 : 1;
-                const sourceIdNum = parseInt(realSourceId) || 1;
-                await this.state.addon.setCaptureSourceById(sourceTypeNum, sourceIdNum);
-            } else {
-                await this.state.addon.setCaptureSource(sourceType, realSourceId);
+            // Устанавливаем минимальное качество видео
+            if (typeof this.state.addon.setCaptureQuality === 'function') {
+                log.info("[NATIVE-CAPTURE] Setting minimal quality for audio-only mode");
+                this.state.addon.setCaptureQuality(320, 240, 1);
             }
             
-            // ИСПОЛЬЗУЕМ НОВЫЙ МЕТОД startAudioOnlyCapture
-            if (typeof this.state.addon.startAudioOnlyCapture === 'function') {
-                log.info("[NATIVE-CAPTURE] ✅ Using new startAudioOnlyCapture method");
-                const result = await this.state.addon.startAudioOnlyCapture();
-                log.info(`[NATIVE-CAPTURE] startAudioOnlyCapture result: ${JSON.stringify(result)}`);
+            // КРИТИЧНО: Устанавливаем источник И ПРОВЕРЯЕМ РЕЗУЛЬТАТ
+            log.info(`[NATIVE-CAPTURE] Setting capture source...`);
+            
+            try {
+                let setSourceResult;
                 
-                this.state.isCapturing = true;
-                this.state.currentSourceId = sourceId;
-                
-                log.info("[NATIVE-CAPTURE] ✅ Audio-only capture started (CPU optimized, no video processing)");
-                return { success: true };
-                
-            } else {
-                // Fallback на старый метод если новый недоступен
-                log.warn("[NATIVE-CAPTURE] startAudioOnlyCapture not available, falling back to regular capture");
-                
-                // Устанавливаем минимальное качество для старого метода
-                if (typeof this.state.addon.setCaptureQuality === 'function') {
-                    this.state.addon.setCaptureQuality(320, 240, 1);
+                // Пробуем разные методы установки источника
+                if (typeof this.state.addon.setCaptureSourceById === 'function') {
+                    const sourceTypeNum = sourceType === 'display' ? 0 : 1;
+                    const sourceIdNum = parseInt(realSourceId) || 1;
+                    log.info(`[NATIVE-CAPTURE] Using setCaptureSourceById(${sourceTypeNum}, ${sourceIdNum})`);
+                    setSourceResult = await this.state.addon.setCaptureSourceById(sourceTypeNum, sourceIdNum);
+                } else if (typeof this.state.addon.setCaptureSource === 'function') {
+                    log.info(`[NATIVE-CAPTURE] Using setCaptureSource('${sourceType}', '${realSourceId}')`);
+                    setSourceResult = await this.state.addon.setCaptureSource(sourceType, realSourceId);
+                } else {
+                    // Если нет методов установки источника, пробуем без них
+                    log.warn("[NATIVE-CAPTURE] No setCaptureSource methods available, trying direct capture");
+                    setSourceResult = { success: true };
                 }
                 
-                const result = await this.state.addon.startCapture();
-                log.info(`[NATIVE-CAPTURE] Fallback startCapture result: ${JSON.stringify(result)}`);
+                log.info(`[NATIVE-CAPTURE] Set source result: ${JSON.stringify(setSourceResult)}`);
                 
-                this.state.isCapturing = true;
-                this.state.currentSourceId = sourceId;
+                // Небольшая задержка после установки источника
+                await new Promise(resolve => setTimeout(resolve, 100));
                 
-                return { success: true };
+            } catch (error: any) {
+                log.error(`[NATIVE-CAPTURE] Failed to set source: ${error.message}`);
+                // Продолжаем даже если установка источника не удалась
             }
+            
+            // Запускаем захват
+            log.info("[NATIVE-CAPTURE] Starting capture...");
+            const startResult = await this.state.addon.startCapture();
+            
+            if (!startResult || startResult.error) {
+                const errorMsg = startResult?.error || "Unknown error";
+                log.error(`[NATIVE-CAPTURE] Start capture failed: ${errorMsg}`);
+                
+                // Если первая попытка не удалась, пробуем с дефолтными параметрами
+                log.info("[NATIVE-CAPTURE] Retrying with default source...");
+                
+                try {
+                    // Устанавливаем дефолтный источник
+                    if (typeof this.state.addon.setCaptureSource === 'function') {
+                        await this.state.addon.setCaptureSource('display', '1');
+                    }
+                    
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                    
+                    // Повторная попытка
+                    const retryResult = await this.state.addon.startCapture();
+                    
+                    if (!retryResult || retryResult.error) {
+                        throw new Error(retryResult?.error || "Retry failed");
+                    }
+                    
+                    log.info("[NATIVE-CAPTURE] ✅ Capture started on retry");
+                    
+                } catch (retryError: any) {
+                    log.error(`[NATIVE-CAPTURE] Retry failed: ${retryError.message}`);
+                    return { success: false, error: retryError.message };
+                }
+            }
+            
+            log.info(`[NATIVE-CAPTURE] startCapture result: ${JSON.stringify(startResult)}`);
+            
+            this.state.isCapturing = true;
+            this.state.currentSourceId = sourceId;
+            
+            log.info("[NATIVE-CAPTURE] ✅ Audio capture started successfully");
+            return { success: true };
             
         } catch (error: any) {
             log.error(`[NATIVE-CAPTURE] Failed to start audio-only capture: ${error.message}`);
             this.state.isCapturing = false;
             this.state.currentSourceId = null;
-            return { success: false, error: error.message };
+            return { success: false, error: error.message || "Unknown error" };
         }
     }
 
@@ -359,6 +400,7 @@ export class NativeCaptureManager {
           audioFrames: this.state.audioFrameCount
         };
       });
+
     }
 
     private createDefaultThumbnail(): string {
