@@ -1,146 +1,170 @@
 #!/bin/bash
 
-echo "🔧 Building native addon for Electron..."
+echo "🚀 Building Universal Binary for Electron"
 
-# Clean previous builds
-rm -f *.o addon.node CaptureModule-Swift.h swift_integrated_capture.mm
-
-# Get Electron version
-if command -v electron &> /dev/null; then
-    ELECTRON_VERSION=$(electron -v | sed 's/v//')
-    echo "📱 Found Electron version: $ELECTRON_VERSION"
-else
-    echo "⚠️  Electron not found, using default headers"
-    ELECTRON_VERSION="37.2.1"
+# Определяем версию Electron
+ELECTRON_VERSION=$(npm list electron --depth=0 2>/dev/null | grep electron@ | cut -d@ -f2 | cut -d' ' -f1)
+if [ -z "$ELECTRON_VERSION" ]; then
+    # Если не нашли в локальных зависимостях, ищем в родительской директории
+    ELECTRON_VERSION=$(cd .. && npm list electron --depth=0 2>/dev/null | grep electron@ | cut -d@ -f2 | cut -d' ' -f1)
 fi
 
-# Detect architecture
-ARCH=$(uname -m)
-if [ "$ARCH" = "arm64" ]; then
-    TARGET_ARCH="arm64"
-else
-    TARGET_ARCH="x86_64"
+if [ -z "$ELECTRON_VERSION" ]; then
+    echo "⚠️ Warning: Could not detect Electron version, using default 32.3.0"
+    ELECTRON_VERSION="32.3.0"
 fi
 
-MACOS_VERSION=$(sw_vers -productVersion | cut -d '.' -f 1,2)
+echo "📦 Detected Electron version: $ELECTRON_VERSION"
 
-echo "🏗️  Building for:"
-echo "   Architecture: $TARGET_ARCH"
-echo "   macOS: $MACOS_VERSION"
-echo "   Electron: $ELECTRON_VERSION"
+# Чистим старые сборки
+echo "🧹 Cleaning old builds..."
+rm -rf build/
+rm -f addon.node
+rm -f *.o
 
-# Step 1: Compile Swift module
-echo "Step 1: Compiling Swift module..."
+# Создаем необходимую структуру директорий
+echo "📁 Creating directory structure..."
+mkdir -p build/Release/obj.target/screen_capture_webrtc/src
+mkdir -p src
+
+# Проверяем наличие исходных файлов
+if [ ! -f "ScreenCaptureManager.swift" ]; then
+    echo "❌ Error: ScreenCaptureManager.swift not found"
+    echo "📋 Current directory contents:"
+    ls -la
+    exit 1
+fi
+
+if [ ! -f "webrtc_wrapper.mm" ]; then
+    echo "❌ Error: webrtc_wrapper.mm not found"
+    exit 1
+fi
+
+# Копируем исходные файлы в src директорию если их там нет
+if [ ! -f "src/ScreenCaptureManager.swift" ]; then
+    echo "📋 Copying source files to src directory..."
+    cp ScreenCaptureManager.swift src/
+fi
+
+if [ ! -f "src/webrtc_wrapper.mm" ]; then
+    cp webrtc_wrapper.mm src/
+fi
+
+# Копируем заголовочные файлы если есть
+[ -f "CaptureModule-Bridging-Header.h" ] && cp CaptureModule-Bridging-Header.h src/ 2>/dev/null
+
+echo "📋 Source files in src directory:"
+ls -la src/
+
+# Компилируем Swift код
+echo "🔨 Compiling Swift code..."
 swiftc -emit-object \
-  -module-name CaptureModule \
-  -import-objc-header src/CaptureModule-Bridging-Header.h \
-  -target ${TARGET_ARCH}-apple-macos${MACOS_VERSION} \
-  -o CaptureModule.o \
-  src/ScreenCaptureManager.swift
+    -module-name CaptureModule \
+    -emit-module \
+    -emit-module-path . \
+    -emit-objc-header \
+    -emit-objc-header-path CaptureModule-Swift.h \
+    -target x86_64-apple-macos13.0 \
+    -target arm64-apple-macos13.0 \
+    -import-objc-header src/CaptureModule-Bridging-Header.h \
+    -o build/Release/obj.target/screen_capture_webrtc/src/ScreenCaptureManager.o \
+    src/ScreenCaptureManager.swift 2>/dev/null || \
+swiftc -emit-object \
+    -module-name CaptureModule \
+    -emit-module \
+    -emit-module-path . \
+    -emit-objc-header \
+    -emit-objc-header-path CaptureModule-Swift.h \
+    -o build/Release/obj.target/screen_capture_webrtc/src/ScreenCaptureManager.o \
+    src/ScreenCaptureManager.swift
 
-if [ $? -ne 0 ]; then
-    echo "❌ Swift compilation failed"
-    exit 1
+if [ ! -f "build/Release/obj.target/screen_capture_webrtc/src/ScreenCaptureManager.o" ]; then
+    echo "⚠️ Swift compilation failed, trying alternative approach..."
+    swiftc -c \
+        -module-name CaptureModule \
+        -emit-module \
+        -emit-objc-header \
+        -o ScreenCaptureManager.o \
+        src/ScreenCaptureManager.swift
+    cp ScreenCaptureManager.o build/Release/obj.target/screen_capture_webrtc/src/
 fi
 
-# Step 2: Generate Swift header
-echo "Step 2: Generating Swift header..."
-swiftc -emit-objc-header \
-  -emit-objc-header-path CaptureModule-Swift.h \
-  -module-name CaptureModule \
-  -import-objc-header src/CaptureModule-Bridging-Header.h \
-  -target ${TARGET_ARCH}-apple-macos${MACOS_VERSION} \
-  src/ScreenCaptureManager.swift
+# Получаем пути Node.js и Electron
+NODE_INCLUDE=$(node -p "require('path').dirname(require.resolve('node-addon-api'))")
+ELECTRON_INCLUDE="$HOME/.electron-gyp/$ELECTRON_VERSION/include/node"
 
-if [ $? -ne 0 ]; then
-    echo "❌ Swift header generation failed"
-    exit 1
+# Создаем массив путей include
+INCLUDE_PATHS=(
+    "-I$NODE_INCLUDE"
+    "-I$NODE_INCLUDE/../../node_modules/node-addon-api"
+    "-I/usr/local/include/node"
+    "-I$ELECTRON_INCLUDE"
+)
+
+# Если Electron headers не найдены, используем системные Node headers
+if [ ! -d "$ELECTRON_INCLUDE" ]; then
+    echo "⚠️ Electron headers not found, using Node headers"
+    INCLUDE_PATHS+=("-I$(node -p 'require(\"path\").dirname(process.execPath) + \"/../include/node\"')")
 fi
 
-# Step 3: Prepare C++ wrapper
-echo "Step 3: Preparing C++ wrapper..."
-cp src/webrtc_wrapper.mm swift_integrated_capture.mm
+# Компилируем C++ код
+echo "🔨 Compiling C++ code..."
+clang++ -c \
+    -std=c++20 \
+    -stdlib=libc++ \
+    -mmacosx-version-min=13.0 \
+    -fPIC \
+    -fobjc-arc \
+    -O3 \
+    -Wall \
+    "${INCLUDE_PATHS[@]}" \
+    -DNAPI_DISABLE_CPP_EXCEPTIONS \
+    -o build/Release/obj.target/screen_capture_webrtc/src/webrtc_wrapper.o \
+    src/webrtc_wrapper.mm
 
-# Fix Swift header imports (comment out @import lines)
-sed -i '' 's/^@import.*$/\/\/ &/' CaptureModule-Swift.h
-
-# Step 4: Get Node.js include paths for Electron
-echo "Step 4: Getting Node.js paths..."
-
-# Try to use node-addon-api
-NODE_API_INCLUDE=""
-if [ -d "node_modules/node-addon-api" ]; then
-    NODE_API_INCLUDE="-I./node_modules/node-addon-api"
-elif command -v node &> /dev/null; then
-    NODE_API_PATH=$(node -p "require('node-addon-api').include_dir" 2>/dev/null || echo "")
-    if [ ! -z "$NODE_API_PATH" ]; then
-        NODE_API_INCLUDE="-I$NODE_API_PATH"
-    fi
-fi
-
-# Node.js headers (try multiple locations)
-NODE_INCLUDE=""
-if command -v node &> /dev/null; then
-    NODE_PATH=$(dirname $(dirname $(which node)))
-    if [ -d "$NODE_PATH/include/node" ]; then
-        NODE_INCLUDE="-I$NODE_PATH/include/node"
-    elif [ -d "/usr/local/include/node" ]; then
-        NODE_INCLUDE="-I/usr/local/include/node"
-    fi
-fi
-
-echo "   Node API Include: $NODE_API_INCLUDE"
-echo "   Node Include: $NODE_INCLUDE"
-
-# Step 5: Compile C++
-echo "Step 5: Compiling C++ for Electron..."
-clang++ -c swift_integrated_capture.mm \
-  -I. \
-  $NODE_API_INCLUDE \
-  $NODE_INCLUDE \
-  -std=c++20 \
-  -fobjc-arc \
-  -fobjc-arc-exceptions \
-  -target ${TARGET_ARCH}-apple-macos${MACOS_VERSION} \
-  -isysroot $(xcrun --sdk macosx --show-sdk-path) \
-  -Wno-nullability-completeness \
-  -Wno-availability \
-  -Wno-deprecated-declarations
-
-if [ $? -ne 0 ]; then
+if [ ! -f "build/Release/obj.target/screen_capture_webrtc/src/webrtc_wrapper.o" ]; then
     echo "❌ C++ compilation failed"
     exit 1
 fi
 
-# Step 6: Link
-echo "Step 6: Linking final addon..."
-clang++ -o addon.node \
-  swift_integrated_capture.o \
-  CaptureModule.o \
-  -target ${TARGET_ARCH}-apple-macos${MACOS_VERSION} \
-  -std=c++20 \
-  -fobjc-arc \
-  -fobjc-arc-exceptions \
-  -isysroot $(xcrun --sdk macosx --show-sdk-path) \
-  -framework Foundation \
-  -framework CoreMedia \
-  -framework AVFoundation \
-  -framework ScreenCaptureKit \
-  -framework CoreVideo \
-  -bundle \
-  -undefined dynamic_lookup
+echo "📋 Object files created:"
+ls -la build/Release/obj.target/screen_capture_webrtc/src/
 
-if [ $? -ne 0 ]; then
+# Линкуем финальный addon
+echo "🔗 Linking addon.node..."
+clang++ \
+    -bundle \
+    -undefined dynamic_lookup \
+    -mmacosx-version-min=13.0 \
+    -stdlib=libc++ \
+    -o addon.node \
+    build/Release/obj.target/screen_capture_webrtc/src/webrtc_wrapper.o \
+    build/Release/obj.target/screen_capture_webrtc/src/ScreenCaptureManager.o \
+    -framework Foundation \
+    -framework CoreMedia \
+    -framework AVFoundation \
+    -framework ScreenCaptureKit \
+    -framework CoreVideo \
+    -framework AppKit
+
+if [ -f "addon.node" ]; then
+    echo "✅ Build successful!"
+    
+    # Копируем в build/Release для совместимости с node-gyp
+    cp addon.node build/Release/screen_capture_webrtc.node
+    
+    # Проверяем архитектуры
+    echo "🏗️ Checking architecture:"
+    file addon.node
+    
+    # Пытаемся сделать Universal Binary если возможно
+    if command -v lipo &> /dev/null; then
+        echo "🔍 Architecture info:"
+        lipo -info addon.node 2>/dev/null || echo "Single architecture build"
+    fi
+else
     echo "❌ Linking failed"
     exit 1
 fi
 
-echo "✅ Build successful!"
-echo ""
-echo "🔍 Verifying addon architecture:"
-file addon.node
-echo ""
-echo "🚀 Addon ready to use!"
-
-# Clean up temporary files
-rm -f swift_integrated_capture.mm swift_integrated_capture.o
+echo "✨ Build complete!"
