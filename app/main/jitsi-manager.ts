@@ -3,6 +3,7 @@ import { BrowserWindow, ipcMain, webContents } from "electron";
 import * as path from "path";
 import log from "electron-log";
 import { NativeCaptureManager } from "./native-capture";
+import { JitsiScreenShareMonitor } from "./jitsi-screen-share-monitor";
 
 interface JitsiOptions {
   roomName: string;
@@ -269,7 +270,8 @@ export class JitsiManager {
     private videoQualityManager: VideoQualityManager;
     private performanceMonitoringInterval?: NodeJS.Timer;
 
-    private static handlersRegistered = false;
+    private screenShareMonitor: JitsiScreenShareMonitor;
+    private activeMediaStreams: Set<string> = new Set(); 
 
     constructor(
         nativeCapture: NativeCaptureManager,
@@ -293,6 +295,8 @@ export class JitsiManager {
         log.info("[JITSI-MANAGER] Initialized with config:", this.config);
         
         this.registerHandlers();
+
+        this.screenShareMonitor = new JitsiScreenShareMonitor();
     }
 
     // Метод для обновления настроек на лету
@@ -333,17 +337,17 @@ export class JitsiManager {
 
         // Основной обработчик для создания окна
         ipcMain.handle("jitsi:create-window", async (event, options: JitsiOptions) => {
-        return this.createWindow(options);
+            return this.createWindow(options);
         });
 
         // Создание и инъекция native stream
         ipcMain.handle("jitsi:inject-native-stream", async () => {
-        return this.injectNativeStream();
+            return this.injectNativeStream();
         });
 
         // Закрытие окна
         ipcMain.handle("jitsi:close", async () => {
-        return this.closeWindow();
+            return this.closeWindow();
         });
 
         // Получение статуса
@@ -477,6 +481,39 @@ export class JitsiManager {
             return { success: true };
         });
 
+        ipcMain.handle("jitsi:stop-native-capture", async () => {
+            log.info("[STREAM-ELECTRON] Stop native capture requested");
+            
+            try {
+                // Полная очистка всех потоков
+                await this.nukeClearAllStreams();
+                
+                // Остановка native capture
+                if (this.nativeCapture && this.nativeCapture.isCapturing) {
+                    const stopResult = await this.nativeCapture.stopCapture();
+                    log.info(`[STREAM-ELECTRON] Native capture stopped: ${JSON.stringify(stopResult)}`);
+                }
+                
+                // Принудительное освобождение ресурсов
+                await this.forceReleaseAllMediaResources();
+                
+                // Сброс состояния
+                this.state.isStreamActive = false;
+                this.state.streamId = null;
+                this.state.videoFrameCount = 0;
+                this.state.audioFrameCount = 0;
+                
+                this.nativeCapture.setFrameCallbacks(undefined, undefined);
+                this.activeMediaStreams.clear();
+                
+                return { success: true };
+                
+            } catch (error: any) {
+                log.error(`[STREAM-ELECTRON] Error stopping: ${error.message}`);
+                return { success: false, error: error.message };
+            }
+        });
+
     }
 
     async getDebugInfo(): Promise<any> {
@@ -495,6 +532,90 @@ export class JitsiManager {
         
         log.info("[STREAM-ELECTRON] Debug info:", debugInfo);
         return debugInfo;
+    }
+
+    private async nukeClearAllStreams(): Promise<void> {
+        if (!this.state.window || this.state.window.isDestroyed()) return;
+        
+        try {
+            await this.state.window.webContents.executeJavaScript(`
+                (function() {
+                    console.log('[NUKE] === NUCLEAR CLEANUP STARTING ===');
+                    
+                    // Временно блокируем getUserMedia
+                    const originalGetUserMedia = navigator.mediaDevices.getUserMedia;
+                    navigator.mediaDevices.getUserMedia = function() {
+                        throw new Error('getUserMedia blocked during cleanup');
+                    };
+                    
+                    try {
+                        // Находим ВСЕ MediaStream объекты
+                        const allStreams = [];
+                        
+                        // Через глобальный трекер
+                        if (window.__allMediaStreams) {
+                            window.__allMediaStreams.forEach(stream => {
+                                allStreams.push(stream);
+                            });
+                            window.__allMediaStreams.clear();
+                        }
+                        
+                        // Через глобальные переменные
+                        for (let key in window) {
+                            try {
+                                if (window[key] instanceof MediaStream) {
+                                    allStreams.push(window[key]);
+                                    window[key] = null;
+                                }
+                            } catch(e) {}
+                        }
+                        
+                        // Через video/audio элементы
+                        [...document.querySelectorAll('video'), ...document.querySelectorAll('audio')].forEach(el => {
+                            if (el.srcObject instanceof MediaStream) {
+                                allStreams.push(el.srcObject);
+                                el.srcObject = null;
+                            }
+                        });
+                        
+                        // Останавливаем ВСЕ треки
+                        allStreams.forEach(stream => {
+                            stream.getTracks().forEach(track => {
+                                if (track.readyState === 'live') {
+                                    track.stop();
+                                    console.log('[NUKE] Stopped track:', track.id, track.kind);
+                                }
+                            });
+                        });
+                        
+                        // Очищаем Jitsi треки
+                        if (window.APP?.conference) {
+                            const tracks = window.APP.conference.getLocalTracks?.() || [];
+                            tracks.forEach(t => {
+                                if (t.dispose) t.dispose();
+                            });
+                            
+                            if (window.APP.conference._localTracks) {
+                                window.APP.conference._localTracks = [];
+                            }
+                            if (window.APP.conference.localDesktop) {
+                                window.APP.conference.localDesktop = null;
+                            }
+                        }
+                        
+                    } finally {
+                        // Восстанавливаем getUserMedia
+                        setTimeout(() => {
+                            navigator.mediaDevices.getUserMedia = originalGetUserMedia;
+                        }, 100);
+                    }
+                    
+                    console.log('[NUKE] === NUCLEAR CLEANUP COMPLETED ===');
+                })();
+            `);
+        } catch (error: any) {
+            log.error(`[STREAM-ELECTRON] Nuke clear error: ${error.message}`);
+        }
     }
 
     // Метод для изменения качества видео
@@ -1213,6 +1334,42 @@ export class JitsiManager {
                 })();
             `);
 
+            await this.screenShareMonitor.injectMonitor(this.state.window);
+
+            await this.state.window.webContents.executeJavaScript(`
+                (function() {
+                    if (window.__screenShareMonitor) {
+                        window.__screenShareMonitor.onStop(async function(source) {
+                            console.log('[Monitor] Screen share stopped, source:', source);
+                            
+                            // Проверяем, действительно ли остановлена демонстрация
+                            // и это не ложное срабатывание при старте
+                            if (!window.isNativeActive && !window.jitsiNativeMediaStream) {
+                                console.log('[Monitor] Native stream already inactive, skipping cleanup');
+                                return;
+                            }
+                            
+                            // Добавляем задержку для проверки, что это действительно остановка
+                            setTimeout(async () => {
+                                // Проверяем еще раз через некоторое время
+                                const stillSharing = window.APP?.conference?.isSharingScreen?.() || false;
+                                
+                                if (!stillSharing) {
+                                    console.log('[Monitor] Confirmed: screen share stopped, cleaning up...');
+                                    
+                                    // Останавливаем только если действительно остановлена демонстрация
+                                    if (window.ipcRenderer) {
+                                        await window.ipcRenderer.invoke('jitsi:stop-native-capture');
+                                    }
+                                } else {
+                                    console.log('[Monitor] False alarm: still sharing');
+                                }
+                            }, 1000); // Ждем 1 секунду перед очисткой
+                        });
+                    }
+                })();
+            `);
+
 
             log.info("✅ Handlers injected successfully");
 
@@ -1282,6 +1439,46 @@ export class JitsiManager {
             log.error(`[STREAM-ELECTRON] === ERROR injectNativeStream: ${error.message} ===`);
             await this.nativeCapture.stopCapture();
             return { success: false, error: error.message };
+        }
+    }
+
+    private async forceReleaseAllMediaResources(): Promise<void> {
+        if (!this.state.window || this.state.window.isDestroyed()) return;
+        
+        try {
+            // Используем Chrome DevTools Protocol для принудительной остановки
+            const cdp = this.state.window.webContents.debugger;
+            
+            try {
+                if (!cdp.isAttached()) {
+                    await cdp.attach('1.3');
+                }
+                
+                // Останавливаем все медиа сессии
+                await cdp.sendCommand('Page.stopScreencast');
+                await cdp.sendCommand('Browser.resetPermissions');
+                
+                await cdp.detach();
+            } catch (cdpError) {
+                log.warn(`[STREAM-ELECTRON] CDP cleanup error: ${cdpError}`);
+            }
+            
+            // Принудительно вызываем Garbage Collection
+            await this.state.window.webContents.executeJavaScript(`
+                if (typeof gc !== 'undefined') {
+                    gc();
+                    gc(); // Вызываем дважды для полной очистки
+                }
+            `);
+            
+            // Сбрасываем медиа сессию
+            const session = this.state.window.webContents.session;
+            await session.clearCache();
+            
+            log.info("[STREAM-ELECTRON] Forced release of all media resources");
+            
+        } catch (error: any) {
+            log.error(`[STREAM-ELECTRON] Error releasing media resources: ${error.message}`);
         }
     }
 
@@ -1562,6 +1759,15 @@ export class JitsiManager {
                         if (audioContext.state === 'suspended') {
                             await audioContext.resume();
                         }
+
+                        // Добавить глобальный трекер потоков
+                        if (!window.__allMediaStreams) {
+                            window.__allMediaStreams = new Map();
+                        }
+                        
+                        // При создании потоков добавлять их в трекер
+                        window.__allMediaStreams.set(videoStream.id, videoStream);
+                        window.__allMediaStreams.set(hybridStream.id, hybridStream);
                         
                         console.log('[STREAM-ELECTRON] ✅ Hybrid stream ready with ${qualitySettings.name} quality!');
                         
@@ -1580,6 +1786,13 @@ export class JitsiManager {
             `);
             
             if (result.success) {
+                if (result.success) {
+                    this.activeMediaStreams.clear();
+                    this.activeMediaStreams.add(result.streamId);
+                    if (result.videoStreamId) {
+                        this.activeMediaStreams.add(result.videoStreamId);
+                    }
+                }
                 log.info(`[STREAM-ELECTRON] <<< createHybridStreamInJitsi SUCCESS`);
                 log.info(`[STREAM-ELECTRON] Quality preset: ${result.qualityPreset}`);
                 log.info(`[STREAM-ELECTRON] Actual quality: ${result.videoQuality}`);
@@ -2437,95 +2650,32 @@ export class JitsiManager {
     }
 
     private async cleanup(): Promise<void> {
-        log.info("[STREAM-ELECTRON] >>> Starting cleanup...");
+        log.info("[STREAM-ELECTRON] >>> Starting comprehensive cleanup...");
         
         try {
-            // 1. Останавливаем мониторинг производительности
-            if (this.performanceMonitoringInterval) {
-                clearInterval(this.performanceMonitoringInterval);
-                this.performanceMonitoringInterval = undefined;
-                log.info("[STREAM-ELECTRON] Performance monitoring stopped");
-            }
+            // 1. Сначала "ядерная" очистка всех потоков
+            await this.nukeClearAllStreams();
             
-            // 2. Очищаем JavaScript контекст в окне Jitsi (если окно еще существует)
-            if (this.state.window && !this.state.window.isDestroyed()) {
-                try {
-                    await this.state.window.webContents.executeJavaScript(`
-                        (function() {
-                            console.log('[STREAM-ELECTRON] Cleaning up JavaScript context...');
-                            
-                            // Останавливаем все треки
-                            if (window.jitsiNativeMediaStream) {
-                                window.jitsiNativeMediaStream.getTracks().forEach(track => {
-                                    track.stop();
-                                    console.log('[STREAM-ELECTRON] Stopped track:', track.kind);
-                                });
-                            }
-                            
-                            if (window.electronVideoStream) {
-                                window.electronVideoStream.getTracks().forEach(track => {
-                                    track.stop();
-                                    console.log('[STREAM-ELECTRON] Stopped electron track:', track.kind);
-                                });
-                            }
-                            
-                            // Закрываем audio context
-                            if (window.nativeAudioContext) {
-                                window.nativeAudioContext.close();
-                                console.log('[STREAM-ELECTRON] Audio context closed');
-                            }
-                            
-                            // Очищаем функцию cleanup если была
-                            if (window.cleanupNativeStream) {
-                                window.cleanupNativeStream();
-                            }
-                            
-                            // Очищаем все глобальные переменные
-                            window.jitsiNativeMediaStream = null;
-                            window.electronVideoStream = null;
-                            window.nativeAudioContext = null;
-                            window.leftRingBuffer = null;
-                            window.rightRingBuffer = null;
-                            window.isNativeActive = false;
-                            window.isHybridMode = false;
-                            window.audioCounter = 0;
-                            window.videoFrameCounter = 0;
-                            window.jitsiHandlersInjected = false;
-                            
-                        
-                            
-                            console.log('[STREAM-ELECTRON] JavaScript cleanup completed');
-                            return true;
-                        })();
-                    `);
-                    
-                    log.info("[STREAM-ELECTRON] JavaScript context cleaned");
-                    
-                } catch (error: any) {
-                    log.error(`[STREAM-ELECTRON] Error cleaning JavaScript context: ${error.message}`);
-                }
-            }
+            // 2. Ждем немного для завершения всех операций
+            await new Promise(resolve => setTimeout(resolve, 200));
             
             // 3. Останавливаем native capture
             if (this.nativeCapture && this.nativeCapture.isCapturing) {
-                try {
-                    await this.nativeCapture.stopCapture();
-                    log.info("[STREAM-ELECTRON] Native capture stopped");
-                } catch (error: any) {
-                    log.error(`[STREAM-ELECTRON] Error stopping native capture: ${error.message}`);
-                }
+                await this.nativeCapture.stopCapture();
             }
             
-            // 4. Очищаем callbacks
+            // 4. Принудительное освобождение ресурсов
+            await this.forceReleaseAllMediaResources();
+            
+            // 5. Очищаем callbacks
             this.nativeCapture.setFrameCallbacks(undefined, undefined);
             
-            // 5. Сбрасываем состояние
+            // 6. Сбрасываем состояние
             this.state.isStreamActive = false;
             this.state.streamId = null;
             this.state.videoFrameCount = 0;
             this.state.audioFrameCount = 0;
-            
-            // НЕ обнуляем window здесь, так как это делается в closeWindow
+            this.activeMediaStreams.clear();
             
             log.info("[STREAM-ELECTRON] <<< Cleanup completed");
             
