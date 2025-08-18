@@ -464,6 +464,19 @@ export class JitsiManager {
             }
         });
 
+
+        ipcMain.handle("jitsi:conference-left", async () => {
+            log.info("[JITSI-MANAGER] Conference left event received");
+            
+            // Небольшая задержка для корректного завершения
+            setTimeout(async () => {
+                log.info("[JITSI-MANAGER] Closing window after conference leave");
+                await this.closeWindow();
+            }, 1000);
+            
+            return { success: true };
+        });
+
     }
 
     async getDebugInfo(): Promise<any> {
@@ -610,6 +623,13 @@ export class JitsiManager {
                 
                 // Предотвращаем немедленное закрытие
                 event.preventDefault();
+
+                const left = await this.leaveConference();
+                if (left) {
+                    log.info("[STREAM-ELECTRON] Successfully left conference");
+                    // Даем время на отправку пакетов выхода
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                }
                 
                 // Выполняем cleanup асинхронно
                 await this.cleanup();
@@ -643,6 +663,54 @@ export class JitsiManager {
         } catch (error: any) {
             log.error(`Failed to create Jitsi window: ${error.message}`);
             return { success: false, error: error.message };
+        }
+    }
+
+    private async leaveConference(): Promise<boolean> {
+        if (!this.state.window || this.state.window.isDestroyed()) {
+            return false;
+        }
+        
+        try {
+            const result = await this.state.window.webContents.executeJavaScript(`
+                (async function() {
+                    console.log('[JitsiManager] Attempting to leave conference...');
+                    
+                    // Отключаем все треки перед выходом
+                    if (window.jitsiNativeMediaStream) {
+                        window.jitsiNativeMediaStream.getTracks().forEach(track => {
+                            track.stop();
+                            console.log('[JitsiManager] Stopped track:', track.kind);
+                        });
+                    }
+                    
+                    // Выходим из конференции
+                    if (window.APP && window.APP.conference) {
+                        // Метод 1: hangup
+                        if (window.APP.conference.hangup) {
+                            window.APP.conference.hangup(true);
+                            console.log('[JitsiManager] Called hangup()');
+                            await new Promise(resolve => setTimeout(resolve, 1000));
+                            return true;
+                        }
+                        
+                        // Метод 2: room.leave
+                        if (window.APP.conference._room && window.APP.conference._room.leave) {
+                            await window.APP.conference._room.leave();
+                            console.log('[JitsiManager] Called room.leave()');
+                            return true;
+                        }
+                    }
+                    
+                    return false;
+                })();
+            `);
+            
+            return result;
+            
+        } catch (error: any) {
+            log.error(`[JitsiManager] Error leaving conference: ${error.message}`);
+            return false;
         }
     }
 
@@ -1077,6 +1145,72 @@ export class JitsiManager {
             // Инжектируем перехватчик выбора источников (теперь он будет работать вместе с основным кодом)
             await this.state.window.webContents.executeJavaScript(`
                 ${this.getScreenShareInterceptorCode()}
+            `);
+
+            await this.state.window.webContents.executeJavaScript(`
+                (function() {
+                    console.log('[JitsiManager] Setting up conference leave handler...');
+                    
+                    let leaveHandled = false;
+                    
+                    // Функция для отправки события только один раз
+                    function notifyConferenceLeft() {
+                        if (leaveHandled) return;
+                        leaveHandled = true;
+                        
+                        console.log('[JitsiManager] Conference left - notifying main process...');
+                        
+                        if (window.ipcRenderer) {
+                            window.ipcRenderer.invoke('jitsi:conference-left').then(() => {
+                                console.log('[JitsiManager] Main process notified successfully');
+                            }).catch(err => {
+                                console.error('[JitsiManager] Failed to notify:', err);
+                            });
+                        }
+                    }
+                    
+                    // Ждем полной загрузки конференции
+                    const checkInterval = setInterval(() => {
+                        // Проверяем наличие объекта конференции
+                        if (window.APP && window.APP.conference && window.APP.conference._room) {
+                            clearInterval(checkInterval);
+                            
+                            const room = window.APP.conference._room;
+                            console.log('[JitsiManager] Conference room found, adding listeners...');
+                            
+                            // Слушаем событие CONFERENCE_LEFT
+                            if (window.JitsiMeetJS && window.JitsiMeetJS.events && window.JitsiMeetJS.events.conference) {
+                                room.on(
+                                    window.JitsiMeetJS.events.conference.CONFERENCE_LEFT,
+                                    () => {
+                                        console.log('[JitsiManager] CONFERENCE_LEFT event fired!');
+                                        notifyConferenceLeft();
+                                    }
+                                );
+                                
+                                console.log('[JitsiManager] CONFERENCE_LEFT listener added');
+                            }
+                            
+                            // Альтернативный способ - перехват метода leave
+                            const originalLeave = room.leave;
+                            room.leave = function(...args) {
+                                console.log('[JitsiManager] room.leave() called');
+                                notifyConferenceLeft();
+                                return originalLeave.apply(this, args);
+                            };
+                            
+                            console.log('[JitsiManager] Conference leave handlers installed successfully');
+                        }
+                    }, 500);
+                    
+                    // Останавливаем проверку через 20 секунд
+                    setTimeout(() => {
+                        clearInterval(checkInterval);
+                        console.log('[JitsiManager] Stopped checking for conference room');
+                    }, 20000);
+                    
+                    return true;
+                })();
             `);
 
 
