@@ -519,15 +519,6 @@ export class JitsiManager {
                             const newSettings = videoTrack.getSettings();
                             console.log('[VIDEO-QUALITY] Applied:', newSettings.width + 'x' + newSettings.height + '@' + newSettings.frameRate + 'fps');
                             
-                            // Обновляем визуальный индикатор
-                            const badge = document.getElementById('electron-video-badge');
-                            if (badge) {
-                                badge.innerHTML = \`
-                                    <div>ELECTRON VIDEO (${presetName})</div>
-                                    <div>\${newSettings.width}x\${newSettings.height}@\${Math.round(newSettings.frameRate)}fps</div>
-                                \`;
-                                badge.style.background = newSettings.width >= 1280 ? '#4CAF50' : '#FF9800';
-                            }
                             
                             return {
                                 success: true,
@@ -691,26 +682,129 @@ export class JitsiManager {
     private buildConferenceUrl(server: string, roomName: string, options: JitsiOptions): string {
         let url = `${server}/${roomName}`;
 
-        // Query параметры
+        // Query параметры (JWT токен)
         const queryParams = new URLSearchParams();
         if (options.jwt) queryParams.append('jwt', options.jwt);
         
         if (queryParams.toString()) {
-        url += '?' + queryParams.toString();
+            url += '?' + queryParams.toString();
         }
 
         // Hash параметры для конфигурации
         const hashParams = new URLSearchParams();
+        
+        // === ОСНОВНЫЕ НАСТРОЙКИ ===
         hashParams.append('config.prejoinPageEnabled', 'false');
         hashParams.append('config.startWithAudioMuted', 'false');
         hashParams.append('config.startWithVideoMuted', 'true');
         
-        if (options.displayName) hashParams.append('userInfo.displayName', options.displayName);
-        if (options.email) hashParams.append('userInfo.email', options.email);
-        if (options.avatarUrl) hashParams.append('userInfo.avatar', options.avatarUrl);
+        // === НАСТРОЙКИ ЛОГИРОВАНИЯ ===
+        hashParams.append('config.apiLogLevels', JSON.stringify(['error']));
+        hashParams.append('config.logging.defaultLogLevel', 'error');
         
+        // === НАСТРОЙКИ ВИДЕО И АУДИО ===
+        hashParams.append('config.disableSimulcast', 'true');
+        hashParams.append('config.disableAudioLevels', 'false');
+        hashParams.append('config.stereo', 'false');
+        hashParams.append('config.resolution', '720');
+        
+        // === НАСТРОЙКИ ОБРАБОТКИ АУДИО ===
+        hashParams.append('config.echoCancellation', 'true');
+        hashParams.append('config.noiseSuppression', 'true');
+        hashParams.append('config.highpassFilter', 'true');
+        hashParams.append('config.autoGainControl', 'true');
+        hashParams.append('config.enableLipSync', 'false');
+        
+        // === НАСТРОЙКИ ДЕМОНСТРАЦИИ ЭКРАНА ===
+        hashParams.append('config.desktopSharingFrameRate.min', '15');
+        hashParams.append('config.desktopSharingFrameRate.max', '30');
+        
+        // Разрешение для демонстрации экрана
+        hashParams.append('config.constraints.video.width.min', '480');
+        hashParams.append('config.constraints.video.width.ideal', '800');
+        hashParams.append('config.constraints.video.width.max', '900');
+        hashParams.append('config.constraints.video.height.min', '360');
+        hashParams.append('config.constraints.video.height.ideal', '500');
+        hashParams.append('config.constraints.video.height.max', '720');
+        hashParams.append('config.constraints.video.frameRate.min', '15');
+        hashParams.append('config.constraints.video.frameRate.max', '30');
+        
+        // Настройки для desktop sharing
+        hashParams.append('config.desktopSharingConstraints.video.width.min', '360');
+        hashParams.append('config.desktopSharingConstraints.video.width.ideal', '800');
+        hashParams.append('config.desktopSharingConstraints.video.width.max', '900');
+        hashParams.append('config.desktopSharingConstraints.video.height.min', '480');
+        hashParams.append('config.desktopSharingConstraints.video.height.ideal', '500');
+        hashParams.append('config.desktopSharingConstraints.video.height.max', '800');
+        hashParams.append('config.desktopSharingConstraints.video.frameRate.min', '15');
+        hashParams.append('config.desktopSharingConstraints.video.frameRate.max', '30');
+        
+        // === ОТКЛЮЧЕНИЕ ФУНКЦИЙ ИНТЕРФЕЙСА ===
+        hashParams.append('config.hideConferenceSubject', 'true');
+        hashParams.append('config.deeplinking.disabled', 'true');
+        hashParams.append('config.disableRemoteMute', 'true');
+        hashParams.append('config.disableKick', 'true');
+        hashParams.append('config.disableGrantModerator', 'true');
+        hashParams.append('config.disablePrivateChat', 'true');
+        hashParams.append('config.disableSelfViewSettings', 'true');
+        hashParams.append('config.disableLocalVideoFlip', 'true');
+        hashParams.append('config.disableLocalStats', 'true');
+        hashParams.append('config.disableAVModeration', 'true');
+        hashParams.append('config.disableInviteFunctions', 'true');
+        
+        // Настройки панели участников
+        hashParams.append('config.participantsPane.hideMoreActionsButton', 'true');
+        hashParams.append('config.breakoutRooms.hideMoreActionsButton', 'true');
+        
+        // Настройки filmstrip
+        hashParams.append('config.filmstrip.disableStageFilmstrip', 'true');
+        hashParams.append('config.filmstrip.disableResizable', 'true');
+        
+        // === НАСТРОЙКИ ИНТЕРФЕЙСА ===
+        hashParams.append('interfaceConfig.DISABLE_VIDEO_BACKGROUND', 'true');
+        hashParams.append('interfaceConfig.DISABLE_DOMINANT_SPEAKER_INDICATOR', 'true');
+        
+        // Кнопки тулбара - только необходимые
+        const toolbarButtons = [
+            'camera',
+            'desktop',
+            'microphone', 
+            'settings',
+            'fullscreen',
+            'hangup'
+        ];
+        hashParams.append('interfaceConfig.TOOLBAR_BUTTONS', JSON.stringify(toolbarButtons));
+        
+        // === ИНФОРМАЦИЯ О ПОЛЬЗОВАТЕЛЕ ===
+        if (options.displayName) {
+            hashParams.append('userInfo.displayName', options.displayName);
+        }
+        if (options.email) {
+            hashParams.append('userInfo.email', options.email);
+        }
+        if (options.avatarUrl) {
+            hashParams.append('userInfo.avatarURL', options.avatarUrl);
+        }
+        
+        // === ИСТОЧНИКИ ДЛЯ ДЕМОНСТРАЦИИ ===
+        hashParams.append('config.desktopSharingSources', JSON.stringify(['screen', 'window']));
+        
+        // === ДОПОЛНИТЕЛЬНЫЕ НАСТРОЙКИ ===
+        hashParams.append('config.enableWelcomePage', 'false');
+        hashParams.append('config.enableClosePage', 'false');
+        hashParams.append('config.fileRecordingsEnabled', 'false');
+        hashParams.append('config.liveStreamingEnabled', 'false');
+        hashParams.append('config.transcribingEnabled', 'false');
+        hashParams.append('config.enableCalendarIntegration', 'false');
+        hashParams.append('config.enableNoAudioDetection', 'false');
+        hashParams.append('config.enableNoisyMicDetection', 'false');
+        hashParams.append('config.enableSaveLogs', 'false');
+        hashParams.append('config.disableThirdPartyRequests', 'true');
+        hashParams.append('config.p2p.enabled', 'false');
+        
+        // Добавляем hash параметры к URL
         if (hashParams.toString()) {
-        url += '#' + hashParams.toString();
+            url += '#' + hashParams.toString();
         }
 
         return url;
@@ -762,64 +856,6 @@ export class JitsiManager {
                     
                     console.log('[JitsiNative] Starting complete injection...');
                     
-                    // === ОТЛАДОЧНЫЙ ИНДИКАТОР ===
-                    if (!document.getElementById('stream-debug-indicator')) {
-                        const debugIndicator = document.createElement('div');
-                        debugIndicator.id = 'stream-debug-indicator';
-                        debugIndicator.style.cssText = \`
-                            position: fixed;
-                            top: 10px;
-                            left: 10px;
-                            background: rgba(0, 0, 0, 0.8);
-                            color: white;
-                            padding: 10px 15px;
-                            border-radius: 8px;
-                            z-index: 100000;
-                            font-family: monospace;
-                            font-size: 12px;
-                            min-width: 200px;
-                            box-shadow: 0 2px 10px rgba(0,0,0,0.5);
-                        \`;
-                        debugIndicator.innerHTML = \`
-                            <div style="font-weight: bold; margin-bottom: 5px;">🎯 Native Stream Debug</div>
-                            <div>Type: <span id="source-type" style="color: #ffa726;">Not set</span></div>
-                            <div>Native Active: <span id="native-status" style="color: #ef5350;">No</span></div>
-                            <div>Stream ID: <span id="stream-id" style="font-size: 10px;">None</span></div>
-                        \`;
-                        document.body.appendChild(debugIndicator);
-                    }
-                    
-                    // Функция обновления индикатора
-                    function updateDebugIndicator() {
-                        const typeEl = document.getElementById('source-type');
-                        const statusEl = document.getElementById('native-status');
-                        const idEl = document.getElementById('stream-id');
-                        const indicator = document.getElementById('stream-debug-indicator');
-                        
-                        if (window.jitsiNativeMediaStream && window.isNativeActive) {
-                            if (typeEl) typeEl.textContent = 'NATIVE';
-                            if (statusEl) {
-                                statusEl.textContent = 'Active';
-                                statusEl.style.color = '#66bb6a';
-                            }
-                            if (idEl) idEl.textContent = window.jitsiNativeMediaStream.id.substring(0, 8) + '...';
-                            if (indicator) {
-                                indicator.style.background = 'linear-gradient(135deg, rgba(76, 175, 80, 0.95), rgba(102, 187, 106, 0.95))';
-                            }
-                        } else {
-                            if (typeEl) typeEl.textContent = 'None';
-                            if (statusEl) {
-                                statusEl.textContent = 'No';
-                                statusEl.style.color = '#ef5350';
-                            }
-                            if (idEl) idEl.textContent = 'None';
-                            if (indicator) {
-                                indicator.style.background = 'rgba(0, 0, 0, 0.8)';
-                            }
-                        }
-                    }
-                    
-                    setInterval(updateDebugIndicator, 500);
                     
                     // === СОХРАНЯЕМ ОРИГИНАЛЬНЫЕ ФУНКЦИИ ===
                     const originalFunctions = {
@@ -1043,10 +1079,6 @@ export class JitsiManager {
                 ${this.getScreenShareInterceptorCode()}
             `);
 
-            // Добавляем кнопку native stream
-            await this.state.window.webContents.executeJavaScript(`
-                ${this.getNativeStreamButtonCode()}
-            `);
 
             log.info("✅ Handlers injected successfully");
 
@@ -1054,82 +1086,6 @@ export class JitsiManager {
             log.error(`Failed to inject handlers: ${error.message}`);
         }
     }
-
-    private getNativeStreamButtonCode(): string {
-        return `
-        (function() {
-            const button = document.createElement('button');
-            button.id = 'native-stream-button';
-            button.textContent = '🎯 Start Native Stream';
-            button.style.cssText = \`
-            position: fixed;
-            top: 80px;
-            right: 20px;
-            z-index: 100000;
-            padding: 10px 20px;
-            background: linear-gradient(135deg, #4CAF50, #66BB6A);
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-size: 16px;
-            font-weight: bold;
-            cursor: pointer;
-            box-shadow: 0 4px 20px rgba(76, 175, 80, 0.3);
-            \`;
-            
-            button.onclick = async () => {
-            button.disabled = true;
-            button.textContent = '⏳ Starting...';
-            
-            try {
-                const result = await window.ipcRenderer.invoke('jitsi:inject-native-stream');
-                
-                if (result.success) {
-                button.textContent = '✅ Native Stream Active';
-                button.style.background = 'linear-gradient(135deg, #66BB6A, #4CAF50)';
-                } else {
-                button.textContent = '❌ Failed';
-                button.style.background = '#f44336';
-                console.error('Failed to start native stream:', result.error);
-                }
-            } catch (error) {
-                button.textContent = '❌ Error';
-                button.style.background = '#f44336';
-                console.error('Error:', error);
-            }
-            };
-            
-            document.body.appendChild(button);
-        })();
-        `;
-    }
-
-    // Вспомогательный метод для показа системного диалога
-    private async showSystemPicker(): Promise<{ success: boolean; sourceId?: string }> {
-        try {
-            // Используем Electron's desktopCapturer как fallback
-            const sources = await desktopCapturer.getSources({
-                types: ['screen', 'window'],
-                thumbnailSize: { width: 300, height: 200 }
-            });
-            
-            if (sources.length === 0) {
-                return { success: false };
-            }
-            
-            // Для простоты берем первый экран
-            const screen = sources.find(s => s.id.startsWith('screen:')) || sources[0];
-            
-            log.info(`System picker: selected ${screen.id}`);
-            return { success: true, sourceId: screen.id };
-            
-        } catch (error: any) {
-            log.error(`System picker error: ${error.message}`);
-            return { success: false };
-        }
-    }
-
-
 
     // ===== ГЛАВНАЯ ФУНКЦИЯ =====
     async injectNativeStream(): Promise<{ success: boolean; error?: string; streamId?: string }> {
@@ -1390,33 +1346,6 @@ export class JitsiManager {
                             console.warn('[STREAM-ELECTRON] ⚠️ Quality higher than requested!');
                         }
                         
-                        // Визуальный индикатор с названием пресета
-                        const qualityBadge = document.createElement('div');
-                        qualityBadge.id = 'electron-video-badge';
-                        qualityBadge.style.cssText = \`
-                            position: fixed;
-                            top: 60px;
-                            right: 10px;
-                            background: \${actualSettings.width >= 1280 ? '#4CAF50' : 
-                                        actualSettings.width >= 640 ? '#FF9800' : '#F44336'};
-                            color: white;
-                            padding: 10px 15px;
-                            border-radius: 8px;
-                            font-family: monospace;
-                            font-size: 12px;
-                            font-weight: bold;
-                            z-index: 100001;
-                            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
-                        \`;
-                        qualityBadge.innerHTML = \`
-                            <div>ELECTRON VIDEO</div>
-                            <div style="font-size: 14px;">${qualitySettings.name}</div>
-                            <div>\${actualSettings.width}x\${actualSettings.height}@\${Math.round(actualSettings.frameRate)}fps</div>
-                        \`;
-                        
-                        const oldBadge = document.getElementById('electron-video-badge');
-                        if (oldBadge) oldBadge.remove();
-                        document.body.appendChild(qualityBadge);
                         
                         // 2. Создаем AUDIO контекст для Native (код без изменений)
                         const audioContext = new AudioContext({ 
@@ -2429,21 +2358,7 @@ export class JitsiManager {
                             window.videoFrameCounter = 0;
                             window.jitsiHandlersInjected = false;
                             
-                            // Удаляем визуальные индикаторы
-                            const indicators = [
-                                'stream-debug-indicator',
-                                'electron-video-badge',
-                                'native-stream-button',
-                                'video-quality-badge'
-                            ];
-                            
-                            indicators.forEach(id => {
-                                const element = document.getElementById(id);
-                                if (element) {
-                                    element.remove();
-                                    console.log('[STREAM-ELECTRON] Removed element:', id);
-                                }
-                            });
+                        
                             
                             console.log('[STREAM-ELECTRON] JavaScript cleanup completed');
                             return true;
