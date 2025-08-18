@@ -21,7 +21,8 @@
   "devDependencies": {
     "electron": "^32.3.3",
     "electron-rebuild": "^3.2.9",
-    "node-gyp": "^10.0.0"
+    "node-gyp": "^10.0.0",
+    "node-gyp-build": "^4.8.4"
   },
   "files": [
     "src/",
