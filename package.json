@@ -37,15 +37,16 @@
     "mas": "vite build && electron-builder --windows --config.win.target=nsis",
     "pre-store": "npm run build-only && npm run sign-mac-key-server",
     "post-store": "productsign --sign \"3rd Party Mac Developer Installer: Yuriy Tereshchenko (U95EM6ZJRW)\" \"dist/mas/Связь РМ-5.26.2.pkg\" \"dist/mas/Связь РМ-5.26.2-signed.pkg\"",
-    "store": "npm run pre-store && vite build && electron-builder  --mac"
+    "store": "npm run pre-store && vite build && electron-builder  --mac --universal"
   },
   "pre-commit": [
     "test"
   ],
   "build": {
-    "buildVersion": 7,
+    "buildVersion": 8,
     "appId": "org.rm.rm-electron",
     "copyright": "©Цифровые технологии РМ",
+    "afterSign": "scripts/notarize.js",
     "publish": [
       {
         "provider": "generic",
@@ -66,23 +67,19 @@
       "resources/bin/**"
     ],
     "mac": {
+      "target": "mas",
       "minimumSystemVersion": "12.0",
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
       "entitlements": "build/entitlements.mac.plist",
-      "entitlementsInherit": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/macEntitlements.plist",
       "provisioningProfile": "build/Storermelectron.provisionprofile",
       "category": "public.app-category.productivity",
       "icon": "build/icon.icns",
       "notarize": true,
       "identity": "Yuriy Tereshchenko (U95EM6ZJRW)",
-      "x64ArchFiles": "**/bin/MacKeyServer"
-    },
-    "pkg": {
-      "identity": "Yuriy Tereshchenko (U95EM6ZJRW)",
-      "allowAnywhere": true,
-      "allowCurrentUserHome": false,
-      "allowRootDirectory": false
+      "x64ArchFiles": "**/bin/MacKeyServer",
+      "type": "distribution"
     },
     "linux": {
       "category": "Chat;GNOME;GTK;Network;InstantMessaging",
@@ -169,6 +166,7 @@
     "electron": "^32.3.0",
     "electron-builder": "^24.6.4",
     "electron-log": "^5.3.3",
+    "electron-notarize": "^1.2.2",
     "electron-updater": "^6.3.4",
     "electron-window-state": "^5.0.3",
     "escape-goat": "^4.0.0",
