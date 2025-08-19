@@ -71,6 +71,31 @@ export class NativeCaptureManager {
     private state: NativeCaptureState;
     private currentQuality: CaptureQuality = CAPTURE_PRESETS.ULTRALOW.quality;
     private addonType: 'mac-swift' | 'windows-cpp' | 'unknown' = 'unknown';
+    private debugCallback?: (packetInfo: any) => void; // 🆕
+
+    // 🆕 НОВЫЙ МЕТОД - установка debug callback
+    setDebugCallback(callback: (packetInfo: any) => void): void {
+        this.debugCallback = callback;
+        log.info("[NATIVE-CAPTURE] Debug callback set");
+    }
+
+    notifyDebugPacket(frameNumber: number, audioData: any): void {
+        if (this.debugCallback && frameNumber % 10 === 0) {
+            const packetInfo = {
+                frameNumber: frameNumber,
+                dataSize: audioData.data?.byteLength || 0,
+                sampleRate: audioData.sampleRate || 'unknown',
+                channels: audioData.channels || 'unknown',
+                numSamples: audioData.numSamples || 'unknown',
+                source: audioData.source || 'unknown',
+                timestamp: Date.now(),
+                hasData: !!(audioData.data && audioData.data.byteLength > 0),
+                addonType: this.addonType
+            };
+            
+            this.debugCallback(packetInfo);
+        }
+    }
 
     constructor(addon?: any) {
         this.state = {
@@ -380,17 +405,23 @@ export class NativeCaptureManager {
     private loadAddon(): boolean {
         try {
             const possiblePaths = [
-            path.join(__dirname, 'native-addon.node'),
-            path.join(__dirname, '..', 'dist-electron', 'native-addon.node'),
-            path.join(process.cwd(), 'dist-electron', 'native-addon.node'),
-            '/Users/sg12/zulip-desktop/dist-electron/native-addon.node',
-            // 🆕 ДОБАВИТЬ ПУТИ ДЛЯ WINDOWS
-            path.join(__dirname, 'capture.node'),
-            path.join(__dirname, '..', 'dist-electron', 'capture.node'),
-            path.join(process.cwd(), 'dist-electron', 'capture.node'),
-            path.join(process.cwd(), 'native', 'win', 'capture.node'),
-            path.join(__dirname, '..', 'native', 'win', 'capture.node')
+                path.join(__dirname, 'native-addon.node'),
+                path.join(__dirname, '..', 'dist-electron', 'native-addon.node'),
+                path.join(process.cwd(), 'dist-electron', 'native-addon.node'),
+                '/Users/sg12/zulip-desktop/dist-electron/native-addon.node',
+                // 🆕 ДОБАВИТЬ ПУТИ ДЛЯ WINDOWS
+                path.join(__dirname, 'capture.node'),
+                path.join(__dirname, '..', 'dist-electron', 'capture.node'),
+                path.join(process.cwd(), 'dist-electron', 'capture.node'),
+                path.join(process.cwd(), 'native', 'win', 'capture.node'),
+                path.join(__dirname, '..', 'native', 'win', 'capture.node'),
+
+                // Production paths (в упакованном приложении)
+                path.join(process.resourcesPath, 'addons', 'screen_capture.node'),
+                path.join(process.resourcesPath, 'addons', 'capture.node'),
             ];
+
+            
             
             let addonPath: string | null = null;
             for (const testPath of possiblePaths) {
@@ -549,9 +580,13 @@ export class NativeCaptureManager {
       }
     }
 
-    async testAddonHealth(): Promise<{ healthy: boolean; details: string }> {
+    async testAddonHealth(): Promise<{ healthy: boolean; details: string; addonType: string }> {
         if (!this.state.addon) {
-            return { healthy: false, details: "Addon not loaded" };
+            return { 
+                healthy: false, 
+                details: "Addon not loaded",
+                addonType: this.addonType
+            };
         }
         
         const tests: string[] = [];
@@ -559,16 +594,18 @@ export class NativeCaptureManager {
         // Проверяем основные методы
         const methods = [
             'setCaptureSource',
-            'setCaptureQuality',
+            'setCaptureQuality', 
             'startCapture',
             'stopCapture',
             'setWebRTCVideoCallback',
             'setWebRTCAudioCallback',
-            'getAvailableSources',
-            // НОВЫЕ МЕТОДЫ
-            'startAudioOnlyCapture',    // Новый оптимизированный метод
-            'startAudioVideoCapture'     // Новый метод для полного захвата
+            'getAvailableSources'
         ];
+        
+        // Добавляем специфичные для платформы методы
+        if (this.addonType === 'mac-swift') {
+            methods.push('startAudioOnlyCapture', 'startAudioVideoCapture');
+        }
         
         for (const method of methods) {
             if (typeof this.state.addon[method] === 'function') {
@@ -578,15 +615,14 @@ export class NativeCaptureManager {
             }
         }
         
-        // Проверяем новые оптимизированные методы отдельно
-        const hasOptimizedMethods = 
-            typeof this.state.addon.startAudioOnlyCapture === 'function' &&
-            typeof this.state.addon.startAudioVideoCapture === 'function';
+        // 🆕 Информация о типе плагина
+        tests.push(`🔧 Addon type: ${this.addonType}`);
+        tests.push(`🖥️ Platform: ${process.platform}`);
         
-        if (hasOptimizedMethods) {
-            tests.push(`🚀 OPTIMIZED METHODS AVAILABLE - Better performance!`);
-        } else {
-            tests.push(`⚠️ Using legacy methods - consider updating Swift addon`);
+        if (this.addonType === 'mac-swift') {
+            tests.push(`🍎 macOS Swift addon - Optimized methods available`);
+        } else if (this.addonType === 'windows-cpp') {
+            tests.push(`🪟 Windows C++ addon - Standard methods`);
         }
         
         const details = tests.join('\n');
@@ -594,7 +630,7 @@ export class NativeCaptureManager {
         
         log.info(`Native addon health check:\n${details}`);
         
-        return { healthy, details };
+        return { healthy, details, addonType: this.addonType };
     }
 
     async startCapture(sourceId: string): Promise<{ success: boolean; error?: string }> {

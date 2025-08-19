@@ -428,7 +428,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
     {
         videoQuality: 'MEDIUM',  // 720p для экономии ресурсов
         useHybridMode: true,
-        enableDebugUI: process.env.NODE_ENV === 'development',
+        enableDebugUI: true,
         enablePerformanceMonitoring: true
     }
   );

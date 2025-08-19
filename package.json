@@ -44,6 +44,8 @@
   "build": {
     "appId": "org.rm.rm-electron",
     "copyright": "©Цифровые технологии РМ",
+    "npmRebuild": false,
+    "buildDependenciesFromSource": false,
     "publish": [
       {
         "provider": "github",
@@ -129,8 +131,7 @@
       "icon": "build/icon.ico",
       "publisherName": [
         "ООО Цифровые Технологии Рм"
-      ],
-      "sign": "scripts/sign.js"
+      ]
     },
     "nsis": {
       "oneClick": false,

@@ -272,6 +272,8 @@ export class JitsiManager {
 
     private screenShareMonitor: JitsiScreenShareMonitor;
     private activeMediaStreams: Set<string> = new Set(); 
+    private debugMonitoringStarted: boolean = false;
+    private debugMonitoringInterval?: NodeJS.Timer;
 
     constructor(
         nativeCapture: NativeCaptureManager,
@@ -297,6 +299,491 @@ export class JitsiManager {
         this.registerHandlers();
 
         this.screenShareMonitor = new JitsiScreenShareMonitor();
+
+        if (this.config.enableDebugUI === undefined) {
+            this.config.enableDebugUI = process.env.NODE_ENV === 'development' || 
+                                    process.argv.includes('--debug-ui');
+        }
+        
+         this.debugMonitoringStarted = false;
+
+        log.info("[JITSI-MANAGER] Debug UI enabled:", this.config.enableDebugUI);
+    }
+
+    // В jitsi-manager.ts, обновите метод injectDebugOverlay()
+    private async injectDebugOverlay(): Promise<void> {
+        log.info("[JITSI-MANAGER] ============ DEBUG OVERLAY INJECTION START ============");
+        log.info("[JITSI-MANAGER] Config enableDebugUI:", this.config.enableDebugUI);
+        log.info("[JITSI-MANAGER] Window exists:", !!this.state.window);
+        log.info("[JITSI-MANAGER] Window destroyed:", this.state.window?.isDestroyed());
+        
+        if (!this.config.enableDebugUI) {
+            log.warn("[JITSI-MANAGER] Debug UI is disabled in config");
+            return;
+        }
+        
+        if (!this.state.window || this.state.window.isDestroyed()) {
+            log.error("[JITSI-MANAGER] No window available for debug overlay");
+            return;
+        }
+        
+        try {
+            // Проверяем наличие панели
+            const alreadyInjected = await this.state.window.webContents.executeJavaScript(`
+                !!(document.getElementById('native-debug-overlay'))
+            `);
+            
+            log.info("[JITSI-MANAGER] Already injected:", alreadyInjected);
+            
+            if (alreadyInjected) {
+                log.info("[JITSI-MANAGER] Debug overlay already exists");
+                return;
+            }
+            
+            // Пробуем инъектировать основную панель
+            log.info("[JITSI-MANAGER] Injecting main debug overlay...");
+            
+            const result = await this.state.window.webContents.executeJavaScript(`
+                (function() {
+                    try {
+                        console.log('[INJECTION] Starting main overlay injection...');
+                        
+                        // Проверяем, что можем создавать элементы
+                        const testDiv = document.createElement('div');
+                        if (!testDiv) {
+                            throw new Error('Cannot create elements');
+                        }
+                        
+                        // Удаляем старые панели
+                        const oldOverlay = document.getElementById('native-debug-overlay');
+                        if (oldOverlay) oldOverlay.remove();
+                        
+                        const oldSimple = document.getElementById('simple-debug');
+                        if (oldSimple) oldSimple.remove();
+                        
+                        // Создаем панель пошагово
+                        const overlay = document.createElement('div');
+                        overlay.id = 'native-debug-overlay';
+                        
+                        // Устанавливаем стили по одному
+                        overlay.style.position = 'fixed';
+                        overlay.style.top = '20px';
+                        overlay.style.right = '20px';
+                        overlay.style.width = '350px';
+                        overlay.style.background = 'rgba(0, 0, 0, 0.9)';
+                        overlay.style.color = 'white';
+                        overlay.style.fontFamily = 'monospace';
+                        overlay.style.fontSize = '12px';
+                        overlay.style.padding = '15px';
+                        overlay.style.borderRadius = '10px';
+                        overlay.style.zIndex = '999999';
+                        overlay.style.border = '2px solid #333';
+                        
+                        // Простой HTML для теста
+                        overlay.innerHTML = '<div style="color: #4CAF50; font-size: 16px; font-weight: bold;">🔧 Native Debug Panel v2</div>' +
+                            '<div style="margin-top: 10px;">' +
+                            '<div id="plugin-status" style="margin: 5px 0;">Plugin: Checking...</div>' +
+                            '<div id="capture-status" style="margin: 5px 0;">Capture: Not active</div>' +
+                            '<div id="audio-packets" style="margin: 5px 0;">Audio: 0 packets</div>' +
+                            '<div id="video-packets" style="margin: 5px 0;">Video: 0 packets</div>' +
+                            '</div>' +
+                            '<button id="debug-close" style="position: absolute; top: 5px; right: 5px; background: red; color: white; border: none; padding: 2px 6px; cursor: pointer;">X</button>';
+                        
+                        // Добавляем в DOM
+                        document.body.appendChild(overlay);
+                        console.log('[INJECTION] Overlay added to DOM');
+                        
+                        // Добавляем обработчик закрытия
+                        const closeBtn = document.getElementById('debug-close');
+                        if (closeBtn) {
+                            closeBtn.onclick = function() {
+                                overlay.remove();
+                            };
+                        }
+                        
+                        // Создаем глобальную функцию обновления
+                        window.updateDebugStatus = function(data) {
+                            console.log('[INJECTION] Updating debug status:', data);
+                            
+                            const pluginEl = document.getElementById('plugin-status');
+                            if (pluginEl && data.hasAddon !== undefined) {
+                                pluginEl.textContent = 'Plugin: ' + (data.hasAddon ? '✅ Loaded' : '❌ Not loaded');
+                            }
+                            
+                            const captureEl = document.getElementById('capture-status');
+                            if (captureEl && data.nativeCaptureActive !== undefined) {
+                                captureEl.textContent = 'Capture: ' + (data.nativeCaptureActive ? '✅ Active' : '❌ Inactive');
+                            }
+                            
+                            const audioEl = document.getElementById('audio-packets');
+                            if (audioEl && data.audioFrameCount !== undefined) {
+                                audioEl.textContent = 'Audio: ' + data.audioFrameCount + ' packets';
+                            }
+                            
+                            const videoEl = document.getElementById('video-packets');
+                            if (videoEl && data.videoFrameCount !== undefined) {
+                                videoEl.textContent = 'Video: ' + data.videoFrameCount + ' packets';
+                            }
+                        };
+                        
+                        console.log('[INJECTION] ✅ Main overlay injected successfully');
+                        return { success: true, type: 'main' };
+                        
+                    } catch (error) {
+                        console.error('[INJECTION] Main overlay failed:', error.message);
+                        return { success: false, error: error.message };
+                    }
+                })();
+            `);
+            
+            log.info("[JITSI-MANAGER] Injection result:", JSON.stringify(result));
+            
+            if (result && result.success) {
+                log.info("✅ Main debug overlay injected successfully");
+                
+                // Сразу отправляем начальные данные
+                const debugInfo = await this.getDebugInfo();
+                await this.state.window.webContents.executeJavaScript(`
+                    if (window.updateDebugStatus) {
+                        window.updateDebugStatus(${JSON.stringify(debugInfo)});
+                    }
+                `);
+                
+                // Запускаем мониторинг
+                this.startDebugMonitoring();
+                
+            } else {
+                log.error("Main overlay failed, trying simple fallback...");
+                log.error("Error was:", result?.error);
+                
+                // Fallback на простую версию
+                await this.injectSimpleDebugOverlay();
+            }
+            
+        } catch (error: any) {
+            log.error(`[JITSI-MANAGER] Exception during injection: ${error.message}`);
+            log.error("Full error:", error);
+            
+            // Fallback
+            await this.injectSimpleDebugOverlay();
+        }
+        
+        log.info("[JITSI-MANAGER] ============ DEBUG OVERLAY INJECTION END ============");
+    }
+
+    private async injectSimpleDebugOverlay(): Promise<void> {
+        if (!this.state.window || this.state.window.isDestroyed()) return;
+        
+        try {
+            await this.state.window.webContents.executeJavaScript(`
+                (function() {
+                    // Удаляем старую панель если есть
+                    const existing = document.getElementById('simple-debug');
+                    if (existing) existing.remove();
+                    
+                    // Создаем простую панель
+                    const panel = document.createElement('div');
+                    panel.id = 'simple-debug';
+                    panel.style.cssText = \`
+                        position: fixed;
+                        top: 10px;
+                        right: 10px;
+                        background: rgba(255, 0, 0, 0.9);
+                        color: white;
+                        padding: 10px;
+                        z-index: 999999;
+                        font-family: monospace;
+                        font-size: 12px;
+                        border-radius: 5px;
+                    \`;
+                    panel.innerHTML = '🔧 DEBUG PANEL ACTIVE';
+                    document.body.appendChild(panel);
+                    
+                    console.log('✅ Simple debug panel injected');
+                    return true;
+                })();
+            `);
+            
+            log.info("Simple debug overlay injected as fallback");
+        } catch (error: any) {
+            log.error(`Simple overlay injection failed: ${error.message}`);
+        }
+    }
+
+    // Добавим метод для обновления debug информации
+    private async updateDebugInfo(): Promise<void> {
+        if (!this.state.window || this.state.window.isDestroyed()) return;
+        
+        try {
+            const debugInfo = await this.getDebugInfo();
+            
+            await this.state.window.webContents.executeJavaScript(`
+                if (window.updateDebugStatus) {
+                    window.updateDebugStatus(${JSON.stringify(debugInfo)});
+                    console.log('[DEBUG] Updated debug status');
+                } else {
+                    console.warn('[DEBUG] updateDebugStatus function not found');
+                }
+            `);
+        } catch (error: any) {
+            log.error(`Failed to update debug info: ${error.message}`);
+        }
+    }
+
+    // 🆕 НОВЫЙ МЕТОД - код debug overlay
+    private getDebugOverlayCode(): string {
+        return `
+            (function() {
+                try {
+                    console.log('[DEBUG-OVERLAY] Starting injection...');
+                    
+                    // Удаляем старые панели
+                    const existingDebug = document.getElementById('native-debug-overlay');
+                    if (existingDebug) {
+                        existingDebug.remove();
+                        console.log('[DEBUG-OVERLAY] Removed existing overlay');
+                    }
+                    
+                    const existingSimple = document.getElementById('simple-debug');
+                    if (existingSimple) {
+                        existingSimple.remove();
+                        console.log('[DEBUG-OVERLAY] Removed simple overlay');
+                    }
+                    
+                    // Создаем overlay
+                    const overlay = document.createElement('div');
+                    overlay.id = 'native-debug-overlay';
+                    overlay.style.cssText = 'position: fixed; top: 20px; right: 20px; width: 350px; background: rgba(0, 0, 0, 0.9); color: white; font-family: Monaco, Menlo, monospace; font-size: 12px; padding: 15px; border-radius: 10px; z-index: 999999; backdrop-filter: blur(10px); border: 2px solid #333; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5); transition: all 0.3s ease; max-height: 500px; overflow-y: auto;';
+                    
+                    // HTML структура
+                    overlay.innerHTML = '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">' +
+                        '<h3 style="margin: 0; color: #4CAF50; font-size: 14px;">🔧 Native Debug</h3>' +
+                        '<div>' +
+                        '<button id="debug-toggle" style="background: #666; border: none; color: white; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; margin-right: 5px;">▼</button>' +
+                        '<button id="debug-close" style="background: #f44336; border: none; color: white; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 10px;">✕</button>' +
+                        '</div>' +
+                        '</div>' +
+                        '<div id="debug-content">' +
+                        '<div style="margin-bottom: 12px;">' +
+                        '<div style="color: #FFC107; font-weight: bold; margin-bottom: 5px;">🔌 Native Plugin Status</div>' +
+                        '<div id="plugin-status">❓ Checking...</div>' +
+                        '<div id="plugin-type" style="font-size: 11px; color: #888;">Type: Unknown</div>' +
+                        '<div id="plugin-platform" style="font-size: 11px; color: #888;">Platform: ' + navigator.platform + '</div>' +
+                        '</div>' +
+                        '<div style="margin-bottom: 12px;">' +
+                        '<div style="color: #2196F3; font-weight: bold; margin-bottom: 5px;">📹 Capture Status</div>' +
+                        '<div id="capture-status">❌ Not capturing</div>' +
+                        '<div id="stream-mode" style="font-size: 11px; color: #888;">Mode: Unknown</div>' +
+                        '<div id="video-quality" style="font-size: 11px; color: #888;">Quality: Unknown</div>' +
+                        '</div>' +
+                        '<div style="margin-bottom: 12px;">' +
+                        '<div style="color: #FF9800; font-weight: bold; margin-bottom: 5px;">📊 Packet Counters</div>' +
+                        '<div id="audio-packets" style="font-size: 11px;">🎵 Audio: 0 packets</div>' +
+                        '<div id="video-packets" style="font-size: 11px;">🎬 Video: 0 packets</div>' +
+                        '<div id="last-audio-time" style="font-size: 10px; color: #666;">Last audio: Never</div>' +
+                        '</div>' +
+                        '<div style="margin-bottom: 12px;">' +
+                        '<div style="color: #9C27B0; font-weight: bold; margin-bottom: 5px;">📦 Last Audio Packet</div>' +
+                        '<pre id="packet-structure" style="background: rgba(255,255,255,0.1); padding: 8px; border-radius: 4px; font-size: 10px; margin: 0; overflow-x: auto; white-space: pre-wrap;">No data yet...</pre>' +
+                        '</div>' +
+                        '<div>' +
+                        '<div style="color: #607D8B; font-weight: bold; margin-bottom: 5px;">📝 Recent Logs</div>' +
+                        '<div id="debug-logs" style="background: rgba(255,255,255,0.1); padding: 8px; border-radius: 4px; font-size: 10px; max-height: 100px; overflow-y: auto;">Waiting for logs...</div>' +
+                        '</div>' +
+                        '</div>';
+                    
+                    document.body.appendChild(overlay);
+                    console.log('[DEBUG-OVERLAY] Overlay added to DOM');
+                    
+                    // Обработчики кнопок
+                    const closeBtn = document.getElementById('debug-close');
+                    if (closeBtn) {
+                        closeBtn.onclick = function() {
+                            overlay.remove();
+                            console.log('[DEBUG-OVERLAY] Closed by user');
+                        };
+                    }
+                    
+                    const toggleBtn = document.getElementById('debug-toggle');
+                    const content = document.getElementById('debug-content');
+                    if (toggleBtn && content) {
+                        let isCollapsed = false;
+                        toggleBtn.onclick = function() {
+                            if (isCollapsed) {
+                                content.style.display = 'block';
+                                toggleBtn.textContent = '▼';
+                                overlay.style.maxHeight = '500px';
+                            } else {
+                                content.style.display = 'none';
+                                toggleBtn.textContent = '▶';
+                                overlay.style.maxHeight = 'auto';
+                            }
+                            isCollapsed = !isCollapsed;
+                        };
+                    }
+                    
+                    // Глобальные функции для обновления
+                    window.updateDebugStatus = function(data) {
+                        try {
+                            console.log('[DEBUG-OVERLAY] Updating status:', data);
+                            
+                            // Статус плагина
+                            const pluginEl = document.getElementById('plugin-status');
+                            if (pluginEl) {
+                                if (data.hasAddon) {
+                                    pluginEl.innerHTML = '✅ Loaded';
+                                    pluginEl.style.color = '#4CAF50';
+                                } else {
+                                    pluginEl.innerHTML = '❌ Failed to load';
+                                    pluginEl.style.color = '#f44336';
+                                }
+                            }
+                            
+                            // Тип плагина
+                            const typeEl = document.getElementById('plugin-type');
+                            if (typeEl && data.addonType) {
+                                typeEl.textContent = 'Type: ' + data.addonType;
+                                if (data.addonType === 'windows-cpp') {
+                                    typeEl.style.color = '#2196F3';
+                                } else if (data.addonType === 'mac-swift') {
+                                    typeEl.style.color = '#4CAF50';
+                                }
+                            }
+                            
+                            // Статус захвата
+                            const captureEl = document.getElementById('capture-status');
+                            if (captureEl) {
+                                if (data.isCapturing || data.nativeCaptureActive) {
+                                    captureEl.innerHTML = '✅ Active';
+                                    captureEl.style.color = '#4CAF50';
+                                } else {
+                                    captureEl.innerHTML = '❌ Not capturing';
+                                    captureEl.style.color = '#f44336';
+                                }
+                            }
+                            
+                            // Режим и качество
+                            const modeEl = document.getElementById('stream-mode');
+                            if (modeEl && data.useHybridMode !== undefined) {
+                                modeEl.textContent = 'Mode: ' + (data.useHybridMode ? 'Hybrid (Electron Video + Native Audio)' : 'Full Native');
+                            }
+                            
+                            const qualityEl = document.getElementById('video-quality');
+                            if (qualityEl && data.currentQuality) {
+                                qualityEl.textContent = 'Quality: ' + data.currentQuality;
+                            }
+                            
+                            // Счетчики пакетов
+                            const audioEl = document.getElementById('audio-packets');
+                            if (audioEl && data.audioFrameCount !== undefined) {
+                                audioEl.innerHTML = '🎵 Audio: ' + data.audioFrameCount + ' packets';
+                            }
+                            
+                            const videoEl = document.getElementById('video-packets');
+                            if (videoEl && data.videoFrameCount !== undefined) {
+                                videoEl.innerHTML = '🎬 Video: ' + data.videoFrameCount + ' packets';
+                            }
+                            
+                        } catch (e) {
+                            console.error('[DEBUG-OVERLAY] Update error:', e);
+                        }
+                    };
+                    
+                    window.updateAudioPacket = function(packetInfo) {
+                        try {
+                            const structureEl = document.getElementById('packet-structure');
+                            if (structureEl && packetInfo) {
+                                structureEl.textContent = JSON.stringify(packetInfo, null, 2);
+                            }
+                            
+                            const timeEl = document.getElementById('last-audio-time');
+                            if (timeEl) {
+                                const now = new Date();
+                                timeEl.textContent = 'Last audio: ' + now.toLocaleTimeString();
+                            }
+                        } catch (e) {
+                            console.error('[DEBUG-OVERLAY] Packet update error:', e);
+                        }
+                    };
+                    
+                    window.addDebugLog = function(message) {
+                        try {
+                            const logsEl = document.getElementById('debug-logs');
+                            if (logsEl) {
+                                const time = new Date().toLocaleTimeString();
+                                const logLine = '[' + time + '] ' + message + '\\n';
+                                
+                                logsEl.textContent = logLine + logsEl.textContent;
+                                
+                                // Ограничиваем количество строк
+                                const lines = logsEl.textContent.split('\\n');
+                                if (lines.length > 20) {
+                                    logsEl.textContent = lines.slice(0, 20).join('\\n');
+                                }
+                            }
+                        } catch (e) {
+                            console.error('[DEBUG-OVERLAY] Log error:', e);
+                        }
+                    };
+                    
+                    // Перехватываем console.log для отображения в overlay
+                    const originalLog = console.log;
+                    console.log = function(...args) {
+                        originalLog.apply(console, args);
+                        
+                        const message = args.join(' ');
+                        if (message.includes('[NATIVE') || 
+                            message.includes('[STREAM-ELECTRON]') || 
+                            message.includes('[JitsiNative]')) {
+                            if (window.addDebugLog) {
+                                window.addDebugLog(message);
+                            }
+                        }
+                    };
+                    
+                    console.log('[DEBUG-OVERLAY] ✅ Full overlay initialized successfully');
+                    return true;
+                    
+                } catch (error) {
+                    console.error('[DEBUG-OVERLAY] Fatal error:', error);
+                    throw error;
+                }
+            })();
+        `;
+    }
+
+    // 🆕 НОВЫЙ МЕТОД - мониторинг статуса
+    private startDebugMonitoring(): void {
+        if (!this.config.enableDebugUI || this.debugMonitoringInterval) return;
+        
+        log.info("[JITSI-MANAGER] Starting debug monitoring...");
+        
+        const updateInterval = 1000; // Обновляем каждую секунду
+        
+        this.debugMonitoringInterval = setInterval(async () => {
+            if (!this.state.window || this.state.window.isDestroyed()) {
+                clearInterval(this.debugMonitoringInterval);
+                this.debugMonitoringInterval = undefined;
+                return;
+            }
+            
+            try {
+                const debugInfo = await this.getDebugInfo();
+                
+                // Добавляем счетчики из state
+                debugInfo.audioFrameCount = this.state.audioFrameCount || 0;
+                debugInfo.videoFrameCount = this.state.videoFrameCount || 0;
+                
+                await this.state.window.webContents.executeJavaScript(`
+                    if (window.updateDebugStatus) {
+                        window.updateDebugStatus(${JSON.stringify(debugInfo)});
+                    }
+                `);
+                
+            } catch (error) {
+                // Тихо игнорируем ошибки мониторинга
+            }
+        }, updateInterval);
     }
 
     // Метод для обновления настроек на лету
@@ -517,6 +1004,9 @@ export class JitsiManager {
     }
 
     async getDebugInfo(): Promise<any> {
+        // 🆕 Получаем информацию о здоровье плагина
+        const addonHealth = await this.nativeCapture.testAddonHealth();
+        
         const debugInfo = {
             hasWindow: !!this.state.window && !this.state.window.isDestroyed(),
             isStreamActive: this.state.isStreamActive,
@@ -527,7 +1017,13 @@ export class JitsiManager {
             lastSelectedSource: this.state.lastSelectedSourceId,
             currentQuality: this.videoQualityManager?.getCurrentSettings()?.name || 'unknown',
             useHybridMode: this.config.useHybridMode,
-            timestamp: new Date().toISOString()
+            timestamp: new Date().toISOString(),
+            
+            // 🆕 Информация о плагине
+            hasAddon: this.nativeCapture.isAvailable,
+            addonType: addonHealth.addonType,
+            addonHealthy: addonHealth.healthy,
+            addonDetails: addonHealth.details
         };
         
         log.info("[STREAM-ELECTRON] Debug info:", debugInfo);
@@ -719,6 +1215,24 @@ export class JitsiManager {
             
             // ВАЖНО: Ждем полной загрузки страницы
             await this.state.window.loadURL(conferenceUrl);
+
+            this.state.window.webContents.on('did-finish-load', async () => {
+                log.info("[JITSI-MANAGER] Page loaded, injecting debug overlay...");
+                
+                // Небольшая задержка для инициализации DOM
+                setTimeout(async () => {
+                    await this.injectDebugOverlay();
+                    await this.startDebugMonitoring();
+                }, 1000);
+            });
+
+            // Также пробуем инъектировать при навигации
+            this.state.window.webContents.on('did-navigate', async () => {
+                log.info("[JITSI-MANAGER] Navigation detected, re-injecting debug overlay...");
+                setTimeout(async () => {
+                    await this.injectDebugOverlay();
+                }, 1000);
+            });
             
             // Ждем загрузки Jitsi и инжектируем обработчики несколько раз
             // Первая попытка через 3 секунды
@@ -1370,6 +1884,22 @@ export class JitsiManager {
                 })();
             `);
 
+            await this.injectDebugOverlay();
+
+            // 🆕 Настройка debug callback для native capture (ИСПРАВЛЕННАЯ ВЕРСИЯ)
+            this.nativeCapture.setDebugCallback((packetInfo) => {
+                if (this.state.window && !this.state.window.isDestroyed()) {
+                    this.state.window.webContents.executeJavaScript(`
+                        if (window.updateAudioPacket) {
+                            window.updateAudioPacket(${JSON.stringify(packetInfo)});
+                        }
+                        if (window.addDebugLog) {
+                            window.addDebugLog("📦 Audio packet: ${packetInfo.frameNumber}, ${packetInfo.dataSize}b, ${packetInfo.source}");
+                        }
+                    `).catch(() => {});
+                }
+            });
+
 
             log.info("✅ Handlers injected successfully");
 
@@ -1862,16 +2392,15 @@ export class JitsiManager {
     // ===== 6. ОБРАБОТКА NATIVE АУДИО =====
     private processNativeAudio(audioData: any): void {
         if (!this.state.window || this.state.window.isDestroyed()) return;
-        // if (!audioData || !audioData.data || audioData.source !== 'system') return;
         
         this.state.audioFrameCount++;
 
-        if (this.state.audioFrameCount === 1) {
-            log.info("[STREAM-ELECTRON] First audio frame - source:", audioData.source);
-        }
-        
+        // 🆕 DEBUG: отправляем информацию о пакете через NativeCaptureManager
+        this.nativeCapture.notifyDebugPacket(this.state.audioFrameCount, audioData);
+
         if (this.state.audioFrameCount === 1) {
             log.info("[STREAM-ELECTRON] >>> processNativeAudio FIRST FRAME");
+            log.info("[STREAM-ELECTRON] First audio frame - source:", audioData.source);
         }
         
         try {
@@ -2676,6 +3205,11 @@ export class JitsiManager {
             this.state.videoFrameCount = 0;
             this.state.audioFrameCount = 0;
             this.activeMediaStreams.clear();
+
+            if (this.debugMonitoringInterval) {
+                clearInterval(this.debugMonitoringInterval);
+                this.debugMonitoringInterval = undefined;
+            }
             
             log.info("[STREAM-ELECTRON] <<< Cleanup completed");
             
