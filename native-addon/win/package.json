@@ -1,0 +1,14 @@
+{
+  "name": "windows-capture-native",
+  "version": "1.0.0",
+  "main": "build/Release/capture.node",
+  "scripts": {
+    "build": "node-gyp rebuild",
+    "clean": "node-gyp clean",
+    "test": "node test.js"
+  },
+  "devDependencies": {
+    "node-addon-api": "^5.0.0"
+  },
+  "gypfile": true
+}

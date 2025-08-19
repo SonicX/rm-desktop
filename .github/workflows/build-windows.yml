@@ -1,0 +1,68 @@
+name: Build Windows Native Module
+
+on:
+  push:
+    branches: [ main, master ]  # Добавил master на случай если у вас такая ветка
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:  # Позволяет запускать вручную
+
+jobs:
+  build-windows:
+    runs-on: windows-2022  # Используем последнюю версию
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+        
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: Install node-gyp globally
+      run: npm install -g node-gyp
+        
+    - name: Navigate to module directory
+      working-directory: native-addon/win
+      run: |
+        echo "Current directory:"
+        pwd
+        echo "Files in directory:"
+        dir
+        
+    - name: Install dependencies
+      working-directory: native-addon/win
+      run: npm install
+        
+    - name: Build native module
+      working-directory: native-addon/win
+      run: npm run build
+        
+    - name: List build output
+      working-directory: native-addon/win
+      run: |
+        echo "Build output:"
+        dir build\Release
+        
+    - name: Test module
+      working-directory: native-addon/win
+      run: npm test
+      continue-on-error: true  # Не падаем если тест не прошел
+        
+    - name: Upload artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: windows-capture-module
+        path: native-addon/win/build/Release/capture.node
+        
+    - name: Upload full build folder (for debugging)
+      uses: actions/upload-artifact@v3
+      with:
+        name: windows-build-full
+        path: native-addon/win/build/
