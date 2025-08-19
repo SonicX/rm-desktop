@@ -612,11 +612,11 @@ public:
         else if (waveFormat->wFormatTag == WAVE_FORMAT_EXTENSIBLE) {
             WAVEFORMATEXTENSIBLE* wfex = (WAVEFORMATEXTENSIBLE*)waveFormat;
             
-            if (IsEqualGUID(wfex->SubFormat, KSDATAFORMAT_SUBTYPE_IEEE_FLOAT)) {
+            if (CompareGUIDs(wfex->SubFormat, KSDATAFORMAT_SUBTYPE_IEEE_FLOAT)) {
                 memcpy(frameData->samples, data, sampleCount * sizeof(float));
                 converted = true;
             } 
-            else if (IsEqualGUID(wfex->SubFormat, KSDATAFORMAT_SUBTYPE_PCM)) {
+            else if (CompareGUIDs(wfex->SubFormat, KSDATAFORMAT_SUBTYPE_PCM)) {
                 converted = ConvertPCMToFloat(data, frameData->samples, sampleCount, wfex->Format.wBitsPerSample);
             }
         }
