@@ -2,10 +2,10 @@ name: Build Windows Native Module
 
 on:
   push:
-    branches: [ main, master ]  # Добавил master на случай если у вас такая ветка
+    branches: [ main, master, native-win-test ]  # Добавил вашу ветку
   pull_request:
-    branches: [ main, master ]
-  workflow_dispatch:  # Позволяет запускать вручную - да
+    branches: [ main, master, native-win-test ]
+  workflow_dispatch:  # Позволяет запускать вручную
 
 jobs:
   build-windows:
