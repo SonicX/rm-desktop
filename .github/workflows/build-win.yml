@@ -13,17 +13,28 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4  # Обновлено с v3 на v4
+      uses: actions/checkout@v4
     
     - name: Setup Node.js
-      uses: actions/setup-node@v4  # Обновлено с v3 на v4
+      uses: actions/setup-node@v4
       with:
         node-version: '18'
         
     - name: Setup Python
-      uses: actions/setup-python@v5  # Обновлено с v4 на v5
+      uses: actions/setup-python@v5
       with:
         python-version: '3.11'
+        
+    - name: Setup MSBuild
+      uses: microsoft/setup-msbuild@v2
+      with:
+        msbuild-architecture: x64
+        
+    - name: Install Windows SDK
+      uses: ChristopheLav/windows-sdk-install@v1
+      with:
+        version-sdk: '22621'
+        features: 'OptionId.DesktopCPPx64'
         
     - name: Install node-gyp globally
       run: npm install -g node-gyp
@@ -35,34 +46,74 @@ jobs:
         pwd
         echo "Files in directory:"
         dir
+        echo "Source files:"
+        dir src
         
     - name: Install dependencies
       working-directory: native-addon/win
-      run: npm install
+      run: |
+        npm install
+        npm install node-addon-api
+        
+    - name: Configure build
+      working-directory: native-addon/win
+      run: node-gyp configure --verbose
         
     - name: Build native module
       working-directory: native-addon/win
-      run: npm run build
+      run: node-gyp build --verbose
         
     - name: List build output
       working-directory: native-addon/win
       run: |
         echo "Build output:"
         dir build\Release
+        echo "File size:"
+        powershell -Command "(Get-Item build\Release\capture.node).Length"
         
     - name: Test module
       working-directory: native-addon/win
-      run: npm test
-      continue-on-error: true
+      run: |
+        echo "Running tests..."
+        npm test
+      continue-on-error: false
         
     - name: Upload artifact
-      uses: actions/upload-artifact@v4  # Обновлено с v3 на v4
+      uses: actions/upload-artifact@v4
+      if: success()
       with:
         name: windows-capture-module
         path: native-addon/win/build/Release/capture.node
+        retention-days: 30
         
-    - name: Upload full build folder (for debugging)
-      uses: actions/upload-artifact@v4  # Обновлено с v3 на v4
+    - name: Upload build logs
+      uses: actions/upload-artifact@v4
+      if: failure()
       with:
-        name: windows-build-full
-        path: native-addon/win/build/
+        name: build-logs
+        path: |
+          native-addon/win/build/
+          native-addon/win/npm-debug.log
+        retention-days: 7
+        
+    - name: Create release
+      if: success() && github.ref == 'refs/heads/main'
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: v${{ github.run_number }}
+        release_name: Build ${{ github.run_number }}
+        draft: false
+        prerelease: false
+        
+    - name: Upload release asset
+      if: success() && github.ref == 'refs/heads/main'
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: native-addon/win/build/Release/capture.node
+        asset_name: capture.node
+        asset_content_type: application/octet-stream

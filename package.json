@@ -21,9 +21,11 @@
     "start": "vite > log.txt 2>&1",
     "start-debug": "ELECTRON_ENABLE_LOGGING=1 vite 2>&1 | tee log.txt",
     "start-win": "set ELECTRON_ENABLE_LOGGING=1 && vite 2>&1 | tee log.txt",
-    "build-only-old": "vite build",
     "build-only": "vite build && npm run copy-addon",
-    "copy-addon": "cp /Users/sg12/zulip-desktop/native-addon/build/Release/screen_capture.node dist-electron/screen_capture.node",
+    "copy-addon": "cp native-addon/addon.node dist-electron/native-addon.node",
+    "copy-addon-for-win": "cp native-addon/win/capture.node dist-electron/native-addon.node",
+    "build-for-win": "vite build && npm run copy-addon-for-win",
+    "dist-win": "npm run build-for-win && electron-builder --windows --config.win.target=nsis",
     "watch-ts": "tsc -w",
     "reinstall": "rimraf node_modules && npm install",
     "postinstall": "electron-builder install-app-deps",
@@ -34,9 +36,9 @@
     "test": "tsc && npm run lint-html && npm run lint-css && npm run lint-js && npm run prettier-non-js",
     "test-e2e": "vite build && tape \"tests/**/*.js\"",
     "pack": "vite build && electron-builder --dir",
-    "dist": "vite build && electron-builder --windows --config.win.target=nsis",
+    "dist": "vite build && electron-builder --mac",
     "publish": "vite build && electron-builder --publish always",
-    "mas": "vite build && electron-builder --windows --config.win.target=nsis"
+    "mas": "vite build && electron-builder --mac"
   },
   "pre-commit": [
     "test"
@@ -61,7 +63,19 @@
       }
     ],
     "asarUnpack": [
-      "resources/bin/**"
+      "resources/bin/**",
+      "dist-electron/native-addon.node",
+      "**/*.node"
+    ],
+    "files": [
+      "dist-electron/**/*",
+      "native-addon/win/capture.node"
+    ],
+    "extraResources": [
+      {
+        "from": "native-addon/win/capture.node",
+        "to": "native-addon.node"
+      }
     ],
     "mac": {
       "category": "public.app-category.productivity",
@@ -123,8 +137,7 @@
         {
           "target": "nsis",
           "arch": [
-            "x64",
-            "ia32"
+            "x64"
           ]
         }
       ],

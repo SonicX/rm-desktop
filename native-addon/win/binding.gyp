@@ -9,15 +9,19 @@
           "-ld3d11.lib",
           "-ldxgi.lib", 
           "-lole32.lib",
-          "-luser32.lib"
+          "-luser32.lib",
+          "-ldwmapi.lib",
+          "-lpsapi.lib",
+          "-lwinmm.lib"
         ],
         "msvs_settings": {
           "VCCLCompilerTool": {
-            "ExceptionHandling": 1
+            "ExceptionHandling": 1,
+            "AdditionalOptions": ["/std:c++17"]
           }
         }
       }]
     ],
-    "defines": ["NAPI_DISABLE_CPP_EXCEPTIONS"]
+    "defines": ["NAPI_DISABLE_CPP_EXCEPTIONS", "UNICODE", "_UNICODE"]
   }]
 }

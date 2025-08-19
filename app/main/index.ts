@@ -297,8 +297,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
       });
   });
 
-    const mainHtmlPath = path.join(__dirname, 'app/renderer/main.html');
-    const mainUrl = `file://${mainHtmlPath}`;
+    await win.loadFile(path.join(__dirname, '..', 'app', 'renderer', 'main.html'));
 
     await win.loadURL(mainUrl).then(() => {
         console.log('✅ Окно создано!');

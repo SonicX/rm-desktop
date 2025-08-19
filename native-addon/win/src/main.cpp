@@ -9,15 +9,39 @@
 #include <atomic>
 #include <vector>
 #include <memory>
+#include <dwmapi.h>
+#include <psapi.h>
+#include "audio_format.h" 
+#include <algorithm>
 #include <string>
 #include <chrono>
 #include <mutex>
 #include <cstring>
 #include <cmath>
 
+#include <ks.h>
+#include <ksmedia.h>
+#include <functiondiscoverykeys_devpkey.h>
+
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")
 #pragma comment(lib, "ole32.lib")
+
+#pragma comment(lib, "dwmapi.lib")
+#pragma comment(lib, "psapi.lib")
+
+// Определение DWMWA_CLOAKED если его нет
+#ifndef DWMWA_CLOAKED
+#define DWMWA_CLOAKED 14
+#endif
+
+#ifndef KSDATAFORMAT_SUBTYPE_IEEE_FLOAT
+const GUID KSDATAFORMAT_SUBTYPE_IEEE_FLOAT = {0x00000003, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};
+#endif
+
+#ifndef KSDATAFORMAT_SUBTYPE_PCM  
+const GUID KSDATAFORMAT_SUBTYPE_PCM = {0x00000001, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};
+#endif
 
 // Глобальные переменные для callbacks
 static napi_threadsafe_function g_video_tsfn = nullptr;
@@ -61,6 +85,11 @@ struct QualitySettings {
     int fps = 30;
     std::mutex mutex;
 } g_quality;
+
+// Структура для передачи данных в callback перечисления окон
+struct EnumWindowsData {
+    std::vector<CaptureSource>* sources;
+};
 
 // Вспомогательная функция для получения timestamp
 double GetTimestamp() {
@@ -313,6 +342,13 @@ private:
     std::thread captureThread;
     bool isSystemAudio = true;
     
+    // Добавляем для event-driven захвата
+    HANDLE hEvent = nullptr;
+    HANDLE hStopEvent = nullptr;
+    
+    // Буфер для ресемплинга
+    std::vector<float> resampleBuffer;
+    
 public:
     bool Initialize(const std::string& sourceType, const std::string& sourceId) {
         CoInitialize(nullptr);
@@ -370,19 +406,62 @@ public:
         hr = audioClient->GetMixFormat(&waveFormat);
         if (FAILED(hr)) return false;
         
-        // Инициализируем
-        DWORD streamFlags = isSystemAudio ? AUDCLNT_STREAMFLAGS_LOOPBACK : 0;
+        // Выводим информацию о формате для отладки
+        OutputDebugStringA(("Audio format: " + std::to_string(waveFormat->nSamplesPerSec) + 
+                           "Hz, " + std::to_string(waveFormat->nChannels) + 
+                           " channels, " + std::to_string(waveFormat->wBitsPerSample) + 
+                           " bits\n").c_str());
+        
+        // Создаем события для синхронизации
+        hEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+        hStopEvent = CreateEvent(nullptr, TRUE, FALSE, nullptr);
+        
+        if (!hEvent || !hStopEvent) return false;
+        
+        // Инициализируем с оптимальными параметрами
+        DWORD streamFlags = 0;
+        
+        if (isSystemAudio) {
+            streamFlags = AUDCLNT_STREAMFLAGS_LOOPBACK;
+        }
+        
+        // Добавляем флаг для event-driven режима
+        streamFlags |= AUDCLNT_STREAMFLAGS_EVENTCALLBACK;
+        
+        // Используем меньший буфер для меньшей латентности (20мс)
+        REFERENCE_TIME bufferDuration = 200000; // 20ms в 100-наносекундных единицах
         
         hr = audioClient->Initialize(
             AUDCLNT_SHAREMODE_SHARED,
             streamFlags,
-            10000000,  // 1 секунда буфера
-            0,
+            bufferDuration,
+            0, // Периодичность - 0 для event-driven
             waveFormat,
             nullptr
         );
         
-        if (FAILED(hr)) return false;
+        if (FAILED(hr)) {
+            // Если не удалось с event-driven, пробуем без него
+            streamFlags &= ~AUDCLNT_STREAMFLAGS_EVENTCALLBACK;
+            
+            hr = audioClient->Initialize(
+                AUDCLNT_SHAREMODE_SHARED,
+                streamFlags,
+                bufferDuration * 5, // Увеличиваем буфер для polling mode
+                0,
+                waveFormat,
+                nullptr
+            );
+            
+            if (FAILED(hr)) return false;
+        } else {
+            // Устанавливаем event handle для event-driven режима
+            hr = audioClient->SetEventHandle(hEvent);
+            if (FAILED(hr)) {
+                // Продолжаем без event-driven
+                OutputDebugStringA("Failed to set event handle, using polling mode\n");
+            }
+        }
         
         // Получаем capture client
         hr = audioClient->GetService(
@@ -397,51 +476,93 @@ public:
         if (!audioClient) return;
         
         isCapturing = true;
+        ResetEvent(hStopEvent);
+        
         HRESULT hr = audioClient->Start();
         
         if (SUCCEEDED(hr)) {
             captureThread = std::thread([this]() {
-                CaptureLoop();
+                // Устанавливаем приоритет потока для аудио
+                SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
+                
+                // Привязываем к COM для этого потока
+                CoInitialize(nullptr);
+                
+                if (hEvent) {
+                    CaptureLoopEventDriven();
+                } else {
+                    CaptureLoopPolling();
+                }
+                
+                CoUninitialize();
             });
         }
     }
     
-    void CaptureLoop() {
+    void CaptureLoopEventDriven() {
+        HANDLE waitArray[2] = { hEvent, hStopEvent };
+        
         while (isCapturing) {
-            Sleep(10); // Ждем немного данных
+            DWORD waitResult = WaitForMultipleObjects(2, waitArray, FALSE, 100);
             
-            UINT32 packetLength = 0;
-            HRESULT hr = captureClient->GetNextPacketSize(&packetLength);
-            
-            while (packetLength != 0 && isCapturing) {
-                BYTE* data = nullptr;
-                UINT32 numFramesAvailable;
-                DWORD flags;
-                
-                hr = captureClient->GetBuffer(
-                    &data,
-                    &numFramesAvailable,
-                    &flags,
-                    nullptr,
-                    nullptr
-                );
-                
-                if (SUCCEEDED(hr)) {
-                    // Проверяем, не тишина ли это
-                    if (!(flags & AUDCLNT_BUFFERFLAGS_SILENT) && numFramesAvailable > 0) {
-                        ProcessAudioData(data, numFramesAvailable);
-                    }
-                    
-                    captureClient->ReleaseBuffer(numFramesAvailable);
-                }
-                
-                hr = captureClient->GetNextPacketSize(&packetLength);
-                if (FAILED(hr)) break;
+            if (waitResult == WAIT_OBJECT_0 + 1) {
+                // Stop event
+                break;
+            } else if (waitResult == WAIT_OBJECT_0) {
+                // Audio event
+                ProcessAvailableFrames();
+            } else if (waitResult == WAIT_TIMEOUT) {
+                // Проверяем на всякий случай
+                ProcessAvailableFrames();
             }
         }
     }
     
-    void ProcessAudioData(BYTE* data, UINT32 numFrames) {
+    void CaptureLoopPolling() {
+        while (isCapturing) {
+            // Используем более короткий интервал для polling
+            Sleep(5);
+            ProcessAvailableFrames();
+        }
+    }
+    
+    void ProcessAvailableFrames() {
+        UINT32 packetLength = 0;
+        HRESULT hr = captureClient->GetNextPacketSize(&packetLength);
+        
+        while (packetLength != 0 && isCapturing) {
+            BYTE* data = nullptr;
+            UINT32 numFramesAvailable;
+            DWORD flags;
+            UINT64 devicePosition;
+            UINT64 qpcPosition;
+            
+            hr = captureClient->GetBuffer(
+                &data,
+                &numFramesAvailable,
+                &flags,
+                &devicePosition,
+                &qpcPosition
+            );
+            
+            if (SUCCEEDED(hr)) {
+                // Обрабатываем только если не тишина
+                if (!(flags & AUDCLNT_BUFFERFLAGS_SILENT) && numFramesAvailable > 0) {
+                    ProcessAudioData(data, numFramesAvailable, qpcPosition);
+                } else if (flags & AUDCLNT_BUFFERFLAGS_SILENT) {
+                    // Если тишина, отправляем нули
+                    ProcessSilence(numFramesAvailable);
+                }
+                
+                captureClient->ReleaseBuffer(numFramesAvailable);
+            }
+            
+            hr = captureClient->GetNextPacketSize(&packetLength);
+            if (FAILED(hr)) break;
+        }
+    }
+    
+    void ProcessSilence(UINT32 numFrames) {
         AudioFrameData* frameData = new AudioFrameData();
         frameData->numSamples = numFrames;
         frameData->sampleRate = waveFormat->nSamplesPerSec;
@@ -449,39 +570,122 @@ public:
         frameData->timestamp = GetTimestamp();
         frameData->isSystemAudio = isSystemAudio;
         
-        // Выделяем память для сэмплов
+        // Создаем массив с тишиной
+        size_t sampleCount = numFrames * waveFormat->nChannels;
+        frameData->samples = new float[sampleCount]();  // () инициализирует нулями
+        
+        SendToJavaScript(frameData);
+    }
+    
+    void ProcessAudioData(BYTE* data, UINT32 numFrames, UINT64 qpcPosition) {
+        AudioFrameData* frameData = new AudioFrameData();
+        frameData->numSamples = numFrames;
+        frameData->sampleRate = waveFormat->nSamplesPerSec;
+        frameData->channels = waveFormat->nChannels;
+        
+        // Используем QPC для более точного timestamp если доступен
+        if (qpcPosition > 0) {
+            LARGE_INTEGER qpcFreq;
+            QueryPerformanceFrequency(&qpcFreq);
+            frameData->timestamp = (double)qpcPosition / qpcFreq.QuadPart;
+        } else {
+            frameData->timestamp = GetTimestamp();
+        }
+        
+        frameData->isSystemAudio = isSystemAudio;
+        
+        // Выделяем память для семплов
         size_t sampleCount = numFrames * waveFormat->nChannels;
         frameData->samples = new float[sampleCount];
         
-        // Конвертируем в float
+        // Улучшенная конвертация в float с правильной обработкой форматов
+        bool converted = false;
+        
         if (waveFormat->wFormatTag == WAVE_FORMAT_IEEE_FLOAT) {
             // Уже float
             memcpy(frameData->samples, data, sampleCount * sizeof(float));
-        } else if (waveFormat->wFormatTag == WAVE_FORMAT_PCM) {
-            // Конвертируем из PCM
-            if (waveFormat->wBitsPerSample == 16) {
-                INT16* pcmData = (INT16*)data;
-                for (size_t i = 0; i < sampleCount; i++) {
-                    frameData->samples[i] = pcmData[i] / 32768.0f;
-                }
-            } else if (waveFormat->wBitsPerSample == 32) {
-                INT32* pcmData = (INT32*)data;
-                for (size_t i = 0; i < sampleCount; i++) {
-                    frameData->samples[i] = pcmData[i] / 2147483648.0f;
-                }
-            }
-        } else if (waveFormat->wFormatTag == WAVE_FORMAT_EXTENSIBLE) {
+            converted = true;
+        } 
+        else if (waveFormat->wFormatTag == WAVE_FORMAT_PCM) {
+            converted = ConvertPCMToFloat(data, frameData->samples, sampleCount, waveFormat->wBitsPerSample);
+        } 
+        else if (waveFormat->wFormatTag == WAVE_FORMAT_EXTENSIBLE) {
             WAVEFORMATEXTENSIBLE* wfex = (WAVEFORMATEXTENSIBLE*)waveFormat;
-            if (wfex->SubFormat == KSDATAFORMAT_SUBTYPE_IEEE_FLOAT) {
+            
+            if (IsEqualGUID(wfex->SubFormat, KSDATAFORMAT_SUBTYPE_IEEE_FLOAT)) {
                 memcpy(frameData->samples, data, sampleCount * sizeof(float));
-            } else if (wfex->SubFormat == KSDATAFORMAT_SUBTYPE_PCM) {
-                INT16* pcmData = (INT16*)data;
-                for (size_t i = 0; i < sampleCount; i++) {
-                    frameData->samples[i] = pcmData[i] / 32768.0f;
-                }
+                converted = true;
+            } 
+            else if (IsEqualGUID(wfex->SubFormat, KSDATAFORMAT_SUBTYPE_PCM)) {
+                converted = ConvertPCMToFloat(data, frameData->samples, sampleCount, wfex->Format.wBitsPerSample);
             }
         }
         
+        if (!converted) {
+            // Если не смогли конвертировать, заполняем тишиной
+            memset(frameData->samples, 0, sampleCount * sizeof(float));
+            OutputDebugStringA("Warning: Unknown audio format, outputting silence\n");
+        }
+        
+        // Применяем небольшое сглаживание для уменьшения артефактов
+        ApplySmoothing(frameData->samples, sampleCount, waveFormat->nChannels);
+        
+        SendToJavaScript(frameData);
+    }
+    
+    bool ConvertPCMToFloat(BYTE* input, float* output, size_t sampleCount, WORD bitsPerSample) {
+        if (bitsPerSample == 16) {
+            INT16* pcmData = (INT16*)input;
+            for (size_t i = 0; i < sampleCount; i++) {
+                output[i] = pcmData[i] / 32768.0f;
+            }
+            return true;
+        } 
+        else if (bitsPerSample == 24) {
+            // 24-bit PCM упакован в 3 байта
+            for (size_t i = 0; i < sampleCount; i++) {
+                int32_t sample = 0;
+                BYTE* samplePtr = input + (i * 3);
+                
+                // Little-endian
+                sample = (samplePtr[2] << 16) | (samplePtr[1] << 8) | samplePtr[0];
+                
+                // Знаковое расширение
+                if (sample & 0x800000) {
+                    sample |= 0xFF000000;
+                }
+                
+                output[i] = sample / 8388608.0f; // 2^23
+            }
+            return true;
+        } 
+        else if (bitsPerSample == 32) {
+            INT32* pcmData = (INT32*)input;
+            for (size_t i = 0; i < sampleCount; i++) {
+                output[i] = pcmData[i] / 2147483648.0f;
+            }
+            return true;
+        }
+        
+        return false;
+    }
+    
+    void ApplySmoothing(float* samples, size_t sampleCount, int channels) {
+        // Простое сглаживание для уменьшения щелчков
+        static std::vector<float> lastSample(channels, 0.0f);
+        
+        for (int ch = 0; ch < channels; ch++) {
+            for (size_t i = ch; i < sampleCount; i += channels) {
+                // Применяем очень легкий low-pass фильтр
+                float current = samples[i];
+                float smoothed = lastSample[ch] * 0.1f + current * 0.9f;
+                samples[i] = smoothed;
+                lastSample[ch] = current;
+            }
+        }
+    }
+    
+    void SendToJavaScript(AudioFrameData* frameData) {
         // Увеличиваем счетчик
         g_audio_frame_count++;
         
@@ -506,6 +710,10 @@ public:
     void StopCapture() {
         isCapturing = false;
         
+        if (hStopEvent) {
+            SetEvent(hStopEvent);
+        }
+        
         if (audioClient) {
             audioClient->Stop();
         }
@@ -517,11 +725,42 @@ public:
     
     ~WASAPIAudioCapture() {
         StopCapture();
-        if (captureClient) captureClient->Release();
-        if (audioClient) audioClient->Release();
-        if (device) device->Release();
-        if (deviceEnumerator) deviceEnumerator->Release();
-        if (waveFormat) CoTaskMemFree(waveFormat);
+        
+        if (hEvent) {
+            CloseHandle(hEvent);
+            hEvent = nullptr;
+        }
+        
+        if (hStopEvent) {
+            CloseHandle(hStopEvent);
+            hStopEvent = nullptr;
+        }
+        
+        if (captureClient) {
+            captureClient->Release();
+            captureClient = nullptr;
+        }
+        
+        if (audioClient) {
+            audioClient->Release();
+            audioClient = nullptr;
+        }
+        
+        if (device) {
+            device->Release();
+            device = nullptr;
+        }
+        
+        if (deviceEnumerator) {
+            deviceEnumerator->Release();
+            deviceEnumerator = nullptr;
+        }
+        
+        if (waveFormat) {
+            CoTaskMemFree(waveFormat);
+            waveFormat = nullptr;
+        }
+        
         CoUninitialize();
     }
 };
@@ -540,6 +779,89 @@ napi_value TestMethod(napi_env env, napi_callback_info info) {
     return result;
 }
 
+// Callback функция для перечисления окон
+BOOL CALLBACK EnumWindowsProc(HWND hwnd, LPARAM lParam) {
+    // Пропускаем невидимые окна
+    if (!IsWindowVisible(hwnd)) return TRUE;
+    
+    // Получаем заголовок окна
+    char windowTitle[256];
+    GetWindowTextA(hwnd, windowTitle, sizeof(windowTitle));
+    
+    // Пропускаем окна без заголовка
+    if (strlen(windowTitle) == 0) return TRUE;
+    
+    // Получаем стиль окна
+    DWORD style = GetWindowLong(hwnd, GWL_STYLE);
+    DWORD exStyle = GetWindowLong(hwnd, GWL_EXSTYLE);
+    
+    // Пропускаем дочерние окна и инструментальные окна
+    if ((style & WS_CHILD) || (exStyle & WS_EX_TOOLWINDOW)) return TRUE;
+    
+    // Пропускаем окна без WS_VISIBLE
+    if (!(style & WS_VISIBLE)) return TRUE;
+    
+    // Получаем размеры окна
+    RECT rect;
+    GetWindowRect(hwnd, &rect);
+    int width = rect.right - rect.left;
+    int height = rect.bottom - rect.top;
+    
+    // Пропускаем слишком маленькие окна (вероятно, скрытые или системные)
+    if (width < 100 || height < 100) return TRUE;
+    
+    // Проверяем, не является ли окно cloaked (Windows 10+ для виртуальных рабочих столов)
+    DWORD cloaked = 0;
+    HRESULT hr = DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED, &cloaked, sizeof(cloaked));
+    if (SUCCEEDED(hr) && cloaked != 0) return TRUE;
+    
+    // Получаем имя процесса для дополнительной информации
+    DWORD processId;
+    GetWindowThreadProcessId(hwnd, &processId);
+    
+    std::string processName = "";
+    HANDLE hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, processId);
+    if (hProcess) {
+        char exePath[MAX_PATH];
+        DWORD pathLen = MAX_PATH;
+        if (QueryFullProcessImageNameA(hProcess, 0, exePath, &pathLen)) {
+            // Извлекаем только имя файла из полного пути
+            std::string fullPath(exePath);
+            size_t lastSlash = fullPath.find_last_of("\\/");
+            if (lastSlash != std::string::npos) {
+                processName = fullPath.substr(lastSlash + 1);
+                // Убираем .exe расширение
+                size_t dotPos = processName.find_last_of(".");
+                if (dotPos != std::string::npos) {
+                    processName = processName.substr(0, dotPos);
+                }
+            }
+        }
+        CloseHandle(hProcess);
+    }
+    
+    // Получаем указатель на вектор sources
+    auto* data = (EnumWindowsData*)lParam;
+    
+    // Создаем источник
+    CaptureSource source;
+    source.type = "window";
+    source.id = std::to_string((intptr_t)hwnd);
+    
+    // Формируем имя: "Заголовок окна (Имя приложения)"
+    source.name = std::string(windowTitle);
+    if (!processName.empty()) {
+        source.name += " (" + processName + ")";
+    }
+    
+    source.width = width;
+    source.height = height;
+    
+    data->sources->push_back(source);
+    
+    return TRUE; // Продолжаем перечисление
+}
+
 // Получение доступных источников
 napi_value GetAvailableSources(napi_env env, napi_callback_info info) {
     napi_value array;
@@ -547,7 +869,7 @@ napi_value GetAvailableSources(napi_env env, napi_callback_info info) {
     
     std::vector<CaptureSource> sources;
     
-    // Перечисляем дисплеи через DXGI
+    // === 1. Перечисляем дисплеи через DXGI ===
     IDXGIFactory1* factory = nullptr;
     HRESULT hr = CreateDXGIFactory1(__uuidof(IDXGIFactory1), (void**)&factory);
     
@@ -563,10 +885,14 @@ napi_value GetAvailableSources(napi_env env, napi_callback_info info) {
                 DXGI_OUTPUT_DESC desc;
                 output->GetDesc(&desc);
                 
+                // Конвертируем имя монитора из широких символов
+                char monitorName[32];
+                wcstombs(monitorName, desc.DeviceName, sizeof(monitorName));
+                
                 CaptureSource source;
                 source.type = "screen";
-                source.id = std::to_string(outputIndex);
-                source.name = "Display " + std::to_string(outputIndex + 1);
+                source.id = "display_" + std::to_string(outputIndex);
+                source.name = "Display " + std::to_string(outputIndex + 1) + " (" + std::string(monitorName) + ")";
                 source.width = desc.DesktopCoordinates.right - desc.DesktopCoordinates.left;
                 source.height = desc.DesktopCoordinates.bottom - desc.DesktopCoordinates.top;
                 
@@ -583,26 +909,51 @@ napi_value GetAvailableSources(napi_env env, napi_callback_info info) {
         factory->Release();
     }
     
-    // Добавляем источники окон (упрощенно)
-    HWND hwnd = GetForegroundWindow();
-    if (hwnd) {
-        char windowTitle[256];
-        GetWindowTextA(hwnd, windowTitle, sizeof(windowTitle));
-        
-        RECT rect;
-        GetWindowRect(hwnd, &rect);
-        
-        CaptureSource source;
-        source.type = "window";
-        source.id = std::to_string((intptr_t)hwnd);
-        source.name = std::string(windowTitle);
-        source.width = rect.right - rect.left;
-        source.height = rect.bottom - rect.top;
-        
-        sources.push_back(source);
+    // === 2. Добавляем "Entire Screen" как специальный источник ===
+    // Это будет захватывать все мониторы сразу
+    RECT virtualScreen;
+    virtualScreen.left = GetSystemMetrics(SM_XVIRTUALSCREEN);
+    virtualScreen.top = GetSystemMetrics(SM_YVIRTUALSCREEN);
+    virtualScreen.right = virtualScreen.left + GetSystemMetrics(SM_CXVIRTUALSCREEN);
+    virtualScreen.bottom = virtualScreen.top + GetSystemMetrics(SM_CYVIRTUALSCREEN);
+    
+    CaptureSource entireScreen;
+    entireScreen.type = "screen";
+    entireScreen.id = "entire_screen";
+    entireScreen.name = "Entire Screen (All Displays)";
+    entireScreen.width = virtualScreen.right - virtualScreen.left;
+    entireScreen.height = virtualScreen.bottom - virtualScreen.top;
+    sources.push_back(entireScreen);
+    
+    // === 3. Перечисляем все окна ===
+    EnumWindowsData enumData;
+    enumData.sources = &sources;
+    EnumWindows(EnumWindowsProc, (LPARAM)&enumData);
+    
+    // === 4. Добавляем специальные источники для популярных приложений ===
+    // Можно добавить проверку на конкретные приложения
+    for (auto& source : sources) {
+        if (source.type == "window") {
+            // Помечаем медиаплееры, браузеры и т.д. специальными тегами
+            std::string lowerName = source.name;
+            std::transform(lowerName.begin(), lowerName.end(), lowerName.begin(), ::tolower);
+            
+            if (lowerName.find("media player") != std::string::npos ||
+                lowerName.find("vlc") != std::string::npos ||
+                lowerName.find("movies & tv") != std::string::npos ||
+                lowerName.find("films & tv") != std::string::npos) {
+                // Можно добавить специальную метку для медиаплееров
+                source.name = "🎬 " + source.name;
+            }
+            else if (lowerName.find("chrome") != std::string::npos ||
+                     lowerName.find("firefox") != std::string::npos ||
+                     lowerName.find("edge") != std::string::npos) {
+                source.name = "🌐 " + source.name;
+            }
+        }
     }
     
-    // Конвертируем в JavaScript массив
+    // === 5. Конвертируем в JavaScript массив ===
     for (size_t i = 0; i < sources.size(); i++) {
         napi_value obj;
         napi_create_object(env, &obj);

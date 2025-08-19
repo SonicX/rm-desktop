@@ -404,57 +404,79 @@ export class NativeCaptureManager {
 
     private loadAddon(): boolean {
         try {
-            const possiblePaths = [
-                path.join(__dirname, 'native-addon.node'),
-                path.join(__dirname, '..', 'dist-electron', 'native-addon.node'),
-                path.join(process.cwd(), 'dist-electron', 'native-addon.node'),
-                '/Users/sg12/zulip-desktop/dist-electron/native-addon.node',
-                // 🆕 ДОБАВИТЬ ПУТИ ДЛЯ WINDOWS
-                path.join(__dirname, 'capture.node'),
-                path.join(__dirname, '..', 'dist-electron', 'capture.node'),
-                path.join(process.cwd(), 'dist-electron', 'capture.node'),
-                path.join(process.cwd(), 'native', 'win', 'capture.node'),
-                path.join(__dirname, '..', 'native', 'win', 'capture.node'),
-
-                // Production paths (в упакованном приложении)
-                path.join(process.resourcesPath, 'addons', 'screen_capture.node'),
-                path.join(process.resourcesPath, 'addons', 'capture.node'),
-            ];
-
+            const isDevelopment = process.env.NODE_ENV === 'development';
+            const isPackaged = app.isPackaged; // Требует import { app } from 'electron'
             
+            const possiblePaths = [];
+            
+            if (isPackaged) {
+                // PRODUCTION пути для упакованного приложения
+                if (process.platform === 'win32') {
+                    // Windows production пути
+                    possiblePaths.push(
+                        path.join(process.resourcesPath, 'native-addon.node'),
+                        path.join(process.resourcesPath, 'app.asar.unpacked', 'dist-electron', 'native-addon.node'),
+                        path.join(__dirname, 'native-addon.node'),
+                        path.join(__dirname, '..', 'native-addon.node'),
+                        // Если используете extraFiles
+                        path.join(process.resourcesPath, '..', 'native-addon.node'),
+                        path.join(process.resourcesPath, '..', 'resources', 'native-addon.node')
+                    );
+                } else {
+                    // Mac production пути
+                    possiblePaths.push(
+                        path.join(process.resourcesPath, 'app.asar.unpacked', 'dist-electron', 'native-addon.node'),
+                        path.join(__dirname, 'native-addon.node')
+                    );
+                }
+            } else {
+                // DEVELOPMENT пути
+                possiblePaths.push(
+                    path.join(__dirname, 'native-addon.node'),
+                    path.join(__dirname, '..', 'dist-electron', 'native-addon.node'),
+                    path.join(process.cwd(), 'dist-electron', 'native-addon.node')
+                );
+            }
+            
+            // Логируем все проверяемые пути
+            log.info(`[NativeCapture] Checking for addon in ${possiblePaths.length} locations:`);
+            log.info(`[NativeCapture] Platform: ${process.platform}`);
+            log.info(`[NativeCapture] Is Packaged: ${isPackaged}`);
+            log.info(`[NativeCapture] __dirname: ${__dirname}`);
+            log.info(`[NativeCapture] process.resourcesPath: ${process.resourcesPath}`);
             
             let addonPath: string | null = null;
             for (const testPath of possiblePaths) {
-            if (fs.existsSync(testPath)) {
-                addonPath = testPath;
-                break;
-            }
+                log.info(`[NativeCapture] Checking: ${testPath} - ${fs.existsSync(testPath) ? '✅ FOUND' : '❌ not found'}`);
+                if (fs.existsSync(testPath)) {
+                    addonPath = testPath;
+                    break;
+                }
             }
             
             if (!addonPath) {
-            log.error(`Native addon not found in any of: ${possiblePaths.join(', ')}`);
-            return false;
+                log.error(`[NativeCapture] ❌ Native addon not found in any location!`);
+                return false;
             }
             
-            log.info(`Loading native addon from: ${addonPath}`);
+            log.info(`[NativeCapture] Loading native addon from: ${addonPath}`);
             this.state.addon = require(addonPath);
             
-            // 🆕 ПРОВЕРЯЕМ МЕТОДЫ (разные для Mac/Windows)
+            // Проверяем методы
             const requiredMethods = this.getRequiredMethods();
             const missingMethods = requiredMethods.filter(m => typeof this.state.addon[m] !== 'function');
             
             if (missingMethods.length > 0) {
-            log.warn(`Native addon missing methods: ${missingMethods.join(', ')}`);
+                log.warn(`[NativeCapture] Addon missing methods: ${missingMethods.join(', ')}`);
             }
             
-            // 🆕 ОПРЕДЕЛЯЕМ ТИП ПЛАГИНА
             this.detectAddonType();
             
-            log.info(`✅ Native addon loaded successfully`);
+            log.info(`[NativeCapture] ✅ Native addon loaded successfully`);
             return true;
             
         } catch (error: any) {
-            log.error(`❌ Failed to load native addon: ${error.message}`);
+            log.error(`[NativeCapture] ❌ Failed to load native addon: ${error.message}`);
             return false;
         }
     }
