@@ -70,6 +70,7 @@ export const CAPTURE_PRESETS: { [key: string]: CapturePreset } = {
 export class NativeCaptureManager {
     private state: NativeCaptureState;
     private currentQuality: CaptureQuality = CAPTURE_PRESETS.ULTRALOW.quality;
+    private addonType: 'mac-swift' | 'windows-cpp' | 'unknown' = 'unknown';
 
     constructor(addon?: any) {
         this.state = {
@@ -87,8 +88,93 @@ export class NativeCaptureManager {
       this.registerHandlers();
     }
 
-    // В native-capture.ts добавьте метод для audio-only режима
     async startAudioOnlyCapture(sourceId: string): Promise<{ success: boolean; error?: string }> {
+        if (!this.state.addon) {
+            return { success: false, error: "Native addon not loaded" };
+        }
+        
+        // Для macOS Swift - используем оптимизированный метод
+        if (this.addonType === 'mac-swift' && typeof this.state.addon.startAudioOnlyCapture === 'function') {
+            log.info("[NATIVE-CAPTURE] Using macOS optimized audio-only capture");
+            // ... существующий код для Mac
+            return this.startAudioOnlyCaptureSwift(sourceId);
+        }
+        
+        // Для Windows - используем обычный захват
+        if (this.addonType === 'windows-cpp') {
+            log.info("[NATIVE-CAPTURE] Using Windows standard capture for audio");
+            return this.startAudioOnlyCaptureWindows(sourceId);
+        }
+        
+        // Fallback на обычный метод
+        return this.startCapture(sourceId);
+    }
+
+
+    private async startAudioOnlyCaptureWindows(sourceId: string): Promise<{ success: boolean; error?: string }> {
+        try {
+            log.info("[NATIVE-CAPTURE] Starting Windows audio capture");
+            
+            // Парсим sourceId (ваш существующий код)
+            let sourceType = 'display';
+            let realSourceId = sourceId;
+            
+            if (sourceId.includes(':')) {
+                const parts = sourceId.split(':');
+                if (parts[0] === 'screen' && parts.length >= 2) {
+                    sourceType = 'display';
+                    realSourceId = parts[1];
+                } else if (parts[0] === 'window') {
+                    sourceType = 'window';
+                    realSourceId = parts[1];
+                }
+            }
+            
+            // Сбрасываем счетчики
+            this.state.videoFrameCount = 0;
+            this.state.audioFrameCount = 0;
+            
+            // Настраиваем callbacks
+            this.setupCallbacks();
+            
+            // Устанавливаем минимальное качество для экономии CPU (только аудио нужно)
+            if (typeof this.state.addon.setCaptureQuality === 'function') {
+                log.info("[NATIVE-CAPTURE] Setting minimal video quality for audio-only mode");
+                this.state.addon.setCaptureQuality(320, 240, 1);
+            }
+            
+            // Устанавливаем источник
+            if (typeof this.state.addon.setCaptureSource === 'function') {
+                log.info(`[NATIVE-CAPTURE] Setting Windows capture source: ${sourceType}:${realSourceId}`);
+                await this.state.addon.setCaptureSource(sourceType, realSourceId);
+            }
+            
+            // Запускаем захват
+            log.info("[NATIVE-CAPTURE] Starting Windows capture...");
+            const startResult = await this.state.addon.startCapture();
+            
+            if (!startResult || startResult.error) {
+                const errorMsg = startResult?.error || "Unknown error";
+                log.error(`[NATIVE-CAPTURE] Windows capture failed: ${errorMsg}`);
+                return { success: false, error: errorMsg };
+            }
+            
+            this.state.isCapturing = true;
+            this.state.currentSourceId = sourceId;
+            
+            log.info("[NATIVE-CAPTURE] ✅ Windows audio capture started successfully");
+            return { success: true };
+            
+        } catch (error: any) {
+            log.error(`[NATIVE-CAPTURE] Windows audio capture error: ${error.message}`);
+            this.state.isCapturing = false;
+            this.state.currentSourceId = null;
+            return { success: false, error: error.message };
+        }
+    }
+
+    // В native-capture.ts добавьте метод для audio-only режима
+    async startAudioOnlyCaptureSwift(sourceId: string): Promise<{ success: boolean; error?: string }> {
         if (!this.state.addon) {
             return { success: false, error: "Native addon not loaded" };
         }
@@ -291,87 +377,83 @@ export class NativeCaptureManager {
         }
     }
 
-    private setupAudioOnlyCallbacks(): void {
-        if (!this.state.addon) return;
-        
-        log.info("[NATIVE-CAPTURE] Setting up AUDIO-ONLY callbacks (no video processing)");
-        
-        // Устанавливаем ТОЛЬКО аудио callback
-        this.state.addon.setWebRTCAudioCallback((audioData: any) => {
-            this.state.audioFrameCount++;
+    private loadAddon(): boolean {
+        try {
+            const possiblePaths = [
+            path.join(__dirname, 'native-addon.node'),
+            path.join(__dirname, '..', 'dist-electron', 'native-addon.node'),
+            path.join(process.cwd(), 'dist-electron', 'native-addon.node'),
+            '/Users/sg12/zulip-desktop/dist-electron/native-addon.node',
+            // 🆕 ДОБАВИТЬ ПУТИ ДЛЯ WINDOWS
+            path.join(__dirname, 'capture.node'),
+            path.join(__dirname, '..', 'dist-electron', 'capture.node'),
+            path.join(process.cwd(), 'dist-electron', 'capture.node'),
+            path.join(process.cwd(), 'native', 'win', 'capture.node'),
+            path.join(__dirname, '..', 'native', 'win', 'capture.node')
+            ];
             
-            if (this.state.audioFrameCount === 1) {
-                log.info("[NATIVE-CAPTURE] First audio frame in audio-only mode:", {
-                    hasData: !!audioData?.data,
-                    dataByteLength: audioData?.data?.byteLength,
-                    sampleRate: audioData?.sampleRate,
-                    channels: audioData?.channels,
-                    source: audioData?.source
-                });
+            let addonPath: string | null = null;
+            for (const testPath of possiblePaths) {
+            if (fs.existsSync(testPath)) {
+                addonPath = testPath;
+                break;
+            }
             }
             
-            if (audioData && audioData.data && audioData.data.byteLength > 0) {
-                if (this.state.callbacks.audio) {
-                    this.state.callbacks.audio({
-                        data: audioData.data,
-                        sampleRate: audioData?.sampleRate || 48000,
-                        channels: audioData?.channels || 2,
-                        numSamples: audioData?.numSamples || 960,
-                        source: audioData?.source || 'unknown'
-                    });
-                }
+            if (!addonPath) {
+            log.error(`Native addon not found in any of: ${possiblePaths.join(', ')}`);
+            return false;
             }
             
-            if (this.state.audioFrameCount % 100 === 0) {
-                log.info(`[NATIVE-CAPTURE] Audio-only: ${this.state.audioFrameCount} frames`);
+            log.info(`Loading native addon from: ${addonPath}`);
+            this.state.addon = require(addonPath);
+            
+            // 🆕 ПРОВЕРЯЕМ МЕТОДЫ (разные для Mac/Windows)
+            const requiredMethods = this.getRequiredMethods();
+            const missingMethods = requiredMethods.filter(m => typeof this.state.addon[m] !== 'function');
+            
+            if (missingMethods.length > 0) {
+            log.warn(`Native addon missing methods: ${missingMethods.join(', ')}`);
             }
-        });
-        
-        // НЕ устанавливаем video callback для экономии ресурсов!
-        log.info("[NATIVE-CAPTURE] ✅ Audio-only callbacks configured (video skipped for performance)");
+            
+            // 🆕 ОПРЕДЕЛЯЕМ ТИП ПЛАГИНА
+            this.detectAddonType();
+            
+            log.info(`✅ Native addon loaded successfully`);
+            return true;
+            
+        } catch (error: any) {
+            log.error(`❌ Failed to load native addon: ${error.message}`);
+            return false;
+        }
     }
 
-    private loadAddon(): boolean {
-      try {
-        const possiblePaths = [
-          path.join(__dirname, 'native-addon.node'),
-          path.join(__dirname, '..', 'dist-electron', 'native-addon.node'),
-          path.join(process.cwd(), 'dist-electron', 'native-addon.node'),
-          '/Users/sg12/zulip-desktop/dist-electron/native-addon.node'
-        ];
+    private detectAddonType(): void {
+        if (typeof this.state.addon.getAvailableSources === 'function') {
+            if (typeof this.state.addon.startAudioOnlyCapture === 'function') {
+            this.addonType = 'mac-swift'; // Ваш текущий Swift плагин
+            log.info("🍎 Detected macOS Swift addon");
+            } else {
+            this.addonType = 'windows-cpp'; // Новый Windows плагин
+            log.info("🪟 Detected Windows C++ addon");
+            }
+        } else {
+            this.addonType = 'unknown';
+            log.warn("❓ Unknown addon type");
+        }
+    }
+
+    private getRequiredMethods(): string[] {
+        const baseMethods = ['getAvailableSources', 'startCapture', 'stopCapture', 
+                            'setWebRTCVideoCallback', 'setWebRTCAudioCallback'];
         
-        let addonPath: string | null = null;
-        for (const testPath of possiblePaths) {
-          if (fs.existsSync(testPath)) {
-            addonPath = testPath;
-            break;
-          }
+        // Для Windows добавляем setCaptureSource, setCaptureQuality
+        if (process.platform === 'win32') {
+            return [...baseMethods, 'setCaptureSource', 'setCaptureQuality'];
         }
         
-        if (!addonPath) {
-          log.error(`Native addon not found in any of: ${possiblePaths.join(', ')}`);
-          return false;
-        }
-        
-        log.info(`Loading native addon from: ${addonPath}`);
-        this.state.addon = require(addonPath);
-        
-        // Проверяем основные методы
-        const requiredMethods = ['getAvailableSources', 'startCapture', 'stopCapture', 
-                                'setWebRTCVideoCallback', 'setWebRTCAudioCallback'];
-        const missingMethods = requiredMethods.filter(m => typeof this.state.addon[m] !== 'function');
-        
-        if (missingMethods.length > 0) {
-          log.warn(`Native addon missing methods: ${missingMethods.join(', ')}`);
-        }
-        
-        log.info(`✅ Native addon loaded successfully`);
-        return true;
-        
-      } catch (error: any) {
-        log.error(`❌ Failed to load native addon: ${error.message}`);
-        return false;
-      }
+        // Для Mac оставляем как есть + оптимизированные методы
+        return [...baseMethods, 'startAudioOnlyCapture', 'startAudioVideoCapture'];
     }
 
     private registerHandlers(): void {
