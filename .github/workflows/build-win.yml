@@ -2,26 +2,26 @@ name: Build Windows Native Module
 
 on:
   push:
-    branches: [ main, master, native-win-test ]  # Добавил вашу ветку
+    branches: [ main, master, native-win-test ]
   pull_request:
     branches: [ main, master, native-win-test ]
-  workflow_dispatch:  # Позволяет запускать вручную
+  workflow_dispatch:
 
 jobs:
   build-windows:
-    runs-on: windows-2022  # Используем последнюю версию
+    runs-on: windows-2022
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4  # Обновлено с v3 на v4
     
     - name: Setup Node.js
-      uses: actions/setup-node@v3
+      uses: actions/setup-node@v4  # Обновлено с v3 на v4
       with:
         node-version: '18'
         
     - name: Setup Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5  # Обновлено с v4 на v5
       with:
         python-version: '3.11'
         
@@ -53,16 +53,16 @@ jobs:
     - name: Test module
       working-directory: native-addon/win
       run: npm test
-      continue-on-error: true  # Не падаем если тест не прошел
+      continue-on-error: true
         
     - name: Upload artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4  # Обновлено с v3 на v4
       with:
         name: windows-capture-module
         path: native-addon/win/build/Release/capture.node
         
     - name: Upload full build folder (for debugging)
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4  # Обновлено с v3 на v4
       with:
         name: windows-build-full
         path: native-addon/win/build/
