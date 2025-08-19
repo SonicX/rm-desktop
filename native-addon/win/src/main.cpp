@@ -348,6 +348,21 @@ private:
     
     // Буфер для ресемплинга
     std::vector<float> resampleBuffer;
+
+    void LogAudioFormat(WAVEFORMATEX* format) {
+        char log[512];
+        sprintf_s(log, "Audio Format: Tag=%d, Channels=%d, SampleRate=%d, BitsPerSample=%d, BlockAlign=%d\n",
+                  format->wFormatTag, format->nChannels, format->nSamplesPerSec,
+                  format->wBitsPerSample, format->nBlockAlign);
+        OutputDebugStringA(log);
+        
+        if (format->wFormatTag == WAVE_FORMAT_EXTENSIBLE) {
+            WAVEFORMATEXTENSIBLE* ext = (WAVEFORMATEXTENSIBLE*)format;
+            sprintf_s(log, "Extended: ValidBits=%d, ChannelMask=0x%X\n",
+                     ext->Samples.wValidBitsPerSample, ext->dwChannelMask);
+            OutputDebugStringA(log);
+        }
+    }
     
 public:
     bool Initialize(const std::string& sourceType, const std::string& sourceId) {
@@ -365,26 +380,16 @@ public:
         
         // Определяем тип захвата
         if (sourceType == "display" || sourceType == "screen") {
-            // Системный звук - используем устройство вывода с loopback
             isSystemAudio = true;
             hr = deviceEnumerator->GetDefaultAudioEndpoint(
-                eRender,  // Важно! Для системного звука
-                eConsole,
-                &device
-            );
-        } else if (sourceType == "microphone") {
-            // Микрофон
-            isSystemAudio = false;
-            hr = deviceEnumerator->GetDefaultAudioEndpoint(
-                eCapture,  // Для микрофона
+                eRender,
                 eConsole,
                 &device
             );
         } else {
-            // Для окон/приложений пока используем системный звук
-            isSystemAudio = true;
+            isSystemAudio = false;
             hr = deviceEnumerator->GetDefaultAudioEndpoint(
-                eRender,
+                eCapture,
                 eConsole,
                 &device
             );
@@ -392,7 +397,6 @@ public:
         
         if (FAILED(hr)) return false;
         
-        // Активируем audio client
         hr = device->Activate(
             __uuidof(IAudioClient),
             CLSCTX_ALL,
@@ -406,64 +410,39 @@ public:
         hr = audioClient->GetMixFormat(&waveFormat);
         if (FAILED(hr)) return false;
         
-        // Выводим информацию о формате для отладки
-        OutputDebugStringA(("Audio format: " + std::to_string(waveFormat->nSamplesPerSec) + 
-                           "Hz, " + std::to_string(waveFormat->nChannels) + 
-                           " channels, " + std::to_string(waveFormat->wBitsPerSample) + 
-                           " bits\n").c_str());
+        // ВАЖНО: Логируем реальный формат
+        LogAudioFormat(waveFormat);
         
-        // Создаем события для синхронизации
-        hEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
-        hStopEvent = CreateEvent(nullptr, TRUE, FALSE, nullptr);
+        // Для системного звука часто требуется специфическая инициализация
+        DWORD streamFlags = isSystemAudio ? AUDCLNT_STREAMFLAGS_LOOPBACK : 0;
         
-        if (!hEvent || !hStopEvent) return false;
-        
-        // Инициализируем с оптимальными параметрами
-        DWORD streamFlags = 0;
-        
-        if (isSystemAudio) {
-            streamFlags = AUDCLNT_STREAMFLAGS_LOOPBACK;
-        }
-        
-        // Добавляем флаг для event-driven режима
-        streamFlags |= AUDCLNT_STREAMFLAGS_EVENTCALLBACK;
-        
-        // Используем меньший буфер для меньшей латентности (20мс)
-        REFERENCE_TIME bufferDuration = 200000; // 20ms в 100-наносекундных единицах
+        // Пробуем с периодом 10мс для минимальной латентности
+        REFERENCE_TIME hnsRequestedDuration = 100000; // 10ms
         
         hr = audioClient->Initialize(
             AUDCLNT_SHAREMODE_SHARED,
             streamFlags,
-            bufferDuration,
-            0, // Периодичность - 0 для event-driven
+            hnsRequestedDuration,
+            0,
             waveFormat,
             nullptr
         );
         
         if (FAILED(hr)) {
-            // Если не удалось с event-driven, пробуем без него
-            streamFlags &= ~AUDCLNT_STREAMFLAGS_EVENTCALLBACK;
-            
+            // Если не удалось, пробуем с большим буфером
+            hnsRequestedDuration = 300000; // 30ms
             hr = audioClient->Initialize(
                 AUDCLNT_SHAREMODE_SHARED,
                 streamFlags,
-                bufferDuration * 5, // Увеличиваем буфер для polling mode
+                hnsRequestedDuration,
                 0,
                 waveFormat,
                 nullptr
             );
             
             if (FAILED(hr)) return false;
-        } else {
-            // Устанавливаем event handle для event-driven режима
-            hr = audioClient->SetEventHandle(hEvent);
-            if (FAILED(hr)) {
-                // Продолжаем без event-driven
-                OutputDebugStringA("Failed to set event handle, using polling mode\n");
-            }
         }
         
-        // Получаем capture client
         hr = audioClient->GetService(
             __uuidof(IAudioCaptureClient),
             (void**)&captureClient
@@ -582,92 +561,104 @@ public:
         frameData->numSamples = numFrames;
         frameData->sampleRate = waveFormat->nSamplesPerSec;
         frameData->channels = waveFormat->nChannels;
-        
-        // Используем QPC для более точного timestamp если доступен
-        if (qpcPosition > 0) {
-            LARGE_INTEGER qpcFreq;
-            QueryPerformanceFrequency(&qpcFreq);
-            frameData->timestamp = (double)qpcPosition / qpcFreq.QuadPart;
-        } else {
-            frameData->timestamp = GetTimestamp();
-        }
-        
+        frameData->timestamp = GetTimestamp();
         frameData->isSystemAudio = isSystemAudio;
         
-        // Выделяем память для семплов
         size_t sampleCount = numFrames * waveFormat->nChannels;
         frameData->samples = new float[sampleCount];
         
-        // Улучшенная конвертация в float с правильной обработкой форматов
         bool converted = false;
         
-        if (waveFormat->wFormatTag == WAVE_FORMAT_IEEE_FLOAT) {
-            // Уже float
-            memcpy(frameData->samples, data, sampleCount * sizeof(float));
-            converted = true;
-        } 
-        else if (waveFormat->wFormatTag == WAVE_FORMAT_PCM) {
-            converted = ConvertPCMToFloat(data, frameData->samples, sampleCount, waveFormat->wBitsPerSample);
-        } 
-        else if (waveFormat->wFormatTag == WAVE_FORMAT_EXTENSIBLE) {
+        // ВАЖНО: Правильная обработка WAVEFORMATEXTENSIBLE
+        if (waveFormat->wFormatTag == WAVE_FORMAT_EXTENSIBLE) {
             WAVEFORMATEXTENSIBLE* wfex = (WAVEFORMATEXTENSIBLE*)waveFormat;
             
-            if (CompareGUIDs(wfex->SubFormat, KSDATAFORMAT_SUBTYPE_IEEE_FLOAT)) {
+            // Используем РЕАЛЬНОЕ количество бит, а не wBitsPerSample
+            WORD actualBitsPerSample = wfex->Samples.wValidBitsPerSample;
+            if (actualBitsPerSample == 0) {
+                actualBitsPerSample = wfex->Format.wBitsPerSample;
+            }
+            
+            // Проверяем SubFormat
+            if (memcmp(&wfex->SubFormat, &KSDATAFORMAT_SUBTYPE_IEEE_FLOAT, sizeof(GUID)) == 0) {
+                // Float формат
                 memcpy(frameData->samples, data, sampleCount * sizeof(float));
                 converted = true;
             } 
-            else if (CompareGUIDs(wfex->SubFormat, KSDATAFORMAT_SUBTYPE_PCM)) {
-                converted = ConvertPCMToFloat(data, frameData->samples, sampleCount, wfex->Format.wBitsPerSample);
+            else if (memcmp(&wfex->SubFormat, &KSDATAFORMAT_SUBTYPE_PCM, sizeof(GUID)) == 0) {
+                // PCM формат - используем actualBitsPerSample!
+                converted = ConvertPCMToFloat(data, frameData->samples, sampleCount, 
+                                            actualBitsPerSample, wfex->Format.wBitsPerSample);
             }
+        }
+        else if (waveFormat->wFormatTag == WAVE_FORMAT_IEEE_FLOAT) {
+            memcpy(frameData->samples, data, sampleCount * sizeof(float));
+            converted = true;
+        }
+        else if (waveFormat->wFormatTag == WAVE_FORMAT_PCM) {
+            converted = ConvertPCMToFloat(data, frameData->samples, sampleCount, 
+                                        waveFormat->wBitsPerSample, waveFormat->wBitsPerSample);
         }
         
         if (!converted) {
-            // Если не смогли конвертировать, заполняем тишиной
+            // Заполняем тишиной
             memset(frameData->samples, 0, sampleCount * sizeof(float));
-            OutputDebugStringA("Warning: Unknown audio format, outputting silence\n");
         }
-        
-        // Применяем небольшое сглаживание для уменьшения артефактов
-        ApplySmoothing(frameData->samples, sampleCount, waveFormat->nChannels);
         
         SendToJavaScript(frameData);
     }
     
-    bool ConvertPCMToFloat(BYTE* input, float* output, size_t sampleCount, WORD bitsPerSample) {
-        if (bitsPerSample == 16) {
+    bool ConvertPCMToFloat(BYTE* input, float* output, size_t sampleCount, WORD validBits, WORD containerBits) {
+        // containerBits - размер контейнера (например, 32)
+        // validBits - реальные биты данных (например, 24)
+        
+        if (containerBits == 32) {
+            if (validBits == 24) {
+                // 24-bit в 32-bit контейнере (часто встречается!)
+                INT32* pcmData = (INT32*)input;
+                for (size_t i = 0; i < sampleCount; i++) {
+                    // Данные в старших 24 битах, нужно сдвинуть
+                    INT32 sample = pcmData[i] >> 8; // Сдвигаем на 8 бит вправо
+                    output[i] = sample / 8388608.0f; // Делим на 2^23
+                }
+                return true;
+            } else if (validBits == 32) {
+                // Настоящий 32-bit PCM
+                INT32* pcmData = (INT32*)input;
+                for (size_t i = 0; i < sampleCount; i++) {
+                    output[i] = pcmData[i] / 2147483648.0f;
+                }
+                return true;
+            }
+        }
+        else if (containerBits == 24 && validBits == 24) {
+            // 24-bit в 24-bit контейнере (3 байта)
+            for (size_t i = 0; i < sampleCount; i++) {
+                BYTE* samplePtr = input + (i * 3);
+                INT32 sample = 0;
+                
+                // Little-endian
+                sample = (samplePtr[0]) | (samplePtr[1] << 8) | (samplePtr[2] << 16);
+                
+                // Знаковое расширение для 24-bit
+                if (sample & 0x800000) {
+                    sample |= 0xFF000000;
+                }
+                
+                output[i] = sample / 8388608.0f;
+            }
+            return true;
+        }
+        else if (containerBits == 16 && validBits == 16) {
             INT16* pcmData = (INT16*)input;
             for (size_t i = 0; i < sampleCount; i++) {
                 output[i] = pcmData[i] / 32768.0f;
             }
             return true;
-        } 
-        else if (bitsPerSample == 24) {
-            // 24-bit PCM упакован в 3 байта
-            for (size_t i = 0; i < sampleCount; i++) {
-                int32_t sample = 0;
-                BYTE* samplePtr = input + (i * 3);
-                
-                // Little-endian
-                sample = (samplePtr[2] << 16) | (samplePtr[1] << 8) | samplePtr[0];
-                
-                // Знаковое расширение
-                if (sample & 0x800000) {
-                    sample |= 0xFF000000;
-                }
-                
-                output[i] = sample / 8388608.0f; // 2^23
-            }
-            return true;
-        } 
-        else if (bitsPerSample == 32) {
-            INT32* pcmData = (INT32*)input;
-            for (size_t i = 0; i < sampleCount; i++) {
-                output[i] = pcmData[i] / 2147483648.0f;
-            }
-            return true;
         }
         
-        return false;
+        // Неизвестный формат - пробуем интерпретировать по containerBits
+        return ConvertPCMToFloat(input, output, sampleCount, containerBits, containerBits);
     }
     
     void ApplySmoothing(float* samples, size_t sampleCount, int channels) {
