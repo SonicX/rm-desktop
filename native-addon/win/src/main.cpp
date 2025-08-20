@@ -51,6 +51,10 @@ const GUID KSDATAFORMAT_SUBTYPE_PCM = {0x00000001, 0x0000, 0x0010, {0x80, 0x00, 
 #define WAVE_FORMAT_EXTENSIBLE 0xFFFE
 #endif
 
+#ifndef WAVE_FORMAT_PCM
+#define WAVE_FORMAT_PCM 0x0001
+#endif
+
 // Глобальные переменные для callbacks
 static napi_threadsafe_function g_video_tsfn = nullptr;
 static napi_threadsafe_function g_audio_tsfn = nullptr;
@@ -343,28 +347,6 @@ private:
     std::thread captureThread;
     bool isSystemAudio = true;
     
-    // Добавляем для event-driven захвата
-    HANDLE hEvent = nullptr;
-    HANDLE hStopEvent = nullptr;
-    
-    // Буфер для ресемплинга
-    std::vector<float> resampleBuffer;
-
-    void LogAudioFormat(WAVEFORMATEX* format) {
-        char log[512];
-        sprintf_s(log, "Audio Format: Tag=%d, Channels=%d, SampleRate=%d, BitsPerSample=%d, BlockAlign=%d\n",
-                  format->wFormatTag, format->nChannels, format->nSamplesPerSec,
-                  format->wBitsPerSample, format->nBlockAlign);
-        OutputDebugStringA(log);
-        
-        if (format->wFormatTag == WAVE_FORMAT_EXTENSIBLE) {
-            WAVEFORMATEXTENSIBLE* ext = (WAVEFORMATEXTENSIBLE*)format;
-            sprintf_s(log, "Extended: ValidBits=%d, ChannelMask=0x%X\n",
-                     ext->Samples.wValidBitsPerSample, ext->dwChannelMask);
-            OutputDebugStringA(log);
-        }
-    }
-    
 public:
     bool Initialize(const std::string& sourceType, const std::string& sourceId) {
         CoInitialize(nullptr);
@@ -380,17 +362,25 @@ public:
         if (FAILED(hr)) return false;
         
         // Определяем тип захвата
-        if (sourceType == "display" || sourceType == "screen") {
+        if (sourceType == "display" || sourceType == "screen" || sourceType == "window") {
             isSystemAudio = true;
             hr = deviceEnumerator->GetDefaultAudioEndpoint(
-                eRender,
+                eRender,  // Для системного звука
+                eConsole,
+                &device
+            );
+        } else if (sourceType == "microphone") {
+            isSystemAudio = false;
+            hr = deviceEnumerator->GetDefaultAudioEndpoint(
+                eCapture,  // Для микрофона
                 eConsole,
                 &device
             );
         } else {
-            isSystemAudio = false;
+            // По умолчанию системный звук
+            isSystemAudio = true;
             hr = deviceEnumerator->GetDefaultAudioEndpoint(
-                eCapture,
+                eRender,
                 eConsole,
                 &device
             );
@@ -398,6 +388,7 @@ public:
         
         if (FAILED(hr)) return false;
         
+        // Активируем audio client
         hr = device->Activate(
             __uuidof(IAudioClient),
             CLSCTX_ALL,
@@ -411,39 +402,21 @@ public:
         hr = audioClient->GetMixFormat(&waveFormat);
         if (FAILED(hr)) return false;
         
-        // ВАЖНО: Логируем реальный формат
-        LogAudioFormat(waveFormat);
-        
-        // Для системного звука часто требуется специфическая инициализация
+        // Инициализируем
         DWORD streamFlags = isSystemAudio ? AUDCLNT_STREAMFLAGS_LOOPBACK : 0;
-        
-        // Пробуем с периодом 10мс для минимальной латентности
-        REFERENCE_TIME hnsRequestedDuration = 100000; // 10ms
         
         hr = audioClient->Initialize(
             AUDCLNT_SHAREMODE_SHARED,
             streamFlags,
-            hnsRequestedDuration,
+            10000000,  // 1 секунда буфера
             0,
             waveFormat,
             nullptr
         );
         
-        if (FAILED(hr)) {
-            // Если не удалось, пробуем с большим буфером
-            hnsRequestedDuration = 300000; // 30ms
-            hr = audioClient->Initialize(
-                AUDCLNT_SHAREMODE_SHARED,
-                streamFlags,
-                hnsRequestedDuration,
-                0,
-                waveFormat,
-                nullptr
-            );
-            
-            if (FAILED(hr)) return false;
-        }
+        if (FAILED(hr)) return false;
         
+        // Получаем capture client
         hr = audioClient->GetService(
             __uuidof(IAudioCaptureClient),
             (void**)&captureClient
@@ -456,105 +429,47 @@ public:
         if (!audioClient) return;
         
         isCapturing = true;
-        ResetEvent(hStopEvent);
-        
         HRESULT hr = audioClient->Start();
         
         if (SUCCEEDED(hr)) {
             captureThread = std::thread([this]() {
-                // Устанавливаем приоритет потока для аудио
-                SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
-                
-                // Привязываем к COM для этого потока
-                CoInitialize(nullptr);
-                
-                if (hEvent) {
-                    CaptureLoopEventDriven();
-                } else {
-                    CaptureLoopPolling();
-                }
-                
-                CoUninitialize();
+                CaptureLoop();
             });
         }
     }
     
-    void CaptureLoopEventDriven() {
-        HANDLE waitArray[2] = { hEvent, hStopEvent };
-        
+    void CaptureLoop() {
         while (isCapturing) {
-            DWORD waitResult = WaitForMultipleObjects(2, waitArray, FALSE, 100);
+            Sleep(10);
             
-            if (waitResult == WAIT_OBJECT_0 + 1) {
-                // Stop event
-                break;
-            } else if (waitResult == WAIT_OBJECT_0) {
-                // Audio event
-                ProcessAvailableFrames();
-            } else if (waitResult == WAIT_TIMEOUT) {
-                // Проверяем на всякий случай
-                ProcessAvailableFrames();
-            }
-        }
-    }
-    
-    void CaptureLoopPolling() {
-        while (isCapturing) {
-            // Используем более короткий интервал для polling
-            Sleep(5);
-            ProcessAvailableFrames();
-        }
-    }
-    
-    void ProcessAvailableFrames() {
-        UINT32 packetLength = 0;
-        HRESULT hr = captureClient->GetNextPacketSize(&packetLength);
-        
-        while (packetLength != 0 && isCapturing) {
-            BYTE* data = nullptr;
-            UINT32 numFramesAvailable;
-            DWORD flags;
-            UINT64 devicePosition;
-            UINT64 qpcPosition;
+            UINT32 packetLength = 0;
+            HRESULT hr = captureClient->GetNextPacketSize(&packetLength);
             
-            hr = captureClient->GetBuffer(
-                &data,
-                &numFramesAvailable,
-                &flags,
-                &devicePosition,
-                &qpcPosition
-            );
-            
-            if (SUCCEEDED(hr)) {
-                // Обрабатываем только если не тишина
-                if (!(flags & AUDCLNT_BUFFERFLAGS_SILENT) && numFramesAvailable > 0) {
-                    ProcessAudioData(data, numFramesAvailable, qpcPosition);
-                } else if (flags & AUDCLNT_BUFFERFLAGS_SILENT) {
-                    // Если тишина, отправляем нули
-                    ProcessSilence(numFramesAvailable);
+            while (packetLength != 0 && isCapturing) {
+                BYTE* data = nullptr;
+                UINT32 numFramesAvailable;
+                DWORD flags;
+                
+                hr = captureClient->GetBuffer(
+                    &data,
+                    &numFramesAvailable,
+                    &flags,
+                    nullptr,
+                    nullptr
+                );
+                
+                if (SUCCEEDED(hr)) {
+                    if (!(flags & AUDCLNT_BUFFERFLAGS_SILENT) && numFramesAvailable > 0) {
+                        ProcessAudioData(data, numFramesAvailable);
+                    }
+                    
+                    captureClient->ReleaseBuffer(numFramesAvailable);
                 }
                 
-                captureClient->ReleaseBuffer(numFramesAvailable);
+                hr = captureClient->GetNextPacketSize(&packetLength);
+                if (FAILED(hr)) break;
             }
-            
-            hr = captureClient->GetNextPacketSize(&packetLength);
-            if (FAILED(hr)) break;
         }
-    }
-    
-    void ProcessSilence(UINT32 numFrames) {
-        AudioFrameData* frameData = new AudioFrameData();
-        frameData->numSamples = numFrames;
-        frameData->sampleRate = waveFormat->nSamplesPerSec;
-        frameData->channels = waveFormat->nChannels;
-        frameData->timestamp = GetTimestamp();
-        frameData->isSystemAudio = isSystemAudio;
-        
-        // Создаем массив с тишиной
-        size_t sampleCount = numFrames * waveFormat->nChannels;
-        frameData->samples = new float[sampleCount]();  // () инициализирует нулями
-        
-        SendToJavaScript(frameData);
     }
     
     void ProcessAudioData(BYTE* data, UINT32 numFrames) {
@@ -568,136 +483,46 @@ public:
         size_t sampleCount = numFrames * waveFormat->nChannels;
         frameData->samples = new float[sampleCount];
         
-        // Логируем формат один раз для отладки
+        // Логируем формат один раз
         static bool formatLogged = false;
         if (!formatLogged) {
             char log[256];
             sprintf_s(log, "Audio Format: Tag=0x%X, Bits=%d, Channels=%d, Rate=%d Hz\n",
-                    waveFormat->wFormatTag, waveFormat->wBitsPerSample,
-                    waveFormat->nChannels, waveFormat->nSamplesPerSec);
+                     waveFormat->wFormatTag, waveFormat->wBitsPerSample,
+                     waveFormat->nChannels, waveFormat->nSamplesPerSec);
             OutputDebugStringA(log);
             formatLogged = true;
         }
         
-        // Для Windows 10/11 с Realtek - это всегда 32-bit float в WAVEFORMATEXTENSIBLE
-        // WAVE_FORMAT_EXTENSIBLE = 0xFFFE
+        // Windows 10/11 использует 32-bit float для WASAPI
         if (waveFormat->wFormatTag == WAVE_FORMAT_EXTENSIBLE || 
-            waveFormat->wFormatTag == WAVE_FORMAT_IEEE_FLOAT) {
+            waveFormat->wFormatTag == WAVE_FORMAT_IEEE_FLOAT ||
+            waveFormat->wBitsPerSample == 32) {
             
-            // Данные УЖЕ в формате float - просто копируем!
+            // Данные уже в формате float - просто копируем
             memcpy(frameData->samples, data, sampleCount * sizeof(float));
             
         } else if (waveFormat->wFormatTag == WAVE_FORMAT_PCM) {
-            // Это редкий случай для современных систем
+            // PCM формат
             if (waveFormat->wBitsPerSample == 16) {
                 INT16* pcmData = (INT16*)data;
                 for (size_t i = 0; i < sampleCount; i++) {
                     frameData->samples[i] = pcmData[i] / 32768.0f;
                 }
-            } else if (waveFormat->wBitsPerSample == 32) {
-                INT32* pcmData = (INT32*)data;
+            } else if (waveFormat->wBitsPerSample == 24) {
+                // 24-bit PCM
                 for (size_t i = 0; i < sampleCount; i++) {
-                    frameData->samples[i] = pcmData[i] / 2147483648.0f;
+                    BYTE* samplePtr = data + (i * 3);
+                    INT32 sample = (samplePtr[0] | (samplePtr[1] << 8) | (samplePtr[2] << 16));
+                    if (sample & 0x800000) sample |= 0xFF000000;
+                    frameData->samples[i] = sample / 8388608.0f;
                 }
-            } else {
-                // Неизвестный формат PCM
-                memset(frameData->samples, 0, sampleCount * sizeof(float));
             }
         } else {
-            // Неизвестный формат - пробуем как float (лучше чем тишина)
+            // Неизвестный формат - копируем как float
             memcpy(frameData->samples, data, sampleCount * sizeof(float));
         }
         
-        // Увеличиваем счетчик
-        g_audio_frame_count++;
-        
-        // Отправляем в JavaScript
-        if (g_audio_tsfn) {
-            napi_status status = napi_call_threadsafe_function(
-                g_audio_tsfn,
-                frameData,
-                napi_tsfn_blocking
-            );
-            
-            if (status != napi_ok) {
-                delete[] frameData->samples;
-                delete frameData;
-            }
-        } else {
-            delete[] frameData->samples;
-            delete frameData;
-        }
-    }
-    
-    bool ConvertPCMToFloat(BYTE* input, float* output, size_t sampleCount, WORD validBits, WORD containerBits) {
-        // containerBits - размер контейнера (например, 32)
-        // validBits - реальные биты данных (например, 24)
-        
-        if (containerBits == 32) {
-            if (validBits == 24) {
-                // 24-bit в 32-bit контейнере (часто встречается!)
-                INT32* pcmData = (INT32*)input;
-                for (size_t i = 0; i < sampleCount; i++) {
-                    // Данные в старших 24 битах, нужно сдвинуть
-                    INT32 sample = pcmData[i] >> 8; // Сдвигаем на 8 бит вправо
-                    output[i] = sample / 8388608.0f; // Делим на 2^23
-                }
-                return true;
-            } else if (validBits == 32) {
-                // Настоящий 32-bit PCM
-                INT32* pcmData = (INT32*)input;
-                for (size_t i = 0; i < sampleCount; i++) {
-                    output[i] = pcmData[i] / 2147483648.0f;
-                }
-                return true;
-            }
-        }
-        else if (containerBits == 24 && validBits == 24) {
-            // 24-bit в 24-bit контейнере (3 байта)
-            for (size_t i = 0; i < sampleCount; i++) {
-                BYTE* samplePtr = input + (i * 3);
-                INT32 sample = 0;
-                
-                // Little-endian
-                sample = (samplePtr[0]) | (samplePtr[1] << 8) | (samplePtr[2] << 16);
-                
-                // Знаковое расширение для 24-bit
-                if (sample & 0x800000) {
-                    sample |= 0xFF000000;
-                }
-                
-                output[i] = sample / 8388608.0f;
-            }
-            return true;
-        }
-        else if (containerBits == 16 && validBits == 16) {
-            INT16* pcmData = (INT16*)input;
-            for (size_t i = 0; i < sampleCount; i++) {
-                output[i] = pcmData[i] / 32768.0f;
-            }
-            return true;
-        }
-        
-        // Неизвестный формат - пробуем интерпретировать по containerBits
-        return ConvertPCMToFloat(input, output, sampleCount, containerBits, containerBits);
-    }
-    
-    void ApplySmoothing(float* samples, size_t sampleCount, int channels) {
-        // Простое сглаживание для уменьшения щелчков
-        static std::vector<float> lastSample(channels, 0.0f);
-        
-        for (int ch = 0; ch < channels; ch++) {
-            for (size_t i = ch; i < sampleCount; i += channels) {
-                // Применяем очень легкий low-pass фильтр
-                float current = samples[i];
-                float smoothed = lastSample[ch] * 0.1f + current * 0.9f;
-                samples[i] = smoothed;
-                lastSample[ch] = current;
-            }
-        }
-    }
-    
-    void SendToJavaScript(AudioFrameData* frameData) {
         // Увеличиваем счетчик
         g_audio_frame_count++;
         
@@ -722,10 +547,6 @@ public:
     void StopCapture() {
         isCapturing = false;
         
-        if (hStopEvent) {
-            SetEvent(hStopEvent);
-        }
-        
         if (audioClient) {
             audioClient->Stop();
         }
@@ -737,42 +558,11 @@ public:
     
     ~WASAPIAudioCapture() {
         StopCapture();
-        
-        if (hEvent) {
-            CloseHandle(hEvent);
-            hEvent = nullptr;
-        }
-        
-        if (hStopEvent) {
-            CloseHandle(hStopEvent);
-            hStopEvent = nullptr;
-        }
-        
-        if (captureClient) {
-            captureClient->Release();
-            captureClient = nullptr;
-        }
-        
-        if (audioClient) {
-            audioClient->Release();
-            audioClient = nullptr;
-        }
-        
-        if (device) {
-            device->Release();
-            device = nullptr;
-        }
-        
-        if (deviceEnumerator) {
-            deviceEnumerator->Release();
-            deviceEnumerator = nullptr;
-        }
-        
-        if (waveFormat) {
-            CoTaskMemFree(waveFormat);
-            waveFormat = nullptr;
-        }
-        
+        if (captureClient) captureClient->Release();
+        if (audioClient) audioClient->Release();
+        if (device) device->Release();
+        if (deviceEnumerator) deviceEnumerator->Release();
+        if (waveFormat) CoTaskMemFree(waveFormat);
         CoUninitialize();
     }
 };
