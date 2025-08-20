@@ -111,6 +111,7 @@ double GetTimestamp() {
 }
 
 // Класс для захвата экрана через DXGI
+// Класс для захвата экрана через DXGI
 class DXGIScreenCapture {
 private:
     ID3D11Device* device = nullptr;
@@ -192,36 +193,43 @@ public:
     }
     
     void CaptureLoop() {
+        int frameInterval = 1000 / targetFps; // миллисекунды между кадрами
+        
         while (isCapturing) {
-            Sleep(10); // 10ms интервал
+            auto frameStart = std::chrono::high_resolution_clock::now();
             
-            UINT32 packetLength = 0;
-            HRESULT hr = captureClient->GetNextPacketSize(&packetLength);
+            IDXGIResource* desktopResource = nullptr;
+            DXGI_OUTDUPL_FRAME_INFO frameInfo;
             
-            while (packetLength != 0 && isCapturing) {
-                BYTE* data = nullptr;
-                UINT32 numFramesAvailable;
-                DWORD flags;
+            // Получаем следующий кадр (таймаут 100мс)
+            HRESULT hr = duplication->AcquireNextFrame(100, &frameInfo, &desktopResource);
+            
+            if (hr == DXGI_ERROR_WAIT_TIMEOUT) {
+                continue; // Нет новых кадров
+            }
+            
+            if (SUCCEEDED(hr) && desktopResource) {
+                // Конвертируем в текстуру
+                ID3D11Texture2D* texture = nullptr;
+                hr = desktopResource->QueryInterface(__uuidof(ID3D11Texture2D), (void**)&texture);
                 
-                hr = captureClient->GetBuffer(
-                    &data,
-                    &numFramesAvailable,
-                    &flags,
-                    nullptr,
-                    nullptr
-                );
-                
-                if (SUCCEEDED(hr)) {
-                    // Обрабатываем только если не тишина
-                    if (!(flags & AUDCLNT_BUFFERFLAGS_SILENT) && numFramesAvailable > 0) {
-                        ProcessAudioData(data, numFramesAvailable);
-                    }
-                    
-                    captureClient->ReleaseBuffer(numFramesAvailable);
+                if (SUCCEEDED(hr) && texture) {
+                    ProcessFrame(texture);
+                    texture->Release();
                 }
                 
-                hr = captureClient->GetNextPacketSize(&packetLength);
-                if (FAILED(hr)) break;
+                desktopResource->Release();
+                duplication->ReleaseFrame();
+            } else if (hr == DXGI_ERROR_ACCESS_LOST) {
+                // Нужно переинициализировать дупликацию
+                break;
+            }
+            
+            // Контроль FPS
+            auto frameEnd = std::chrono::high_resolution_clock::now();
+            auto frameDuration = std::chrono::duration_cast<std::chrono::milliseconds>(frameEnd - frameStart).count();
+            if (frameDuration < frameInterval) {
+                Sleep(frameInterval - frameDuration);
             }
         }
     }
@@ -258,7 +266,7 @@ public:
             
             // Масштабируем если нужно
             if (desc.Width != targetWidth || desc.Height != targetHeight) {
-                // Простое масштабирование (можно улучшить)
+                // Простое масштабирование
                 frameData->dataSize = targetWidth * targetHeight * 4;
                 frameData->data = new uint8_t[frameData->dataSize];
                 
