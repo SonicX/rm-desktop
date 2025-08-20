@@ -43,6 +43,14 @@ const GUID KSDATAFORMAT_SUBTYPE_IEEE_FLOAT = {0x00000003, 0x0000, 0x0010, {0x80,
 const GUID KSDATAFORMAT_SUBTYPE_PCM = {0x00000001, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};
 #endif
 
+#ifndef WAVE_FORMAT_IEEE_FLOAT
+#define WAVE_FORMAT_IEEE_FLOAT 0x0003
+#endif
+
+#ifndef WAVE_FORMAT_EXTENSIBLE
+#define WAVE_FORMAT_EXTENSIBLE 0xFFFE
+#endif
+
 // Глобальные переменные для callbacks
 static napi_threadsafe_function g_video_tsfn = nullptr;
 static napi_threadsafe_function g_audio_tsfn = nullptr;
@@ -180,43 +188,36 @@ public:
     }
     
     void CaptureLoop() {
-        int frameInterval = 1000 / targetFps; // миллисекунды между кадрами
-        
         while (isCapturing) {
-            auto frameStart = std::chrono::high_resolution_clock::now();
+            Sleep(10); // 10ms интервал
             
-            IDXGIResource* desktopResource = nullptr;
-            DXGI_OUTDUPL_FRAME_INFO frameInfo;
+            UINT32 packetLength = 0;
+            HRESULT hr = captureClient->GetNextPacketSize(&packetLength);
             
-            // Получаем следующий кадр (таймаут 100мс)
-            HRESULT hr = duplication->AcquireNextFrame(100, &frameInfo, &desktopResource);
-            
-            if (hr == DXGI_ERROR_WAIT_TIMEOUT) {
-                continue; // Нет новых кадров
-            }
-            
-            if (SUCCEEDED(hr) && desktopResource) {
-                // Конвертируем в текстуру
-                ID3D11Texture2D* texture = nullptr;
-                hr = desktopResource->QueryInterface(__uuidof(ID3D11Texture2D), (void**)&texture);
+            while (packetLength != 0 && isCapturing) {
+                BYTE* data = nullptr;
+                UINT32 numFramesAvailable;
+                DWORD flags;
                 
-                if (SUCCEEDED(hr) && texture) {
-                    ProcessFrame(texture);
-                    texture->Release();
+                hr = captureClient->GetBuffer(
+                    &data,
+                    &numFramesAvailable,
+                    &flags,
+                    nullptr,
+                    nullptr
+                );
+                
+                if (SUCCEEDED(hr)) {
+                    // Обрабатываем только если не тишина
+                    if (!(flags & AUDCLNT_BUFFERFLAGS_SILENT) && numFramesAvailable > 0) {
+                        ProcessAudioData(data, numFramesAvailable);
+                    }
+                    
+                    captureClient->ReleaseBuffer(numFramesAvailable);
                 }
                 
-                desktopResource->Release();
-                duplication->ReleaseFrame();
-            } else if (hr == DXGI_ERROR_ACCESS_LOST) {
-                // Нужно переинициализировать дупликацию
-                break;
-            }
-            
-            // Контроль FPS
-            auto frameEnd = std::chrono::high_resolution_clock::now();
-            auto frameDuration = std::chrono::duration_cast<std::chrono::milliseconds>(frameEnd - frameStart).count();
-            if (frameDuration < frameInterval) {
-                Sleep(frameInterval - frameDuration);
+                hr = captureClient->GetNextPacketSize(&packetLength);
+                if (FAILED(hr)) break;
             }
         }
     }
@@ -556,7 +557,7 @@ public:
         SendToJavaScript(frameData);
     }
     
-    void ProcessAudioData(BYTE* data, UINT32 numFrames, UINT64 qpcPosition) {
+    void ProcessAudioData(BYTE* data, UINT32 numFrames) {
         AudioFrameData* frameData = new AudioFrameData();
         frameData->numSamples = numFrames;
         frameData->sampleRate = waveFormat->nSamplesPerSec;
@@ -567,45 +568,65 @@ public:
         size_t sampleCount = numFrames * waveFormat->nChannels;
         frameData->samples = new float[sampleCount];
         
-        bool converted = false;
-        
-        // ВАЖНО: Правильная обработка WAVEFORMATEXTENSIBLE
-        if (waveFormat->wFormatTag == WAVE_FORMAT_EXTENSIBLE) {
-            WAVEFORMATEXTENSIBLE* wfex = (WAVEFORMATEXTENSIBLE*)waveFormat;
-            
-            // Используем РЕАЛЬНОЕ количество бит, а не wBitsPerSample
-            WORD actualBitsPerSample = wfex->Samples.wValidBitsPerSample;
-            if (actualBitsPerSample == 0) {
-                actualBitsPerSample = wfex->Format.wBitsPerSample;
-            }
-            
-            // Проверяем SubFormat
-            if (memcmp(&wfex->SubFormat, &KSDATAFORMAT_SUBTYPE_IEEE_FLOAT, sizeof(GUID)) == 0) {
-                // Float формат
-                memcpy(frameData->samples, data, sampleCount * sizeof(float));
-                converted = true;
-            } 
-            else if (memcmp(&wfex->SubFormat, &KSDATAFORMAT_SUBTYPE_PCM, sizeof(GUID)) == 0) {
-                // PCM формат - используем actualBitsPerSample!
-                converted = ConvertPCMToFloat(data, frameData->samples, sampleCount, 
-                                            actualBitsPerSample, wfex->Format.wBitsPerSample);
-            }
+        // Логируем формат один раз для отладки
+        static bool formatLogged = false;
+        if (!formatLogged) {
+            char log[256];
+            sprintf_s(log, "Audio Format: Tag=0x%X, Bits=%d, Channels=%d, Rate=%d Hz\n",
+                    waveFormat->wFormatTag, waveFormat->wBitsPerSample,
+                    waveFormat->nChannels, waveFormat->nSamplesPerSec);
+            OutputDebugStringA(log);
+            formatLogged = true;
         }
-        else if (waveFormat->wFormatTag == WAVE_FORMAT_IEEE_FLOAT) {
+        
+        // Для Windows 10/11 с Realtek - это всегда 32-bit float в WAVEFORMATEXTENSIBLE
+        // WAVE_FORMAT_EXTENSIBLE = 0xFFFE
+        if (waveFormat->wFormatTag == WAVE_FORMAT_EXTENSIBLE || 
+            waveFormat->wFormatTag == WAVE_FORMAT_IEEE_FLOAT) {
+            
+            // Данные УЖЕ в формате float - просто копируем!
             memcpy(frameData->samples, data, sampleCount * sizeof(float));
-            converted = true;
-        }
-        else if (waveFormat->wFormatTag == WAVE_FORMAT_PCM) {
-            converted = ConvertPCMToFloat(data, frameData->samples, sampleCount, 
-                                        waveFormat->wBitsPerSample, waveFormat->wBitsPerSample);
+            
+        } else if (waveFormat->wFormatTag == WAVE_FORMAT_PCM) {
+            // Это редкий случай для современных систем
+            if (waveFormat->wBitsPerSample == 16) {
+                INT16* pcmData = (INT16*)data;
+                for (size_t i = 0; i < sampleCount; i++) {
+                    frameData->samples[i] = pcmData[i] / 32768.0f;
+                }
+            } else if (waveFormat->wBitsPerSample == 32) {
+                INT32* pcmData = (INT32*)data;
+                for (size_t i = 0; i < sampleCount; i++) {
+                    frameData->samples[i] = pcmData[i] / 2147483648.0f;
+                }
+            } else {
+                // Неизвестный формат PCM
+                memset(frameData->samples, 0, sampleCount * sizeof(float));
+            }
+        } else {
+            // Неизвестный формат - пробуем как float (лучше чем тишина)
+            memcpy(frameData->samples, data, sampleCount * sizeof(float));
         }
         
-        if (!converted) {
-            // Заполняем тишиной
-            memset(frameData->samples, 0, sampleCount * sizeof(float));
-        }
+        // Увеличиваем счетчик
+        g_audio_frame_count++;
         
-        SendToJavaScript(frameData);
+        // Отправляем в JavaScript
+        if (g_audio_tsfn) {
+            napi_status status = napi_call_threadsafe_function(
+                g_audio_tsfn,
+                frameData,
+                napi_tsfn_blocking
+            );
+            
+            if (status != napi_ok) {
+                delete[] frameData->samples;
+                delete frameData;
+            }
+        } else {
+            delete[] frameData->samples;
+            delete frameData;
+        }
     }
     
     bool ConvertPCMToFloat(BYTE* input, float* output, size_t sampleCount, WORD validBits, WORD containerBits) {
