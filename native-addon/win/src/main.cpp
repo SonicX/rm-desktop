@@ -104,11 +104,8 @@ struct EnumWindowsData {
     std::vector<CaptureSource>* sources;
 };
 
-GetTimestamp() {
-    // БЫЛО: используется std::chrono::high_resolution_clock
-    // ПРОБЛЕМА: не синхронизирован с JavaScript performance.now()
-    
-    // СТАЛО: используем QueryPerformanceCounter для Windows
+double GetTimestamp() {
+    // Ваш код остается без изменений
     #ifdef _WIN32
         static LARGE_INTEGER frequency;
         static LARGE_INTEGER startTime;
@@ -145,9 +142,13 @@ private:
     int targetWidth = 1920;
     int targetHeight = 1080;
     int targetFps = 30;
+    LARGE_INTEGER performanceFrequency;
+    LARGE_INTEGER captureStartTime;
     
 public:
     bool Initialize(int displayId) {
+        QueryPerformanceFrequency(&performanceFrequency);
+        QueryPerformanceCounter(&captureStartTime);
         OutputDebugStringA("DXGIScreenCapture::Initialize starting\n");
         
         // Создаем D3D11 устройство
@@ -213,6 +214,14 @@ public:
         }
         
         return SUCCEEDED(hr);
+    }
+
+    double GetPreciseVideoTimestamp() {
+        LARGE_INTEGER currentTime;
+        QueryPerformanceCounter(&currentTime);
+        
+        double elapsed = (double)(currentTime.QuadPart - captureStartTime.QuadPart);
+        return (elapsed / performanceFrequency.QuadPart) * 1000.0;
     }
     
     void SetQuality(int width, int height, int fps) {
@@ -305,7 +314,7 @@ public:
             VideoFrameData* frameData = new VideoFrameData();
             frameData->width = targetWidth;
             frameData->height = targetHeight;
-            frameData->timestamp = GetTimestamp();
+            frameData->timestamp = GetPreciseVideoTimestamp();
             frameData->hasRealPixels = true;
             
             // Масштабируем если нужно
@@ -398,6 +407,9 @@ private:
     std::atomic<bool> isCapturing{false};
     std::thread captureThread;
     bool isSystemAudio = true;
+    LARGE_INTEGER performanceFrequency;
+    LARGE_INTEGER captureStartTime;
+    bool useHighPrecisionTimer = true;
     
     // Добавляем буфер для накопления семплов
     std::vector<float> accumulationBuffer;
@@ -406,6 +418,10 @@ private:
     
 public:
     bool Initialize(const std::string& sourceType, const std::string& sourceId) {
+
+        QueryPerformanceFrequency(&performanceFrequency);
+        QueryPerformanceCounter(&captureStartTime);
+
         CoInitialize(nullptr);
         
         HRESULT hr = CoCreateInstance(
@@ -466,12 +482,7 @@ public:
                  waveFormat->nChannels, waveFormat->nSamplesPerSec);
         OutputDebugStringA(log);
         
-        // Инициализируем с оптимальным буфером
-        DWORD streamFlags = isSystemAudio ? AUDCLNT_STREAMFLAGS_LOOPBACK : 0;
-        
-        // Используем 20ms буфер для баланса между латентностью и стабильностью
         REFERENCE_TIME hnsRequestedDuration = 100000; // 10ms
-
         DWORD streamFlags = isSystemAudio ? AUDCLNT_STREAMFLAGS_LOOPBACK : 0;
 
         #ifdef AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM
@@ -505,6 +516,20 @@ public:
         }
         
         return SUCCEEDED(hr);
+    }
+
+    double GetPreciseTimestamp() {
+        if (useHighPrecisionTimer) {
+            LARGE_INTEGER currentTime;
+            QueryPerformanceCounter(&currentTime);
+            
+            // Возвращаем время в миллисекундах от начала захвата
+            double elapsed = (double)(currentTime.QuadPart - captureStartTime.QuadPart);
+            return (elapsed / performanceFrequency.QuadPart) * 1000.0;
+        } else {
+            // Fallback на стандартный GetTimestamp
+            return GetTimestamp();
+        }
     }
     
     void StartCapture() {
@@ -608,17 +633,27 @@ public:
         }
         
         // === КРИТИЧНОЕ ИЗМЕНЕНИЕ №2: Добавляем временную метку ===
-        double currentTimestamp = GetTimestamp(); // Используем новый GetTimestamp
+        double currentTimestamp = GetPreciseTimestamp(); // Используем новый GetTimestamp
         
-        // Накапливаем в буфер
+        // Добавляем в буфер с точной меткой времени
         {
             std::lock_guard<std::mutex> lock(bufferMutex);
+            
+            // Сохраняем timestamp для каждого пакета
+            AudioPacketInfo packetInfo;
+            packetInfo.timestamp = preciseTimestamp;
+            packetInfo.samples = samples;
+            packetInfo.numFrames = numFrames;
+            
+            audioPacketQueue.push_back(packetInfo);
+            
+            // Копируем samples в accumulation buffer
             accumulationBuffer.insert(accumulationBuffer.end(), 
                                     samples.begin(), samples.end());
         }
         
         // === КРИТИЧНОЕ ИЗМЕНЕНИЕ №3: Передаем timestamp в SendBufferedFrames ===
-        SendBufferedFrames(currentTimestamp);
+        SendBufferedFrames(preciseTimestamp);
     }
 
     void ConvertPCMToFloat(BYTE* pcmData, float* output, size_t sampleCount, WORD bitsPerSample) {
@@ -657,9 +692,8 @@ public:
     }
     
     void SendBufferedFrames(double baseTimestamp = -1) {
-        // Если timestamp не передан, используем текущее время
         if (baseTimestamp < 0) {
-            baseTimestamp = GetTimestamp();
+            baseTimestamp = GetPreciseTimestamp();
         }
         
         while (true) {
@@ -675,10 +709,13 @@ public:
             frameData->sampleRate = waveFormat->nSamplesPerSec;
             frameData->channels = waveFormat->nChannels;
             
-            // === КРИТИЧНОЕ ИЗМЕНЕНИЕ: Точная временная метка для каждого фрейма ===
-            // Вычисляем offset на основе позиции в буфере
-            double sampleOffset = (frameData->numSamples * 1000.0) / waveFormat->nSamplesPerSec;
-            frameData->timestamp = baseTimestamp + sampleOffset;
+            // ВАЖНО: Точный расчет timestamp для каждого фрейма
+            // Учитываем продолжительность предыдущих фреймов
+            double frameDurationMs = (TARGET_FRAME_SIZE * 1000.0) / waveFormat->nSamplesPerSec;
+            frameData->timestamp = baseTimestamp;
+            
+            // Обновляем baseTimestamp для следующего фрейма
+            baseTimestamp += frameDurationMs;
             
             frameData->isSystemAudio = isSystemAudio;
             
@@ -694,13 +731,7 @@ public:
             
             lock.unlock();
             
-            // === КРИТИЧНОЕ ИЗМЕНЕНИЕ: НЕ применяем сглаживание для Windows ===
-            // ApplySmoothFilter создает задержку и искажения
-            // Закомментировать или сделать условным:
-            #ifndef _WIN32
-                ApplySmoothFilter(frameData->samples, frameSampleCount, waveFormat->nChannels);
-            #endif
-            
+            // Отправляем с точным timestamp
             g_audio_frame_count++;
             
             if (g_audio_tsfn) {
@@ -766,6 +797,15 @@ public:
         if (waveFormat) CoTaskMemFree(waveFormat);
         CoUninitialize();
     }
+private:
+    // Структура для хранения информации о пакете
+    struct AudioPacketInfo {
+        double timestamp;
+        std::vector<float> samples;
+        UINT32 numFrames;
+    };
+    
+    std::vector<AudioPacketInfo> audioPacketQueue;
 };
 
 // Глобальные экземпляры захвата
