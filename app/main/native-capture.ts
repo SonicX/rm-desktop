@@ -28,6 +28,14 @@ export interface CapturePreset {
     description: string;
 }
 
+interface AudioPacket {
+    data: Float32Array;
+    timestamp: number;      // Временная метка в миллисекундах
+    sampleRate: number;
+    channels: number;
+    numSamples: number;
+}
+
 // Предустановленные настройки качества
 export const CAPTURE_PRESETS: { [key: string]: CapturePreset } = {
     ULTRALOW: {
@@ -73,6 +81,9 @@ export class NativeCaptureManager {
     private addonType: 'mac-swift' | 'windows-cpp' | 'unknown' = 'unknown';
     private debugCallback?: (packetInfo: any) => void; // 🆕
 
+    private useWindowsSync: boolean = false;
+    private windowsSyncBuffer?: AudioSyncBuffer;
+
     // 🆕 НОВЫЙ МЕТОД - установка debug callback
     setDebugCallback(callback: (packetInfo: any) => void): void {
         this.debugCallback = callback;
@@ -106,11 +117,17 @@ export class NativeCaptureManager {
           audioFrameCount: 0,
           callbacks: {}
       };
-
-      if (!addon) {
-          this.loadAddon(); // Загружаем только если не передан
-      }
-      this.registerHandlers();
+        if (!addon) {
+            this.loadAddon(); // Загружаем только если не передан
+        }
+        this.registerHandlers();
+        if (this.addonType === 'windows-cpp' && process.platform === 'win32') {
+                this.useWindowsSync = true;
+                this.windowsSyncBuffer = new AudioSyncBuffer(48000);
+                log.info("[NATIVE-CAPTURE] Windows sync mode ENABLED");
+        } else {
+                log.info("[NATIVE-CAPTURE] Using standard mode (macOS or other)");
+        }
     }
 
     async startAudioOnlyCapture(sourceId: string): Promise<{ success: boolean; error?: string }> {
@@ -882,40 +899,94 @@ export class NativeCaptureManager {
         // Аудио колбэк - аналогично упрощаем
         this.state.addon.setWebRTCAudioCallback((audioData: any) => {
             this.state.audioFrameCount++;
-            
+
             if (this.state.audioFrameCount === 1) {
-                log.info("First audio frame:", {
-                    hasData: !!audioData?.data,
-                    dataByteLength: audioData?.data?.byteLength,
-                    sampleRate: audioData?.sampleRate,
-                    channels: audioData?.channels,
-                    source: audioData?.source
+                    log.info("First audio frame:", {
+                        hasData: !!audioData?.data,
+                        dataByteLength: audioData?.data?.byteLength,
+                        sampleRate: audioData?.sampleRate,
+                        channels: audioData?.channels,
+                        source: audioData?.source
                 });
             }
-            
-            // Передаем ArrayBuffer напрямую
-            if (audioData && audioData.data && audioData.data.byteLength > 0) {
-                if (this.state.callbacks.audio) {
-                    this.state.callbacks.audio({
-                        data: audioData.data, // ArrayBuffer как есть
-                        sampleRate: audioData?.sampleRate || 48000,
-                        channels: audioData?.channels || 2,
-                        numSamples: audioData?.numSamples || 960,
-                        source: audioData?.source || 'unknown'
-                    });
-                    
-                    if (this.state.audioFrameCount === 1) {
-                        log.info("✅ First audio frame sent to callback");
-                    }
-                }
-            }
 
+            if (this.useWindowsSync && this.windowsSyncBuffer) {
+                this.processWindowsAudioWithSync(audioData);
+            } else {
+                this.processStandardAudio(audioData);
+            }
             if (this.state.audioFrameCount % 100 === 0) {
                 log.info(`Audio frames: ${this.state.audioFrameCount}`);
             }
+            
         });
         
         log.info("Native capture callbacks setup complete");
+    }
+
+    private processStandardAudio(audioData: any): void {
+        // Передаем ArrayBuffer напрямую
+        if (audioData && audioData.data && audioData.data.byteLength > 0) {
+            if (this.state.callbacks.audio) {
+                this.state.callbacks.audio({
+                    data: audioData.data, // ArrayBuffer как есть
+                    sampleRate: audioData?.sampleRate || 48000,
+                    channels: audioData?.channels || 2,
+                    numSamples: audioData?.numSamples || 960,
+                    source: audioData?.source || 'unknown'
+                });
+                        
+                if (this.state.audioFrameCount === 1) {
+                    log.info("✅ First audio frame sent to callback");
+                }
+            }
+        }    
+    }
+
+    private processWindowsAudioWithSync(audioData: any): void {
+        if (!this.windowsSyncBuffer) return;
+        
+        try {
+            const arrayBuffer = audioData.data;
+            const samples = audioData.numSamples || 960;
+            const channels = audioData.channels || 2;
+            const timestamp = audioData.timestamp || Date.now();
+            
+            // Windows-специфичная обработка с буферизацией
+            const { leftChannel, rightChannel } = this.decodeAudioData(arrayBuffer, samples, channels);
+            
+            const stereoData = new Float32Array(samples * 2);
+            for (let i = 0; i < samples; i++) {
+                stereoData[i * 2] = leftChannel[i];
+                stereoData[i * 2 + 1] = rightChannel[i];
+            }
+            
+            // Добавляем в синхронизирующий буфер
+            this.windowsSyncBuffer.addPacket({
+                data: stereoData,
+                timestamp: timestamp,
+                sampleRate: audioData.sampleRate || 48000,
+                channels: channels,
+                numSamples: samples
+            });
+            
+            // Отправляем с коррекцией тайминга
+            if (this.state.callbacks.audio) {
+                this.state.callbacks.audio({
+                    data: audioData.data,
+                    sampleRate: audioData.sampleRate || 48000,
+                    channels: channels,
+                    numSamples: samples,
+                    source: audioData.source || 'unknown',
+                    syncTimestamp: timestamp // Добавляем метку для Windows
+                });
+            }
+            
+        } catch (error: any) {
+            log.error(`[WINDOWS-SYNC] Error: ${error.message}`);
+            // Fallback на стандартную обработку
+            this.processStandardAudio(audioData);
+        }
     }
 
     // Установка внешних колбэков для обработки фреймов
@@ -1095,6 +1166,90 @@ export class NativeCaptureManager {
         
         // Запускаем с новым качеством
         return this.startCaptureWithQuality(currentSourceId, quality);
+    }
+}
+
+class AudioSyncBuffer {
+    private packets: AudioPacket[] = [];
+    private baseTimestamp: number = 0;
+    private audioTimestamp: number = 0;
+    private readonly maxBufferMs = 100; // Максимальная буферизация
+    private readonly targetLatencyMs = 20; // Целевая задержка
+    
+    constructor(private sampleRate: number = 48000) {}
+    
+    reset(): void {
+        this.packets = [];
+        this.baseTimestamp = 0;
+        this.audioTimestamp = 0;
+    }
+    
+    addPacket(packet: AudioPacket): void {
+        if (this.baseTimestamp === 0) {
+            this.baseTimestamp = packet.timestamp;
+            this.audioTimestamp = 0;
+        }
+        
+        // Вычисляем относительную временную метку
+        const relativeTimestamp = packet.timestamp - this.baseTimestamp;
+        
+        // Добавляем пакет с корректной меткой
+        this.packets.push({
+            ...packet,
+            timestamp: relativeTimestamp
+        });
+        
+        // Очищаем старые пакеты
+        this.cleanOldPackets();
+    }
+    
+    private cleanOldPackets(): void {
+        if (this.packets.length === 0) return;
+        
+        const now = this.packets[this.packets.length - 1].timestamp;
+        const cutoff = now - this.maxBufferMs;
+        
+        this.packets = this.packets.filter(p => p.timestamp > cutoff);
+    }
+    
+    getAudioForTimestamp(videoTimestamp: number): Float32Array | null {
+        if (this.packets.length === 0) return null;
+        
+        // Ищем подходящий аудио пакет для текущего видео кадра
+        const targetTime = videoTimestamp + this.targetLatencyMs;
+        
+        // Находим ближайший пакет
+        let bestPacket: AudioPacket | null = null;
+        let minDiff = Infinity;
+        
+        for (const packet of this.packets) {
+            const diff = Math.abs(packet.timestamp - targetTime);
+            if (diff < minDiff) {
+                minDiff = diff;
+                bestPacket = packet;
+            }
+        }
+        
+        // Если разница слишком большая, возвращаем тишину
+        if (minDiff > 50) { // 50ms максимальное расхождение
+            return null;
+        }
+        
+        return bestPacket?.data || null;
+    }
+    
+    getBufferStatus(): { packets: number; latencyMs: number } {
+        if (this.packets.length === 0) {
+            return { packets: 0, latencyMs: 0 };
+        }
+        
+        const first = this.packets[0].timestamp;
+        const last = this.packets[this.packets.length - 1].timestamp;
+        
+        return {
+            packets: this.packets.length,
+            latencyMs: last - first
+        };
     }
 }
 
