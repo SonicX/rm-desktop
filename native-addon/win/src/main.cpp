@@ -641,7 +641,7 @@ public:
             
             // Сохраняем timestamp для каждого пакета
             AudioPacketInfo packetInfo;
-            packetInfo.timestamp = preciseTimestamp;
+            packetInfo.timestamp = currentTimestamp;
             packetInfo.samples = samples;
             packetInfo.numFrames = numFrames;
             
@@ -653,7 +653,7 @@ public:
         }
         
         // === КРИТИЧНОЕ ИЗМЕНЕНИЕ №3: Передаем timestamp в SendBufferedFrames ===
-        SendBufferedFrames(preciseTimestamp);
+        SendBufferedFrames(currentTimestamp);
     }
 
     void ConvertPCMToFloat(BYTE* pcmData, float* output, size_t sampleCount, WORD bitsPerSample) {
