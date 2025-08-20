@@ -112,7 +112,6 @@ double GetTimestamp() {
 }
 
 // Класс для захвата экрана через DXGI
-// Класс для захвата экрана через DXGI
 class DXGIScreenCapture {
 private:
     ID3D11Device* device = nullptr;
@@ -126,6 +125,8 @@ private:
     
 public:
     bool Initialize(int displayId) {
+        OutputDebugStringA("DXGIScreenCapture::Initialize starting\n");
+        
         // Создаем D3D11 устройство
         D3D_FEATURE_LEVEL featureLevels[] = {
             D3D_FEATURE_LEVEL_11_0,
@@ -148,6 +149,9 @@ public:
         );
         
         if (FAILED(hr)) {
+            char log[128];
+            sprintf_s(log, "D3D11CreateDevice failed: 0x%08X\n", hr);
+            OutputDebugStringA(log);
             return false;
         }
         
@@ -177,6 +181,14 @@ public:
         hr = output1->DuplicateOutput(device, &duplication);
         output1->Release();
         
+        if (SUCCEEDED(hr)) {
+            OutputDebugStringA("DXGIScreenCapture::Initialize SUCCESS\n");
+        } else {
+            char log[128];
+            sprintf_s(log, "DXGIScreenCapture::Initialize FAILED: 0x%08X\n", hr);
+            OutputDebugStringA(log);
+        }
+        
         return SUCCEEDED(hr);
     }
     
@@ -194,50 +206,56 @@ public:
     }
     
     void CaptureLoop() {
-        SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
+        int frameInterval = 1000 / targetFps; // миллисекунды между кадрами
         
         while (isCapturing) {
-            UINT32 packetLength = 0;
-            HRESULT hr = captureClient->GetNextPacketSize(&packetLength);
+            auto frameStart = std::chrono::high_resolution_clock::now();
             
-            if (packetLength > 0) {
-                BYTE* data = nullptr;
-                UINT32 numFramesAvailable;
-                DWORD flags;
+            IDXGIResource* desktopResource = nullptr;
+            DXGI_OUTDUPL_FRAME_INFO frameInfo;
+            
+            // Получаем следующий кадр (таймаут 100мс)
+            HRESULT hr = duplication->AcquireNextFrame(100, &frameInfo, &desktopResource);
+            
+            if (hr == DXGI_ERROR_WAIT_TIMEOUT) {
+                continue; // Нет новых кадров
+            }
+            
+            if (SUCCEEDED(hr) && desktopResource) {
+                // Конвертируем в текстуру
+                ID3D11Texture2D* texture = nullptr;
+                hr = desktopResource->QueryInterface(__uuidof(ID3D11Texture2D), (void**)&texture);
                 
-                hr = captureClient->GetBuffer(
-                    &data,
-                    &numFramesAvailable,
-                    &flags,
-                    nullptr,
-                    nullptr
-                );
-                
-                if (SUCCEEDED(hr)) {
-                    if (!(flags & AUDCLNT_BUFFERFLAGS_SILENT)) {
-                        ProcessAudioData(data, numFramesAvailable);
-                    } else {
-                        // Отправляем тишину для сохранения синхронизации
-                        ProcessSilence(numFramesAvailable);
-                    }
-                    
-                    captureClient->ReleaseBuffer(numFramesAvailable);
+                if (SUCCEEDED(hr) && texture) {
+                    ProcessFrame(texture);
+                    texture->Release();
                 }
-            } else {
-                // Спим точно 5ms для стабильного потока
-                Sleep(5);
+                
+                desktopResource->Release();
+                duplication->ReleaseFrame();
+            } else if (hr == DXGI_ERROR_ACCESS_LOST) {
+                // Нужно переинициализировать дупликацию
+                OutputDebugStringA("DXGI_ERROR_ACCESS_LOST - need to reinitialize\n");
+                break;
+            }
+            
+            // Контроль FPS
+            auto frameEnd = std::chrono::high_resolution_clock::now();
+            auto frameDuration = std::chrono::duration_cast<std::chrono::milliseconds>(frameEnd - frameStart).count();
+            if (frameDuration < frameInterval) {
+                Sleep(frameInterval - frameDuration);
             }
         }
     }
-
-    void ProcessSilence(UINT32 numFrames) {
-        // Создаем пакет с тишиной
-        size_t sampleCount = numFrames * waveFormat->nChannels;
-        std::vector<BYTE> silence(sampleCount * sizeof(float), 0);
-        ProcessAudioData(silence.data(), numFrames);
-    }
-
+    
     void ProcessFrame(ID3D11Texture2D* texture) {
+        static int frameCount = 0;
+        if (++frameCount % 30 == 0) { // Каждые 30 кадров
+            char log[128];
+            sprintf_s(log, "ProcessFrame: frame %d\n", frameCount);
+            OutputDebugStringA(log);
+        }
+        
         D3D11_TEXTURE2D_DESC desc;
         texture->GetDesc(&desc);
         
