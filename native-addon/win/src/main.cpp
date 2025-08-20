@@ -194,47 +194,49 @@ public:
     }
     
     void CaptureLoop() {
-        int frameInterval = 1000 / targetFps; // миллисекунды между кадрами
+        SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
         
         while (isCapturing) {
-            auto frameStart = std::chrono::high_resolution_clock::now();
+            UINT32 packetLength = 0;
+            HRESULT hr = captureClient->GetNextPacketSize(&packetLength);
             
-            IDXGIResource* desktopResource = nullptr;
-            DXGI_OUTDUPL_FRAME_INFO frameInfo;
-            
-            // Получаем следующий кадр (таймаут 100мс)
-            HRESULT hr = duplication->AcquireNextFrame(100, &frameInfo, &desktopResource);
-            
-            if (hr == DXGI_ERROR_WAIT_TIMEOUT) {
-                continue; // Нет новых кадров
-            }
-            
-            if (SUCCEEDED(hr) && desktopResource) {
-                // Конвертируем в текстуру
-                ID3D11Texture2D* texture = nullptr;
-                hr = desktopResource->QueryInterface(__uuidof(ID3D11Texture2D), (void**)&texture);
+            if (packetLength > 0) {
+                BYTE* data = nullptr;
+                UINT32 numFramesAvailable;
+                DWORD flags;
                 
-                if (SUCCEEDED(hr) && texture) {
-                    ProcessFrame(texture);
-                    texture->Release();
+                hr = captureClient->GetBuffer(
+                    &data,
+                    &numFramesAvailable,
+                    &flags,
+                    nullptr,
+                    nullptr
+                );
+                
+                if (SUCCEEDED(hr)) {
+                    if (!(flags & AUDCLNT_BUFFERFLAGS_SILENT)) {
+                        ProcessAudioData(data, numFramesAvailable);
+                    } else {
+                        // Отправляем тишину для сохранения синхронизации
+                        ProcessSilence(numFramesAvailable);
+                    }
+                    
+                    captureClient->ReleaseBuffer(numFramesAvailable);
                 }
-                
-                desktopResource->Release();
-                duplication->ReleaseFrame();
-            } else if (hr == DXGI_ERROR_ACCESS_LOST) {
-                // Нужно переинициализировать дупликацию
-                break;
-            }
-            
-            // Контроль FPS
-            auto frameEnd = std::chrono::high_resolution_clock::now();
-            auto frameDuration = std::chrono::duration_cast<std::chrono::milliseconds>(frameEnd - frameStart).count();
-            if (frameDuration < frameInterval) {
-                Sleep(frameInterval - frameDuration);
+            } else {
+                // Спим точно 5ms для стабильного потока
+                Sleep(5);
             }
         }
     }
-    
+
+    void ProcessSilence(UINT32 numFrames) {
+        // Создаем пакет с тишиной
+        size_t sampleCount = numFrames * waveFormat->nChannels;
+        std::vector<BYTE> silence(sampleCount * sizeof(float), 0);
+        ProcessAudioData(silence.data(), numFrames);
+    }
+
     void ProcessFrame(ID3D11Texture2D* texture) {
         D3D11_TEXTURE2D_DESC desc;
         texture->GetDesc(&desc);
@@ -356,11 +358,15 @@ private:
     std::thread captureThread;
     bool isSystemAudio = true;
     
+    // Добавляем буфер для накопления семплов
+    std::vector<float> accumulationBuffer;
+    std::mutex bufferMutex;
+    const int TARGET_FRAME_SIZE = 480; // 10ms при 48kHz для стабильности
+    
 public:
     bool Initialize(const std::string& sourceType, const std::string& sourceId) {
         CoInitialize(nullptr);
-        REFERENCE_TIME hnsRequestedDuration = 100000; // 10ms вместо 1 секунды
-
+        
         HRESULT hr = CoCreateInstance(
             __uuidof(MMDeviceEnumerator),
             nullptr,
@@ -412,25 +418,43 @@ public:
         hr = audioClient->GetMixFormat(&waveFormat);
         if (FAILED(hr)) return false;
         
-        // Инициализируем
+        // Логируем формат
+        char log[256];
+        sprintf_s(log, "WASAPI Format: Tag=0x%X, Bits=%d, Channels=%d, Rate=%d Hz\n",
+                 waveFormat->wFormatTag, waveFormat->wBitsPerSample,
+                 waveFormat->nChannels, waveFormat->nSamplesPerSec);
+        OutputDebugStringA(log);
+        
+        // Инициализируем с оптимальным буфером
         DWORD streamFlags = isSystemAudio ? AUDCLNT_STREAMFLAGS_LOOPBACK : 0;
+        
+        // Используем 20ms буфер для баланса между латентностью и стабильностью
+        REFERENCE_TIME hnsRequestedDuration = 200000; // 20ms
         
         hr = audioClient->Initialize(
             AUDCLNT_SHAREMODE_SHARED,
             streamFlags,
-            hnsRequestedDuration,  // 10ms буфер
+            hnsRequestedDuration,
             0,
             waveFormat,
             nullptr
         );
         
-        if (FAILED(hr)) return false;
+        if (FAILED(hr)) {
+            sprintf_s(log, "WASAPI Initialize failed: 0x%08X\n", hr);
+            OutputDebugStringA(log);
+            return false;
+        }
         
         // Получаем capture client
         hr = audioClient->GetService(
             __uuidof(IAudioCaptureClient),
             (void**)&captureClient
         );
+        
+        if (SUCCEEDED(hr)) {
+            OutputDebugStringA("WASAPI Audio capture initialized successfully\n");
+        }
         
         return SUCCEEDED(hr);
     }
@@ -439,25 +463,30 @@ public:
         if (!audioClient) return;
         
         isCapturing = true;
+        
+        // Очищаем буфер перед началом
+        {
+            std::lock_guard<std::mutex> lock(bufferMutex);
+            accumulationBuffer.clear();
+            accumulationBuffer.reserve(96000); // Резервируем место для 1 секунды
+        }
+        
         HRESULT hr = audioClient->Start();
         
         if (SUCCEEDED(hr)) {
             captureThread = std::thread([this]() {
+                // Устанавливаем COM для этого потока
+                CoInitialize(nullptr);
                 CaptureLoop();
+                CoUninitialize();
             });
+            OutputDebugStringA("WASAPI Audio capture started\n");
         }
     }
     
     void CaptureLoop() {
-        // Устанавливаем приоритет потока
+        // Устанавливаем высокий приоритет потока
         SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
-        
-        // Для точного тайминга
-        LARGE_INTEGER frequency, lastTime, currentTime;
-        QueryPerformanceFrequency(&frequency);
-        QueryPerformanceCounter(&lastTime);
-        
-        const int TARGET_INTERVAL_MS = 10;
         
         while (isCapturing) {
             UINT32 packetLength = 0;
@@ -479,134 +508,161 @@ public:
                 if (SUCCEEDED(hr)) {
                     if (!(flags & AUDCLNT_BUFFERFLAGS_SILENT) && numFramesAvailable > 0) {
                         ProcessAudioData(data, numFramesAvailable);
+                    } else if (flags & AUDCLNT_BUFFERFLAGS_SILENT) {
+                        // Отправляем тишину для поддержания потока
+                        ProcessSilence(numFramesAvailable);
                     }
                     
                     captureClient->ReleaseBuffer(numFramesAvailable);
                 }
             } else {
-                // Если нет данных, ждем точно TARGET_INTERVAL_MS
-                QueryPerformanceCounter(&currentTime);
-                double elapsed = (double)(currentTime.QuadPart - lastTime.QuadPart) / frequency.QuadPart * 1000.0;
-                
-                if (elapsed < TARGET_INTERVAL_MS) {
-                    Sleep((DWORD)(TARGET_INTERVAL_MS - elapsed));
-                }
-                
-                QueryPerformanceCounter(&lastTime);
+                // Короткий сон для экономии CPU
+                Sleep(5);
             }
         }
     }
     
     void ProcessAudioData(BYTE* data, UINT32 numFrames) {
-        AudioFrameData* frameData = new AudioFrameData();
-        frameData->numSamples = numFrames;
-        frameData->sampleRate = waveFormat->nSamplesPerSec;
-        frameData->channels = waveFormat->nChannels;
-        frameData->timestamp = GetTimestamp();
-        frameData->isSystemAudio = isSystemAudio;
-        
         size_t sampleCount = numFrames * waveFormat->nChannels;
-        frameData->samples = new float[sampleCount];
+        std::vector<float> samples(sampleCount);
         
-        // Логируем формат один раз
-        static bool formatLogged = false;
-        if (!formatLogged) {
-            char log[256];
-            sprintf_s(log, "Audio: Format=0x%X, Bits=%d, Ch=%d, Rate=%d Hz, BlockAlign=%d\n",
-                    waveFormat->wFormatTag, waveFormat->wBitsPerSample,
-                    waveFormat->nChannels, waveFormat->nSamplesPerSec, 
-                    waveFormat->nBlockAlign);
-            OutputDebugStringA(log);
-            formatLogged = true;
-        }
-        
-        // Копируем данные как float
+        // Конвертируем в float
         if (waveFormat->wFormatTag == WAVE_FORMAT_EXTENSIBLE || 
             waveFormat->wFormatTag == WAVE_FORMAT_IEEE_FLOAT ||
             waveFormat->wBitsPerSample == 32) {
             
-            // Прямое копирование float
+            // Прямое копирование float с проверкой
             float* srcFloat = (float*)data;
-            
-            // ВАЖНО: Проверяем и нормализуем значения
             for (size_t i = 0; i < sampleCount; i++) {
                 float sample = srcFloat[i];
                 
-                // Ограничиваем диапазон [-1, 1]
-                if (sample > 1.0f) sample = 1.0f;
-                else if (sample < -1.0f) sample = -1.0f;
+                // Нормализация и проверка
+                if (!isfinite(sample)) {
+                    sample = 0.0f;
+                } else if (sample > 1.0f) {
+                    sample = 1.0f;
+                } else if (sample < -1.0f) {
+                    sample = -1.0f;
+                }
                 
-                // Проверяем на NaN и Inf
-                if (!isfinite(sample)) sample = 0.0f;
-                
-                frameData->samples[i] = sample;
+                samples[i] = sample;
             }
             
         } else if (waveFormat->wFormatTag == WAVE_FORMAT_PCM) {
             if (waveFormat->wBitsPerSample == 16) {
                 INT16* pcmData = (INT16*)data;
                 for (size_t i = 0; i < sampleCount; i++) {
-                    frameData->samples[i] = pcmData[i] / 32768.0f;
+                    samples[i] = pcmData[i] / 32768.0f;
                 }
             } else if (waveFormat->wBitsPerSample == 24) {
                 for (size_t i = 0; i < sampleCount; i++) {
                     BYTE* samplePtr = data + (i * 3);
                     INT32 sample = (samplePtr[0] | (samplePtr[1] << 8) | (samplePtr[2] << 16));
                     if (sample & 0x800000) sample |= 0xFF000000;
-                    frameData->samples[i] = sample / 8388608.0f;
+                    samples[i] = sample / 8388608.0f;
                 }
             }
         } else {
-            // По умолчанию копируем как float с проверкой
-            float* srcFloat = (float*)data;
-            for (size_t i = 0; i < sampleCount; i++) {
-                float sample = srcFloat[i];
-                if (!isfinite(sample) || fabs(sample) > 10.0f) {
-                    sample = 0.0f;
-                }
-                frameData->samples[i] = sample;
-            }
+            // Заполняем тишиной если формат неизвестен
+            std::fill(samples.begin(), samples.end(), 0.0f);
         }
         
-        // Применяем легкую фильтрацию для уменьшения артефактов
-        ApplySmoothFilter(frameData->samples, sampleCount, waveFormat->nChannels);
+        // Накапливаем в буфер
+        {
+            std::lock_guard<std::mutex> lock(bufferMutex);
+            accumulationBuffer.insert(accumulationBuffer.end(), 
+                                     samples.begin(), samples.end());
+        }
         
-        g_audio_frame_count++;
+        // Отправляем пакетами фиксированного размера
+        SendBufferedFrames();
+    }
+    
+    void ProcessSilence(UINT32 numFrames) {
+        size_t sampleCount = numFrames * waveFormat->nChannels;
+        std::vector<float> silence(sampleCount, 0.0f);
         
-        if (g_audio_tsfn) {
-            napi_status status = napi_call_threadsafe_function(
-                g_audio_tsfn,
-                frameData,
-                napi_tsfn_blocking
-            );
+        // Добавляем тишину в буфер
+        {
+            std::lock_guard<std::mutex> lock(bufferMutex);
+            accumulationBuffer.insert(accumulationBuffer.end(), 
+                                     silence.begin(), silence.end());
+        }
+        
+        SendBufferedFrames();
+    }
+    
+    void SendBufferedFrames() {
+        while (true) {
+            std::unique_lock<std::mutex> lock(bufferMutex);
             
-            if (status != napi_ok) {
+            // Проверяем, достаточно ли данных
+            size_t samplesPerChannel = accumulationBuffer.size() / waveFormat->nChannels;
+            if (samplesPerChannel < TARGET_FRAME_SIZE) {
+                break; // Недостаточно данных
+            }
+            
+            // Создаем frame фиксированного размера
+            AudioFrameData* frameData = new AudioFrameData();
+            frameData->numSamples = TARGET_FRAME_SIZE;
+            frameData->sampleRate = waveFormat->nSamplesPerSec;
+            frameData->channels = waveFormat->nChannels;
+            frameData->timestamp = GetTimestamp();
+            frameData->isSystemAudio = isSystemAudio;
+            
+            size_t frameSampleCount = TARGET_FRAME_SIZE * waveFormat->nChannels;
+            frameData->samples = new float[frameSampleCount];
+            
+            // Копируем данные из буфера
+            std::copy(accumulationBuffer.begin(), 
+                     accumulationBuffer.begin() + frameSampleCount,
+                     frameData->samples);
+            
+            // Удаляем скопированные данные из буфера
+            accumulationBuffer.erase(accumulationBuffer.begin(), 
+                                   accumulationBuffer.begin() + frameSampleCount);
+            
+            lock.unlock(); // Освобождаем мьютекс перед отправкой
+            
+            // Применяем легкое сглаживание
+            ApplySmoothFilter(frameData->samples, frameSampleCount, waveFormat->nChannels);
+            
+            // Увеличиваем счетчик
+            g_audio_frame_count++;
+            
+            // Логирование для отладки
+            static int packetCount = 0;
+            if (++packetCount % 100 == 0) {
+                char log[256];
+                sprintf_s(log, "Audio: Sent packet %d, buffer size: %zu samples\n", 
+                         packetCount, accumulationBuffer.size());
+                OutputDebugStringA(log);
+            }
+            
+            // Отправляем в JavaScript
+            if (g_audio_tsfn) {
+                napi_status status = napi_call_threadsafe_function(
+                    g_audio_tsfn,
+                    frameData,
+                    napi_tsfn_nonblocking // Используем non-blocking для избежания задержек
+                );
+                
+                if (status != napi_ok) {
+                    delete[] frameData->samples;
+                    delete frameData;
+                    break;
+                }
+            } else {
                 delete[] frameData->samples;
                 delete frameData;
             }
-        } else {
-            delete[] frameData->samples;
-            delete frameData;
-        }
-
-        static int audioPacketCount = 0;
-        static double lastTimestamp = 0;
-
-        if (++audioPacketCount % 100 == 0) {
-            double timeDiff = frameData->timestamp - lastTimestamp;
-            char log[256];
-            sprintf_s(log, "Audio: Packet %d, TimeDiff=%.3f, Samples=%d\n", 
-                    audioPacketCount, timeDiff, numFrames);
-            OutputDebugStringA(log);
-            lastTimestamp = frameData->timestamp;
         }
     }
-
-    // Добавьте этот метод в класс WASAPIAudioCapture
+    
     void ApplySmoothFilter(float* samples, size_t sampleCount, int channels) {
-        // Применяем простой low-pass фильтр для каждого канала
+        // Очень легкий фильтр для уменьшения щелчков
         static std::vector<float> prevSample(channels, 0.0f);
-        const float alpha = 0.95f; // Коэффициент фильтрации
+        const float alpha = 0.98f; // Меньше фильтрации для сохранения качества
         
         for (int ch = 0; ch < channels; ch++) {
             for (size_t i = ch; i < sampleCount; i += channels) {
@@ -628,6 +684,14 @@ public:
         if (captureThread.joinable()) {
             captureThread.join();
         }
+        
+        // Очищаем буфер
+        {
+            std::lock_guard<std::mutex> lock(bufferMutex);
+            accumulationBuffer.clear();
+        }
+        
+        OutputDebugStringA("WASAPI Audio capture stopped\n");
     }
     
     ~WASAPIAudioCapture() {
@@ -949,7 +1013,9 @@ napi_value StartCapture(napi_env env, napi_callback_info info) {
     bool audioStarted = false;
     
     // Запускаем видео захват
-    if (g_currentSource.type == "screen" || g_currentSource.type == "display") {
+    if (g_currentSource.type == "screen" || 
+        g_currentSource.type == "display" || 
+        g_currentSource.type == "window") {
         int displayId = 0;
         try {
             displayId = std::stoi(g_currentSource.id);
@@ -961,7 +1027,7 @@ napi_value StartCapture(napi_env env, napi_callback_info info) {
         if (g_screenCapture->Initialize(displayId)) {
             // Применяем настройки качества
             std::lock_guard<std::mutex> lock(g_quality.mutex);
-            g_screenCapture->SetQuality(g_quality.width, g_quality.height, g_quality.fps);
+            g_screenCapture->SetQuality(1, 1, 1);
             
             g_screenCapture->StartCapture();
             videoStarted = true;
