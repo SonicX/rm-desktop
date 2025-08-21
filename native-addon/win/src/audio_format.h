@@ -27,3 +27,24 @@ const GUID KSDATAFORMAT_SUBTYPE_PCM =
 inline bool CompareGUIDs(const GUID& guid1, const GUID& guid2) {
     return memcmp(&guid1, &guid2, sizeof(GUID)) == 0;
 }
+
+#ifndef WAVE_FORMAT_IEEE_FLOAT
+#define WAVE_FORMAT_IEEE_FLOAT 0x0003
+#endif
+
+#ifndef WAVE_FORMAT_EXTENSIBLE
+#define WAVE_FORMAT_EXTENSIBLE 0xFFFE
+#endif
+
+#ifndef WAVE_FORMAT_PCM
+#define WAVE_FORMAT_PCM 0x0001
+#endif
+
+// Флаги для AUDCLNT
+#ifndef AUDCLNT_STREAMFLAGS_LOOPBACK
+#define AUDCLNT_STREAMFLAGS_LOOPBACK 0x00020000
+#endif
+
+#ifndef AUDCLNT_BUFFERFLAGS_SILENT
+#define AUDCLNT_BUFFERFLAGS_SILENT 0x00000002
+#endif

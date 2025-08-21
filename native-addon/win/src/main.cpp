@@ -5,6 +5,7 @@
 #include <audioclient.h>
 #include <mmdeviceapi.h>
 #include <endpointvolume.h>
+#include <audiopolicy.h>
 #include <thread>
 #include <atomic>
 #include <vector>
@@ -19,7 +20,6 @@
 #include <cstring>
 #include <cmath>
 
-
 #include <ks.h>
 #include <ksmedia.h>
 #include <functiondiscoverykeys_devpkey.h>
@@ -27,7 +27,6 @@
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")
 #pragma comment(lib, "ole32.lib")
-
 #pragma comment(lib, "dwmapi.lib")
 #pragma comment(lib, "psapi.lib")
 
@@ -80,11 +79,12 @@ struct AudioFrameData {
     int channels;
     double timestamp;
     bool isSystemAudio;
+    std::string applicationName;
 };
 
 // Структура для хранения информации об источнике
 struct CaptureSource {
-    std::string type;  // "display", "window", "application"
+    std::string type;
     std::string id;
     std::string name;
     int width;
@@ -107,21 +107,16 @@ struct EnumWindowsData {
 struct SimpleSyncManager {
     LARGE_INTEGER frequency;
     LARGE_INTEGER startTime;
-    double audioLatencyMs = 0.0;  // Компенсация задержки аудио
-    double videoLatencyMs = 0.0;  // Компенсация задержки видео
+    double audioLatencyMs = 0.0;
+    double videoLatencyMs = 0.0;
     bool initialized = false;
     
     void Initialize() {
         QueryPerformanceFrequency(&frequency);
         QueryPerformanceCounter(&startTime);
         initialized = true;
-        
-        // На Windows типичная задержка:
-        // - WASAPI loopback: ~10-20ms
-        // - DXGI: ~5-10ms
-        // Компенсируем разницу
-        audioLatencyMs = 15.0;  // Среднее для WASAPI
-        videoLatencyMs = 7.0;   // Среднее для DXGI
+        audioLatencyMs = 15.0;
+        videoLatencyMs = 7.0;
     }
     
     double GetTimestamp() {
@@ -132,16 +127,14 @@ struct SimpleSyncManager {
         
         double elapsedSeconds = (double)(currentTime.QuadPart - startTime.QuadPart) 
                                / (double)frequency.QuadPart;
-        return elapsedSeconds * 1000.0; // В миллисекундах
+        return elapsedSeconds * 1000.0;
     }
     
     double GetAudioTimestamp() {
-        // Вычитаем задержку аудио для синхронизации
         return GetTimestamp() - audioLatencyMs;
     }
     
     double GetVideoTimestamp() {
-        // Вычитаем задержку видео для синхронизации
         return GetTimestamp() - videoLatencyMs;
     }
     
@@ -176,7 +169,6 @@ public:
         QueryPerformanceCounter(&captureStartTime);
         OutputDebugStringA("DXGIScreenCapture::Initialize starting\n");
         
-        // Создаем D3D11 устройство
         D3D_FEATURE_LEVEL featureLevels[] = {
             D3D_FEATURE_LEVEL_11_0,
             D3D_FEATURE_LEVEL_10_1,
@@ -204,7 +196,6 @@ public:
             return false;
         }
         
-        // Получаем DXGI адаптер
         IDXGIDevice* dxgiDevice = nullptr;
         hr = device->QueryInterface(__uuidof(IDXGIDevice), (void**)&dxgiDevice);
         if (FAILED(hr)) return false;
@@ -214,19 +205,16 @@ public:
         dxgiDevice->Release();
         if (FAILED(hr)) return false;
         
-        // Получаем нужный output
         IDXGIOutput* output = nullptr;
         hr = adapter->EnumOutputs(displayId, &output);
         adapter->Release();
         if (FAILED(hr)) return false;
         
-        // Получаем IDXGIOutput1
         IDXGIOutput1* output1 = nullptr;
         hr = output->QueryInterface(__uuidof(IDXGIOutput1), (void**)&output1);
         output->Release();
         if (FAILED(hr)) return false;
         
-        // Создаем дупликацию экрана
         hr = output1->DuplicateOutput(device, &duplication);
         output1->Release();
         
@@ -263,7 +251,7 @@ public:
     }
     
     void CaptureLoop() {
-        int frameInterval = 1000 / targetFps; // миллисекунды между кадрами
+        int frameInterval = 1000 / targetFps;
         
         while (isCapturing) {
             auto frameStart = std::chrono::high_resolution_clock::now();
@@ -271,15 +259,13 @@ public:
             IDXGIResource* desktopResource = nullptr;
             DXGI_OUTDUPL_FRAME_INFO frameInfo;
             
-            // Получаем следующий кадр (таймаут 100мс)
             HRESULT hr = duplication->AcquireNextFrame(100, &frameInfo, &desktopResource);
             
             if (hr == DXGI_ERROR_WAIT_TIMEOUT) {
-                continue; // Нет новых кадров
+                continue;
             }
             
             if (SUCCEEDED(hr) && desktopResource) {
-                // Конвертируем в текстуру
                 ID3D11Texture2D* texture = nullptr;
                 hr = desktopResource->QueryInterface(__uuidof(ID3D11Texture2D), (void**)&texture);
                 
@@ -291,12 +277,10 @@ public:
                 desktopResource->Release();
                 duplication->ReleaseFrame();
             } else if (hr == DXGI_ERROR_ACCESS_LOST) {
-                // Нужно переинициализировать дупликацию
                 OutputDebugStringA("DXGI_ERROR_ACCESS_LOST - need to reinitialize\n");
                 break;
             }
             
-            // Контроль FPS
             auto frameEnd = std::chrono::high_resolution_clock::now();
             auto frameDuration = std::chrono::duration_cast<std::chrono::milliseconds>(frameEnd - frameStart).count();
             if (frameDuration < frameInterval) {
@@ -306,17 +290,9 @@ public:
     }
     
     void ProcessFrame(ID3D11Texture2D* texture) {
-        static int frameCount = 0;
-        if (++frameCount % 30 == 0) { // Каждые 30 кадров
-            char log[128];
-            sprintf_s(log, "ProcessFrame: frame %d\n", frameCount);
-            OutputDebugStringA(log);
-        }
-        
         D3D11_TEXTURE2D_DESC desc;
         texture->GetDesc(&desc);
         
-        // Создаем staging текстуру для чтения CPU
         desc.Usage = D3D11_USAGE_STAGING;
         desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
         desc.BindFlags = 0;
@@ -327,24 +303,19 @@ public:
         
         if (FAILED(hr) || !stagingTexture) return;
         
-        // Копируем данные
         context->CopyResource(stagingTexture, texture);
         
-        // Мапим для чтения
         D3D11_MAPPED_SUBRESOURCE mapped;
         hr = context->Map(stagingTexture, 0, D3D11_MAP_READ, 0, &mapped);
         
         if (SUCCEEDED(hr)) {
-            // Создаем структуру с данными
             VideoFrameData* frameData = new VideoFrameData();
             frameData->width = targetWidth;
             frameData->height = targetHeight;
-            frameData->timestamp = g_syncManager.GetVideoTimestamp(); // ИСПОЛЬЗУЕМ СИНХРОНИЗИРОВАННОЕ ВРЕМЯ
+            frameData->timestamp = g_syncManager.GetVideoTimestamp();
             frameData->hasRealPixels = true;
             
-            // Масштабируем если нужно
             if (desc.Width != targetWidth || desc.Height != targetHeight) {
-                // Простое масштабирование
                 frameData->dataSize = targetWidth * targetHeight * 4;
                 frameData->data = new uint8_t[frameData->dataSize];
                 
@@ -361,12 +332,10 @@ public:
                         int srcIdx = (srcY * mapped.RowPitch) + (srcX * 4);
                         int dstIdx = (y * targetWidth + x) * 4;
                         
-                        // Копируем BGRA пиксель
                         memcpy(&dst[dstIdx], &src[srcIdx], 4);
                     }
                 }
             } else {
-                // Прямое копирование
                 frameData->dataSize = desc.Width * desc.Height * 4;
                 frameData->data = new uint8_t[frameData->dataSize];
                 
@@ -382,10 +351,8 @@ public:
             
             context->Unmap(stagingTexture, 0);
             
-            // Увеличиваем счетчик кадров
             g_video_frame_count++;
             
-            // Отправляем в JavaScript callback
             if (g_video_tsfn) {
                 napi_status status = napi_call_threadsafe_function(
                     g_video_tsfn,
@@ -421,33 +388,56 @@ public:
     }
 };
 
-// Класс для захвата аудио через WASAPI
-class WASAPIAudioCapture {
+// === НОВЫЙ КЛАСС для захвата звука от конкретного приложения ===
+class ApplicationAudioCapture {
 private:
+    DWORD targetProcessId = 0;
+    std::wstring applicationName;
     IMMDeviceEnumerator* deviceEnumerator = nullptr;
     IMMDevice* device = nullptr;
     IAudioClient* audioClient = nullptr;
     IAudioCaptureClient* captureClient = nullptr;
+    IAudioSessionManager2* sessionManager = nullptr;
     WAVEFORMATEX* waveFormat = nullptr;
+    
     std::atomic<bool> isCapturing{false};
     std::thread captureThread;
-    bool isSystemAudio = true;
-    LARGE_INTEGER performanceFrequency;
-    LARGE_INTEGER captureStartTime;
-    bool useHighPrecisionTimer = true;
-    
-    // Добавляем буфер для накопления семплов
     std::vector<float> accumulationBuffer;
     std::mutex bufferMutex;
-    const int TARGET_FRAME_SIZE = 240; // 5ms при 48kHz для меньшей латентности
+    const int TARGET_FRAME_SIZE = 480;
+    
+    std::atomic<float> targetProcessVolume{0.0f};
+    std::atomic<bool> isTargetProcessActive{false};
+    
+    LARGE_INTEGER performanceFrequency;
+    LARGE_INTEGER captureStartTime;
     
 public:
-    bool Initialize(const std::string& sourceType, const std::string& sourceId) {
-
+    bool InitializeForApplication(HWND hwnd) {
+        CoInitialize(nullptr);
+        
         QueryPerformanceFrequency(&performanceFrequency);
         QueryPerformanceCounter(&captureStartTime);
-
-        CoInitialize(nullptr);
+        
+        GetWindowThreadProcessId(hwnd, &targetProcessId);
+        
+        HANDLE hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, targetProcessId);
+        if (hProcess) {
+            wchar_t exePath[MAX_PATH];
+            DWORD pathLen = MAX_PATH;
+            if (QueryFullProcessImageNameW(hProcess, 0, exePath, &pathLen)) {
+                std::wstring fullPath(exePath);
+                size_t lastSlash = fullPath.find_last_of(L"\\/");
+                if (lastSlash != std::wstring::npos) {
+                    applicationName = fullPath.substr(lastSlash + 1);
+                }
+            }
+            CloseHandle(hProcess);
+        }
+        
+        char log[256];
+        sprintf_s(log, "Initializing audio capture for PID: %lu\n", targetProcessId);
+        OutputDebugStringA(log);
         
         HRESULT hr = CoCreateInstance(
             __uuidof(MMDeviceEnumerator),
@@ -459,34 +449,23 @@ public:
         
         if (FAILED(hr)) return false;
         
-        // Определяем тип захвата
-        if (sourceType == "display" || sourceType == "screen" || sourceType == "window") {
-            isSystemAudio = true;
-            hr = deviceEnumerator->GetDefaultAudioEndpoint(
-                eRender,  // Для системного звука
-                eConsole,
-                &device
-            );
-        } else if (sourceType == "microphone") {
-            isSystemAudio = false;
-            hr = deviceEnumerator->GetDefaultAudioEndpoint(
-                eCapture,  // Для микрофона
-                eConsole,
-                &device
-            );
-        } else {
-            // По умолчанию системный звук
-            isSystemAudio = true;
-            hr = deviceEnumerator->GetDefaultAudioEndpoint(
-                eRender,
-                eConsole,
-                &device
-            );
-        }
+        hr = deviceEnumerator->GetDefaultAudioEndpoint(
+            eRender,
+            eConsole,
+            &device
+        );
         
         if (FAILED(hr)) return false;
         
-        // Активируем audio client
+        hr = device->Activate(
+            __uuidof(IAudioSessionManager2),
+            CLSCTX_ALL,
+            nullptr,
+            (void**)&sessionManager
+        );
+        
+        if (FAILED(hr)) return false;
+        
         hr = device->Activate(
             __uuidof(IAudioClient),
             CLSCTX_ALL,
@@ -496,64 +475,166 @@ public:
         
         if (FAILED(hr)) return false;
         
-        // Получаем формат
         hr = audioClient->GetMixFormat(&waveFormat);
         if (FAILED(hr)) return false;
         
-        // Логируем формат
-        char log[256];
-        sprintf_s(log, "WASAPI Format: Tag=0x%X, Bits=%d, Channels=%d, Rate=%d Hz\n",
-                 waveFormat->wFormatTag, waveFormat->wBitsPerSample,
-                 waveFormat->nChannels, waveFormat->nSamplesPerSec);
-        OutputDebugStringA(log);
-        
-        REFERENCE_TIME hnsRequestedDuration = 100000; // 10ms
-        DWORD streamFlags = isSystemAudio ? AUDCLNT_STREAMFLAGS_LOOPBACK : 0;
-
-        #ifdef AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM
-            streamFlags |= AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM;
-        #endif
-        
         hr = audioClient->Initialize(
             AUDCLNT_SHAREMODE_SHARED,
-            streamFlags,
-            hnsRequestedDuration,
+            AUDCLNT_STREAMFLAGS_LOOPBACK,
+            10000000,
             0,
             waveFormat,
             nullptr
         );
         
-        if (FAILED(hr)) {
-            sprintf_s(log, "WASAPI Initialize failed: 0x%08X\n", hr);
-            OutputDebugStringA(log);
-            return false;
-        }
+        if (FAILED(hr)) return false;
         
-        // Получаем capture client
         hr = audioClient->GetService(
             __uuidof(IAudioCaptureClient),
             (void**)&captureClient
         );
         
         if (SUCCEEDED(hr)) {
-            OutputDebugStringA("WASAPI Audio capture initialized successfully\n");
+            StartSessionMonitoring();
+            OutputDebugStringA("Application audio capture initialized successfully\n");
         }
         
         return SUCCEEDED(hr);
     }
-
-    double GetPreciseTimestamp() {
-        if (useHighPrecisionTimer) {
-            LARGE_INTEGER currentTime;
-            QueryPerformanceCounter(&currentTime);
+    
+    void StartSessionMonitoring() {
+        std::thread monitorThread([this]() {
+            CoInitialize(nullptr);
             
-            // Возвращаем время в миллисекундах от начала захвата
-            double elapsed = (double)(currentTime.QuadPart - captureStartTime.QuadPart);
-            return (elapsed / performanceFrequency.QuadPart) * 1000.0;
-        } else {
-            // Fallback на стандартный GetTimestamp
-            return GetTimestamp();
+            while (isCapturing) {
+                UpdateTargetProcessVolume();
+                Sleep(100);
+            }
+            
+            CoUninitialize();
+        });
+        monitorThread.detach();
+    }
+    
+    void UpdateTargetProcessVolume() {
+        if (!sessionManager) return;
+        
+        IAudioSessionEnumerator* sessionEnumerator = nullptr;
+        HRESULT hr = sessionManager->GetSessionEnumerator(&sessionEnumerator);
+        if (FAILED(hr)) return;
+        
+        int sessionCount = 0;
+        sessionEnumerator->GetCount(&sessionCount);
+        
+        bool foundTarget = false;
+        float maxVolume = 0.0f;
+        
+        for (int i = 0; i < sessionCount; i++) {
+            IAudioSessionControl* sessionControl = nullptr;
+            hr = sessionEnumerator->GetSession(i, &sessionControl);
+            if (FAILED(hr)) continue;
+            
+            IAudioSessionControl2* sessionControl2 = nullptr;
+            hr = sessionControl->QueryInterface(__uuidof(IAudioSessionControl2), (void**)&sessionControl2);
+            
+            if (SUCCEEDED(hr)) {
+                DWORD processId = 0;
+                hr = sessionControl2->GetProcessId(&processId);
+                
+                if (SUCCEEDED(hr) && processId == targetProcessId) {
+                    AudioSessionState state;
+                    hr = sessionControl->GetState(&state);
+                    
+                    if (SUCCEEDED(hr) && state == AudioSessionStateActive) {
+                        ISimpleAudioVolume* simpleVolume = nullptr;
+                        hr = sessionControl->QueryInterface(__uuidof(ISimpleAudioVolume), (void**)&simpleVolume);
+                        
+                        if (SUCCEEDED(hr)) {
+                            float masterVolume = 0.0f;
+                            simpleVolume->GetMasterVolume(&masterVolume);
+                            
+                            IAudioMeterInformation* meterInfo = nullptr;
+                            hr = sessionControl->QueryInterface(__uuidof(IAudioMeterInformation), (void**)&meterInfo);
+                            
+                            if (SUCCEEDED(hr)) {
+                                float peakValue = 0.0f;
+                                meterInfo->GetPeakValue(&peakValue);
+                                maxVolume = peakValue * masterVolume;
+                                meterInfo->Release();
+                            }
+                            
+                            simpleVolume->Release();
+                        }
+                        
+                        foundTarget = true;
+                    }
+                }
+                
+                sessionControl2->Release();
+            }
+            
+            sessionControl->Release();
         }
+        
+        targetProcessVolume = maxVolume;
+        isTargetProcessActive = foundTarget;
+        
+        sessionEnumerator->Release();
+    }
+    
+    bool InitializeForSystemAudio() {
+        CoInitialize(nullptr);
+        
+        QueryPerformanceFrequency(&performanceFrequency);
+        QueryPerformanceCounter(&captureStartTime);
+        
+        HRESULT hr = CoCreateInstance(
+            __uuidof(MMDeviceEnumerator),
+            nullptr,
+            CLSCTX_ALL,
+            __uuidof(IMMDeviceEnumerator),
+            (void**)&deviceEnumerator
+        );
+        
+        if (FAILED(hr)) return false;
+        
+        hr = deviceEnumerator->GetDefaultAudioEndpoint(
+            eRender,
+            eConsole,
+            &device
+        );
+        
+        if (FAILED(hr)) return false;
+        
+        hr = device->Activate(
+            __uuidof(IAudioClient),
+            CLSCTX_ALL,
+            nullptr,
+            (void**)&audioClient
+        );
+        
+        if (FAILED(hr)) return false;
+        
+        hr = audioClient->GetMixFormat(&waveFormat);
+        if (FAILED(hr)) return false;
+        
+        hr = audioClient->Initialize(
+            AUDCLNT_SHAREMODE_SHARED,
+            AUDCLNT_STREAMFLAGS_LOOPBACK,
+            10000000,
+            0,
+            waveFormat,
+            nullptr
+        );
+        
+        if (FAILED(hr)) return false;
+        
+        hr = audioClient->GetService(
+            __uuidof(IAudioCaptureClient),
+            (void**)&captureClient
+        );
+        
+        return SUCCEEDED(hr);
     }
     
     void StartCapture() {
@@ -561,32 +642,26 @@ public:
         
         isCapturing = true;
         
-        // Очищаем буфер перед началом
         {
             std::lock_guard<std::mutex> lock(bufferMutex);
             accumulationBuffer.clear();
-            accumulationBuffer.reserve(96000); // Резервируем место для 1 секунды
+            accumulationBuffer.reserve(96000);
         }
         
         HRESULT hr = audioClient->Start();
         
         if (SUCCEEDED(hr)) {
             captureThread = std::thread([this]() {
-                // Устанавливаем COM для этого потока
                 CoInitialize(nullptr);
                 CaptureLoop();
                 CoUninitialize();
             });
-            OutputDebugStringA("WASAPI Audio capture started\n");
+            OutputDebugStringA("Application audio capture started\n");
         }
     }
     
     void CaptureLoop() {
-        // === КРИТИЧНОЕ ИЗМЕНЕНИЕ: Более высокий приоритет ===
         SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
-        
-        // === КРИТИЧНОЕ ИЗМЕНЕНИЕ: Привязка к конкретному ядру CPU ===
-        SetThreadAffinityMask(GetCurrentThread(), 1 << 2); // Ядро 2
         
         while (isCapturing) {
             UINT32 packetLength = 0;
@@ -596,29 +671,24 @@ public:
                 BYTE* data = nullptr;
                 UINT32 numFramesAvailable;
                 DWORD flags;
-                UINT64 position;
-                UINT64 qpcPosition; // === НОВОЕ: QPC позиция для точного тайминга
                 
                 hr = captureClient->GetBuffer(
                     &data,
                     &numFramesAvailable,
                     &flags,
-                    &position,      // Используем позицию
-                    &qpcPosition    // Используем QPC позицию
+                    nullptr,
+                    nullptr
                 );
                 
                 if (SUCCEEDED(hr)) {
                     if (!(flags & AUDCLNT_BUFFERFLAGS_SILENT) && numFramesAvailable > 0) {
                         ProcessAudioData(data, numFramesAvailable);
-                    } else if (flags & AUDCLNT_BUFFERFLAGS_SILENT) {
-                        ProcessSilence(numFramesAvailable);
                     }
                     
                     captureClient->ReleaseBuffer(numFramesAvailable);
                 }
             } else {
-                // === КРИТИЧНОЕ ИЗМЕНЕНИЕ: Более короткий sleep ===
-                Sleep(2); // Было 5ms, стало 2ms
+                Sleep(5);
             }
         }
     }
@@ -627,89 +697,65 @@ public:
         size_t sampleCount = numFrames * waveFormat->nChannels;
         std::vector<float> samples(sampleCount);
         
-        // === КРИТИЧЕСКОЕ ИЗМЕНЕНИЕ №1: Правильная конвертация для Windows ===
-        if (waveFormat->wFormatTag == WAVE_FORMAT_EXTENSIBLE) {
-            // Для EXTENSIBLE проверяем SubFormat
+        if (waveFormat->wFormatTag == WAVE_FORMAT_IEEE_FLOAT) {
+            float* srcFloat = (float*)data;
+            for (size_t i = 0; i < sampleCount; i++) {
+                samples[i] = srcFloat[i];
+            }
+        } else if (waveFormat->wFormatTag == WAVE_FORMAT_PCM) {
+            if (waveFormat->wBitsPerSample == 16) {
+                INT16* src = (INT16*)data;
+                for (size_t i = 0; i < sampleCount; i++) {
+                    samples[i] = src[i] / 32768.0f;
+                }
+            }
+        } else if (waveFormat->wFormatTag == WAVE_FORMAT_EXTENSIBLE) {
             WAVEFORMATEXTENSIBLE* pWaveFormatExt = (WAVEFORMATEXTENSIBLE*)waveFormat;
             
             if (IsEqualGUID(pWaveFormatExt->SubFormat, KSDATAFORMAT_SUBTYPE_IEEE_FLOAT)) {
-                // Float формат
                 float* srcFloat = (float*)data;
                 for (size_t i = 0; i < sampleCount; i++) {
                     samples[i] = srcFloat[i];
-                    // КРИТИЧНО: клампинг для защиты от искажений
-                    if (!isfinite(samples[i])) samples[i] = 0.0f;
-                    else if (samples[i] > 1.0f) samples[i] = 1.0f;
-                    else if (samples[i] < -1.0f) samples[i] = -1.0f;
                 }
             } else if (IsEqualGUID(pWaveFormatExt->SubFormat, KSDATAFORMAT_SUBTYPE_PCM)) {
-                // PCM в EXTENSIBLE
-                ConvertPCMToFloat(data, samples.data(), sampleCount, waveFormat->wBitsPerSample);
+                if (waveFormat->wBitsPerSample == 16) {
+                    INT16* src = (INT16*)data;
+                    for (size_t i = 0; i < sampleCount; i++) {
+                        samples[i] = src[i] / 32768.0f;
+                    }
+                }
             }
-        } else if (waveFormat->wFormatTag == WAVE_FORMAT_IEEE_FLOAT) {
-            // Обычный float
-            float* srcFloat = (float*)data;
-            for (size_t i = 0; i < sampleCount; i++) {
-                samples[i] = std::clamp(srcFloat[i], -1.0f, 1.0f);
-            }
-        } else if (waveFormat->wFormatTag == WAVE_FORMAT_PCM) {
-            ConvertPCMToFloat(data, samples.data(), sampleCount, waveFormat->wBitsPerSample);
         }
         
-        // === КРИТИЧЕСКОЕ ИЗМЕНЕНИЕ №2: Добавляем временную метку ===
-        double currentTimestamp = g_syncManager.GetAudioTimestamp(); // ИСПОЛЬЗУЕМ СИНХРОНИЗИРОВАННОЕ ВРЕМЯ
+        if (targetProcessId != 0) {
+            ApplyProcessFilter(samples);
+        }
         
-        // Накапливаем в буфер
         {
             std::lock_guard<std::mutex> lock(bufferMutex);
             accumulationBuffer.insert(accumulationBuffer.end(), 
                                     samples.begin(), samples.end());
         }
         
-        // === КРИТИЧЕСКОЕ ИЗМЕНЕНИЕ №3: Передаем timestamp в SendBufferedFrames ===
-        SendBufferedFrames(currentTimestamp);
-    }
-
-    void ConvertPCMToFloat(BYTE* pcmData, float* output, size_t sampleCount, WORD bitsPerSample) {
-        if (bitsPerSample == 16) {
-            INT16* src = (INT16*)pcmData;
-            for (size_t i = 0; i < sampleCount; i++) {
-                output[i] = src[i] / 32768.0f;
-            }
-        } else if (bitsPerSample == 24) {
-            for (size_t i = 0; i < sampleCount; i++) {
-                BYTE* samplePtr = pcmData + (i * 3);
-                INT32 sample = (samplePtr[0] | (samplePtr[1] << 8) | (samplePtr[2] << 16));
-                if (sample & 0x800000) sample |= 0xFF000000;
-                output[i] = sample / 8388608.0f;
-            }
-        } else if (bitsPerSample == 32) {
-            INT32* src = (INT32*)pcmData;
-            for (size_t i = 0; i < sampleCount; i++) {
-                output[i] = src[i] / 2147483648.0f;
-            }
-        }
-    }
-    
-    void ProcessSilence(UINT32 numFrames) {
-        size_t sampleCount = numFrames * waveFormat->nChannels;
-        std::vector<float> silence(sampleCount, 0.0f);
-        
-        // Добавляем тишину в буфер
-        {
-            std::lock_guard<std::mutex> lock(bufferMutex);
-            accumulationBuffer.insert(accumulationBuffer.end(), 
-                                     silence.begin(), silence.end());
-        }
-        
         SendBufferedFrames();
     }
     
-    void SendBufferedFrames(double baseTimestamp = -1) {
-        if (baseTimestamp < 0) {
-            baseTimestamp = g_syncManager.GetAudioTimestamp();
+    void ApplyProcessFilter(std::vector<float>& samples) {
+        if (!isTargetProcessActive) {
+            for (auto& sample : samples) {
+                sample *= 0.1f;
+            }
+        } else {
+            float volume = targetProcessVolume.load();
+            if (volume < 0.1f) {
+                for (auto& sample : samples) {
+                    sample *= 0.2f;
+                }
+            }
         }
-        
+    }
+    
+    void SendBufferedFrames() {
         while (true) {
             std::unique_lock<std::mutex> lock(bufferMutex);
             
@@ -722,15 +768,14 @@ public:
             frameData->numSamples = TARGET_FRAME_SIZE;
             frameData->sampleRate = waveFormat->nSamplesPerSec;
             frameData->channels = waveFormat->nChannels;
+            frameData->timestamp = g_syncManager.GetAudioTimestamp();
+            frameData->isSystemAudio = (targetProcessId == 0);
             
-            // Точный расчет времени для каждого фрейма
-            frameData->timestamp = baseTimestamp;
-            
-            // Сдвигаем timestamp для следующего фрейма
-            double frameDurationMs = (TARGET_FRAME_SIZE * 1000.0) / waveFormat->nSamplesPerSec;
-            baseTimestamp += frameDurationMs;
-            
-            frameData->isSystemAudio = isSystemAudio;
+            if (!applicationName.empty()) {
+                char appName[256] = {0};
+                wcstombs(appName, applicationName.c_str(), sizeof(appName) - 1);
+                frameData->applicationName = appName;
+            }
             
             size_t frameSampleCount = TARGET_FRAME_SIZE * waveFormat->nChannels;
             frameData->samples = new float[frameSampleCount];
@@ -765,21 +810,6 @@ public:
         }
     }
     
-    void ApplySmoothFilter(float* samples, size_t sampleCount, int channels) {
-        // Очень легкий фильтр для уменьшения щелчков
-        static std::vector<float> prevSample(channels, 0.0f);
-        const float alpha = 0.98f; // Меньше фильтрации для сохранения качества
-        
-        for (int ch = 0; ch < channels; ch++) {
-            for (size_t i = ch; i < sampleCount; i += channels) {
-                float current = samples[i];
-                float filtered = alpha * current + (1.0f - alpha) * prevSample[ch];
-                samples[i] = filtered;
-                prevSample[ch] = current;
-            }
-        }
-    }
-    
     void StopCapture() {
         isCapturing = false;
         
@@ -791,38 +821,31 @@ public:
             captureThread.join();
         }
         
-        // Очищаем буфер
         {
             std::lock_guard<std::mutex> lock(bufferMutex);
             accumulationBuffer.clear();
         }
         
-        OutputDebugStringA("WASAPI Audio capture stopped\n");
+        OutputDebugStringA("Application audio capture stopped\n");
     }
     
-    ~WASAPIAudioCapture() {
+    ~ApplicationAudioCapture() {
         StopCapture();
+        
+        if (sessionManager) sessionManager->Release();
         if (captureClient) captureClient->Release();
         if (audioClient) audioClient->Release();
         if (device) device->Release();
         if (deviceEnumerator) deviceEnumerator->Release();
         if (waveFormat) CoTaskMemFree(waveFormat);
+        
         CoUninitialize();
     }
-private:
-    // Структура для хранения информации о пакете
-    struct AudioPacketInfo {
-        double timestamp;
-        std::vector<float> samples;
-        UINT32 numFrames;
-    };
-    
-    std::vector<AudioPacketInfo> audioPacketQueue;
 };
 
 // Глобальные экземпляры захвата
 static std::unique_ptr<DXGIScreenCapture> g_screenCapture;
-static std::unique_ptr<WASAPIAudioCapture> g_audioCapture;
+static std::unique_ptr<ApplicationAudioCapture> g_appAudioCapture;
 static CaptureSource g_currentSource;
 
 // === N-API функции ===
@@ -830,47 +853,37 @@ static CaptureSource g_currentSource;
 // Тестовый метод
 napi_value TestMethod(napi_env env, napi_callback_info info) {
     napi_value result;
-    napi_create_string_utf8(env, "Windows Native Module v1.0 - REAL", NAPI_AUTO_LENGTH, &result);
+    napi_create_string_utf8(env, "Windows Native Module v1.0 - Application Audio Support", NAPI_AUTO_LENGTH, &result);
     return result;
 }
 
 // Callback функция для перечисления окон
 BOOL CALLBACK EnumWindowsProc(HWND hwnd, LPARAM lParam) {
-    // Пропускаем невидимые окна
     if (!IsWindowVisible(hwnd)) return TRUE;
     
-    // Получаем заголовок окна
     char windowTitle[256];
     GetWindowTextA(hwnd, windowTitle, sizeof(windowTitle));
     
-    // Пропускаем окна без заголовка
     if (strlen(windowTitle) == 0) return TRUE;
     
-    // Получаем стиль окна
     DWORD style = GetWindowLong(hwnd, GWL_STYLE);
     DWORD exStyle = GetWindowLong(hwnd, GWL_EXSTYLE);
     
-    // Пропускаем дочерние окна и инструментальные окна
     if ((style & WS_CHILD) || (exStyle & WS_EX_TOOLWINDOW)) return TRUE;
     
-    // Пропускаем окна без WS_VISIBLE
     if (!(style & WS_VISIBLE)) return TRUE;
     
-    // Получаем размеры окна
     RECT rect;
     GetWindowRect(hwnd, &rect);
     int width = rect.right - rect.left;
     int height = rect.bottom - rect.top;
     
-    // Пропускаем слишком маленькие окна (вероятно, скрытые или системные)
     if (width < 100 || height < 100) return TRUE;
     
-    // Проверяем, не является ли окно cloaked (Windows 10+ для виртуальных рабочих столов)
     DWORD cloaked = 0;
     HRESULT hr = DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED, &cloaked, sizeof(cloaked));
     if (SUCCEEDED(hr) && cloaked != 0) return TRUE;
     
-    // Получаем имя процесса для дополнительной информации
     DWORD processId;
     GetWindowThreadProcessId(hwnd, &processId);
     
@@ -880,12 +893,10 @@ BOOL CALLBACK EnumWindowsProc(HWND hwnd, LPARAM lParam) {
         char exePath[MAX_PATH];
         DWORD pathLen = MAX_PATH;
         if (QueryFullProcessImageNameA(hProcess, 0, exePath, &pathLen)) {
-            // Извлекаем только имя файла из полного пути
             std::string fullPath(exePath);
             size_t lastSlash = fullPath.find_last_of("\\/");
             if (lastSlash != std::string::npos) {
                 processName = fullPath.substr(lastSlash + 1);
-                // Убираем .exe расширение
                 size_t dotPos = processName.find_last_of(".");
                 if (dotPos != std::string::npos) {
                     processName = processName.substr(0, dotPos);
@@ -895,15 +906,12 @@ BOOL CALLBACK EnumWindowsProc(HWND hwnd, LPARAM lParam) {
         CloseHandle(hProcess);
     }
     
-    // Получаем указатель на вектор sources
     auto* data = (EnumWindowsData*)lParam;
     
-    // Создаем источник
     CaptureSource source;
     source.type = "window";
     source.id = std::to_string((intptr_t)hwnd);
     
-    // Формируем имя: "Заголовок окна (Имя приложения)"
     source.name = std::string(windowTitle);
     if (!processName.empty()) {
         source.name += " (" + processName + ")";
@@ -914,7 +922,7 @@ BOOL CALLBACK EnumWindowsProc(HWND hwnd, LPARAM lParam) {
     
     data->sources->push_back(source);
     
-    return TRUE; // Продолжаем перечисление
+    return TRUE;
 }
 
 // Получение доступных источников
@@ -924,7 +932,6 @@ napi_value GetAvailableSources(napi_env env, napi_callback_info info) {
     
     std::vector<CaptureSource> sources;
     
-    // === 1. Перечисляем дисплеи через DXGI ===
     IDXGIFactory1* factory = nullptr;
     HRESULT hr = CreateDXGIFactory1(__uuidof(IDXGIFactory1), (void**)&factory);
     
@@ -940,13 +947,12 @@ napi_value GetAvailableSources(napi_env env, napi_callback_info info) {
                 DXGI_OUTPUT_DESC desc;
                 output->GetDesc(&desc);
                 
-                // Конвертируем имя монитора из широких символов
                 char monitorName[32];
                 wcstombs(monitorName, desc.DeviceName, sizeof(monitorName));
                 
                 CaptureSource source;
                 source.type = "screen";
-                source.id = "display_" + std::to_string(outputIndex);
+                source.id = std::to_string(outputIndex);
                 source.name = "Display " + std::to_string(outputIndex + 1) + " (" + std::string(monitorName) + ")";
                 source.width = desc.DesktopCoordinates.right - desc.DesktopCoordinates.left;
                 source.height = desc.DesktopCoordinates.bottom - desc.DesktopCoordinates.top;
@@ -964,8 +970,6 @@ napi_value GetAvailableSources(napi_env env, napi_callback_info info) {
         factory->Release();
     }
     
-    // === 2. Добавляем "Entire Screen" как специальный источник ===
-    // Это будет захватывать все мониторы сразу
     RECT virtualScreen;
     virtualScreen.left = GetSystemMetrics(SM_XVIRTUALSCREEN);
     virtualScreen.top = GetSystemMetrics(SM_YVIRTUALSCREEN);
@@ -980,35 +984,10 @@ napi_value GetAvailableSources(napi_env env, napi_callback_info info) {
     entireScreen.height = virtualScreen.bottom - virtualScreen.top;
     sources.push_back(entireScreen);
     
-    // === 3. Перечисляем все окна ===
     EnumWindowsData enumData;
     enumData.sources = &sources;
     EnumWindows(EnumWindowsProc, (LPARAM)&enumData);
     
-    // === 4. Добавляем специальные источники для популярных приложений ===
-    // Можно добавить проверку на конкретные приложения
-    for (auto& source : sources) {
-        if (source.type == "window") {
-            // Помечаем медиаплееры, браузеры и т.д. специальными тегами
-            std::string lowerName = source.name;
-            std::transform(lowerName.begin(), lowerName.end(), lowerName.begin(), ::tolower);
-            
-            if (lowerName.find("media player") != std::string::npos ||
-                lowerName.find("vlc") != std::string::npos ||
-                lowerName.find("movies & tv") != std::string::npos ||
-                lowerName.find("films & tv") != std::string::npos) {
-                // Можно добавить специальную метку для медиаплееров
-                source.name = "🎬 " + source.name;
-            }
-            else if (lowerName.find("chrome") != std::string::npos ||
-                     lowerName.find("firefox") != std::string::npos ||
-                     lowerName.find("edge") != std::string::npos) {
-                source.name = "🌐 " + source.name;
-            }
-        }
-    }
-    
-    // === 5. Конвертируем в JavaScript массив ===
     for (size_t i = 0; i < sources.size(); i++) {
         napi_value obj;
         napi_create_object(env, &obj);
@@ -1043,7 +1022,6 @@ napi_value SetCaptureSource(napi_env env, napi_callback_info info) {
         return nullptr;
     }
     
-    // Получаем type и id
     napi_value typeVal, idVal;
     napi_get_named_property(env, argv[0], "type", &typeVal);
     napi_get_named_property(env, argv[0], "id", &idVal);
@@ -1053,7 +1031,6 @@ napi_value SetCaptureSource(napi_env env, napi_callback_info info) {
     napi_get_value_string_utf8(env, typeVal, type, sizeof(type), &typeLen);
     napi_get_value_string_utf8(env, idVal, id, sizeof(id), &idLen);
     
-    // Сохраняем текущий источник
     g_currentSource.type = type;
     g_currentSource.id = id;
     
@@ -1088,7 +1065,6 @@ napi_value SetCaptureQuality(napi_env env, napi_callback_info info) {
     napi_get_value_int32(env, heightVal, &height);
     napi_get_value_int32(env, fpsVal, &fps);
     
-    // Сохраняем настройки качества
     {
         std::lock_guard<std::mutex> lock(g_quality.mutex);
         g_quality.width = width;
@@ -1096,7 +1072,6 @@ napi_value SetCaptureQuality(napi_env env, napi_callback_info info) {
         g_quality.fps = fps;
     }
     
-    // Применяем к текущему захвату если он активен
     if (g_screenCapture) {
         g_screenCapture->SetQuality(width, height, fps);
     }
@@ -1113,26 +1088,22 @@ napi_value SetCaptureQuality(napi_env env, napi_callback_info info) {
 
 // Начало захвата
 napi_value StartCapture(napi_env env, napi_callback_info info) {
-    // === НОВОЕ: Инициализируем синхронизацию ===
     g_syncManager.Initialize();
     g_syncManager.Reset();
     OutputDebugStringA("Sync manager initialized\n");
     
-    // Останавливаем предыдущий захват
     if (g_screenCapture) {
         g_screenCapture->StopCapture();
         g_screenCapture.reset();
     }
-    if (g_audioCapture) {
-        g_audioCapture->StopCapture();
-        g_audioCapture.reset();
+    if (g_appAudioCapture) {
+        g_appAudioCapture->StopCapture();
+        g_appAudioCapture.reset();
     }
     
-    // Создаем новые экземпляры
     bool videoStarted = false;
     bool audioStarted = false;
     
-    // Запускаем видео захват
     if (g_currentSource.type == "screen" || 
         g_currentSource.type == "display" || 
         g_currentSource.type == "window") {
@@ -1145,7 +1116,6 @@ napi_value StartCapture(napi_env env, napi_callback_info info) {
         
         g_screenCapture = std::make_unique<DXGIScreenCapture>();
         if (g_screenCapture->Initialize(displayId)) {
-            // Применяем настройки качества
             std::lock_guard<std::mutex> lock(g_quality.mutex);
             g_screenCapture->SetQuality(g_quality.width, g_quality.height, g_quality.fps);
             
@@ -1154,11 +1124,36 @@ napi_value StartCapture(napi_env env, napi_callback_info info) {
         }
     }
     
-    // Запускаем аудио захват
-    g_audioCapture = std::make_unique<WASAPIAudioCapture>();
-    if (g_audioCapture->Initialize(g_currentSource.type, g_currentSource.id)) {
-        g_audioCapture->StartCapture();
-        audioStarted = true;
+    // Запускаем аудио захват с поддержкой захвата от приложений
+    if (g_currentSource.type == "window") {
+        try {
+            HWND hwnd = (HWND)std::stoull(g_currentSource.id);
+            
+            if (IsWindow(hwnd)) {
+                g_appAudioCapture = std::make_unique<ApplicationAudioCapture>();
+                
+                if (g_appAudioCapture->InitializeForApplication(hwnd)) {
+                    g_appAudioCapture->StartCapture();
+                    audioStarted = true;
+                    OutputDebugStringA("Started application-specific audio capture\n");
+                } else {
+                    if (g_appAudioCapture->InitializeForSystemAudio()) {
+                        g_appAudioCapture->StartCapture();
+                        audioStarted = true;
+                        OutputDebugStringA("Fallback to system audio capture\n");
+                    }
+                }
+            }
+        } catch (...) {
+            OutputDebugStringA("Exception in window audio capture\n");
+        }
+    } else {
+        g_appAudioCapture = std::make_unique<ApplicationAudioCapture>();
+        if (g_appAudioCapture->InitializeForSystemAudio()) {
+            g_appAudioCapture->StartCapture();
+            audioStarted = true;
+            OutputDebugStringA("Started system audio capture\n");
+        }
     }
     
     g_capture_active = videoStarted || audioStarted;
@@ -1189,9 +1184,9 @@ napi_value StopCapture(napi_env env, napi_callback_info info) {
         g_screenCapture.reset();
     }
     
-    if (g_audioCapture) {
-        g_audioCapture->StopCapture();
-        g_audioCapture.reset();
+    if (g_appAudioCapture) {
+        g_appAudioCapture->StopCapture();
+        g_appAudioCapture.reset();
     }
     
     napi_value result;
@@ -1215,34 +1210,30 @@ napi_value SetWebRTCVideoCallback(napi_env env, napi_callback_info info) {
         return nullptr;
     }
     
-    // Удаляем старый callback если есть
     if (g_video_tsfn) {
         napi_release_threadsafe_function(g_video_tsfn, napi_tsfn_release);
         g_video_tsfn = nullptr;
     }
     
-    // Создаем новый threadsafe function
     napi_value work_name;
     napi_create_string_utf8(env, "WebRTCVideoCallback", NAPI_AUTO_LENGTH, &work_name);
     
     napi_create_threadsafe_function(
         env,
-        argv[0],  // JavaScript функция
-        nullptr,  // async_resource
-        work_name,  // async_resource_name
-        0,  // max_queue_size (unlimited)
-        1,  // initial_thread_count
-        nullptr,  // thread_finalize_data
-        nullptr,  // thread_finalize_cb
-        nullptr,  // context
+        argv[0],
+        nullptr,
+        work_name,
+        0,
+        1,
+        nullptr,
+        nullptr,
+        nullptr,
         [](napi_env env, napi_value js_callback, void* context, void* data) {
-            // Вызывается в главном потоке JavaScript
             VideoFrameData* frameData = (VideoFrameData*)data;
             
             napi_value videoInfo;
             napi_create_object(env, &videoInfo);
             
-            // Добавляем метаданные
             napi_value width, height, timestamp, hasRealPixels, frameNumber;
             napi_create_int32(env, frameData->width, &width);
             napi_create_int32(env, frameData->height, &height);
@@ -1256,7 +1247,6 @@ napi_value SetWebRTCVideoCallback(napi_env env, napi_callback_info info) {
             napi_set_named_property(env, videoInfo, "hasRealPixels", hasRealPixels);
             napi_set_named_property(env, videoInfo, "frameNumber", frameNumber);
             
-            // Создаем ArrayBuffer с пикселями
             if (frameData->hasRealPixels && frameData->data) {
                 void* buffer_data;
                 napi_value arrayBuffer;
@@ -1265,14 +1255,12 @@ napi_value SetWebRTCVideoCallback(napi_env env, napi_callback_info info) {
                 napi_set_named_property(env, videoInfo, "data", arrayBuffer);
             }
             
-            // Вызываем JavaScript callback
             napi_value global;
             napi_get_global(env, &global);
             
             napi_value result;
             napi_status status = napi_call_function(env, global, js_callback, 1, &videoInfo, &result);
             
-            // Очищаем память
             delete[] frameData->data;
             delete frameData;
         },
@@ -1295,41 +1283,37 @@ napi_value SetWebRTCAudioCallback(napi_env env, napi_callback_info info) {
         return nullptr;
     }
     
-    // Удаляем старый callback если есть
     if (g_audio_tsfn) {
         napi_release_threadsafe_function(g_audio_tsfn, napi_tsfn_release);
         g_audio_tsfn = nullptr;
     }
     
-    // Создаем новый threadsafe function
     napi_value work_name;
     napi_create_string_utf8(env, "WebRTCAudioCallback", NAPI_AUTO_LENGTH, &work_name);
     
     napi_create_threadsafe_function(
         env,
-        argv[0],  // JavaScript функция
-        nullptr,  // async_resource
-        work_name,  // async_resource_name
-        0,  // max_queue_size (unlimited)
-        1,  // initial_thread_count
-        nullptr,  // thread_finalize_data
-        nullptr,  // thread_finalize_cb
-        nullptr,  // context
+        argv[0],
+        nullptr,
+        work_name,
+        0,
+        1,
+        nullptr,
+        nullptr,
+        nullptr,
         [](napi_env env, napi_value js_callback, void* context, void* data) {
-            // Вызывается в главном потоке JavaScript
             AudioFrameData* frameData = (AudioFrameData*)data;
             
             napi_value audioInfo;
             napi_create_object(env, &audioInfo);
             
-            // Добавляем метаданные
             napi_value sampleRate, channels, timestamp, numSamples, frameNumber, source;
             napi_create_int32(env, frameData->sampleRate, &sampleRate);
             napi_create_int32(env, frameData->channels, &channels);
             napi_create_double(env, frameData->timestamp, &timestamp);
             napi_create_int32(env, frameData->numSamples, &numSamples);
             napi_create_double(env, (double)g_audio_frame_count.load(), &frameNumber);
-            napi_create_string_utf8(env, frameData->isSystemAudio ? "system" : "microphone", 
+            napi_create_string_utf8(env, frameData->isSystemAudio ? "system" : "application", 
                                    NAPI_AUTO_LENGTH, &source);
             
             napi_set_named_property(env, audioInfo, "sampleRate", sampleRate);
@@ -1339,7 +1323,13 @@ napi_value SetWebRTCAudioCallback(napi_env env, napi_callback_info info) {
             napi_set_named_property(env, audioInfo, "frameNumber", frameNumber);
             napi_set_named_property(env, audioInfo, "source", source);
             
-            // Создаем ArrayBuffer с сэмплами
+            if (!frameData->applicationName.empty()) {
+                napi_value appName;
+                napi_create_string_utf8(env, frameData->applicationName.c_str(), 
+                                       NAPI_AUTO_LENGTH, &appName);
+                napi_set_named_property(env, audioInfo, "applicationName", appName);
+            }
+            
             if (frameData->samples) {
                 void* buffer_data;
                 napi_value arrayBuffer;
@@ -1353,14 +1343,12 @@ napi_value SetWebRTCAudioCallback(napi_env env, napi_callback_info info) {
                 napi_set_named_property(env, audioInfo, "dataSize", dataSizeVal);
             }
             
-            // Вызываем JavaScript callback
             napi_value global;
             napi_get_global(env, &global);
             
             napi_value result;
             napi_status status = napi_call_function(env, global, js_callback, 1, &audioInfo, &result);
             
-            // Очищаем память
             delete[] frameData->samples;
             delete frameData;
         },
@@ -1374,7 +1362,6 @@ napi_value SetWebRTCAudioCallback(napi_env env, napi_callback_info info) {
 
 // Инициализация модуля
 napi_value Init(napi_env env, napi_value exports) {
-    // Базовые методы
     napi_property_descriptor desc[] = {
         {"testMethod", nullptr, TestMethod, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"getAvailableSources", nullptr, GetAvailableSources, nullptr, nullptr, nullptr, napi_default, nullptr},
