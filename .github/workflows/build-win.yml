@@ -11,20 +11,14 @@ jobs:
   build-windows:
     runs-on: windows-2022
     
-    strategy:
-      matrix:
-        node-version: [18, 20]
-        architecture: [x64]
-    
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
     
-    - name: Setup Node.js ${{ matrix.node-version }}
+    - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: ${{ matrix.node-version }}
-        architecture: ${{ matrix.architecture }}
+        node-version: '18'
         
     - name: Setup Python
       uses: actions/setup-python@v5
@@ -42,40 +36,62 @@ jobs:
         version-sdk: '22621'
         features: 'OptionId.DesktopCPPx64'
         
-    - name: Setup Visual Studio environment
-      uses: ilammy/msvc-dev-cmd@v1
-      with:
-        arch: x64
-        
     - name: Install node-gyp globally
       run: npm install -g node-gyp
         
-    - name: Navigate to module directory
+    - name: Check directory structure
       working-directory: native-addon/win
       run: |
-        echo "Current directory:"
+        echo "=== Current directory ==="
         pwd
-        echo "Files in directory:"
+        echo ""
+        echo "=== Files in root ==="
         dir
-        echo "Source files:"
+        echo ""
+        echo "=== Files in src/ ==="
         dir src
+        echo ""
+        echo "=== Checking main.cpp ==="
+        if (Test-Path "src\main.cpp") {
+          echo "✓ Found main.cpp in src/"
+          $size = (Get-Item "src\main.cpp").Length
+          echo "  Size: $size bytes"
+        } else {
+          echo "✗ main.cpp not found in src/!"
+          exit 1
+        }
+        echo ""
+        echo "=== Checking audio_format.h ==="
+        if (Test-Path "src\audio_format.h") {
+          echo "✓ Found audio_format.h in src/"
+        } else {
+          echo "✗ audio_format.h not found in src/!"
+          exit 1
+        }
+        echo ""
+        echo "=== Content of binding.gyp ==="
+        type binding.gyp
+      shell: pwsh
         
     - name: Install dependencies
       working-directory: native-addon/win
       run: |
-        npm ci || npm install
-        npm install node-addon-api@latest
+        npm install
+        npm install node-addon-api
         
     - name: Clean previous builds
       working-directory: native-addon/win
       run: |
-        if (Test-Path build) { Remove-Item -Recurse -Force build }
+        if (Test-Path build) { 
+          echo "Removing old build directory..."
+          Remove-Item -Recurse -Force build 
+        }
         node-gyp clean
       shell: pwsh
         
     - name: Configure build
       working-directory: native-addon/win
-      run: node-gyp configure --verbose --msvs_version=2022
+      run: node-gyp configure --verbose
         
     - name: Build native module
       working-directory: native-addon/win
@@ -86,130 +102,30 @@ jobs:
       run: |
         echo "Build output:"
         dir build\Release
-        echo "File details:"
-        powershell -Command "Get-Item build\Release\capture.node | Select-Object Name, Length, LastWriteTime | Format-List"
+        echo "File size:"
+        powershell -Command "(Get-Item build\Release\capture.node).Length"
         
-    - name: Test module loading
+    - name: Test module
       working-directory: native-addon/win
       run: |
-        echo "Testing module..."
-        node -e "try { const m = require('./build/Release/capture.node'); console.log('Module loaded:', m.testMethod()); process.exit(0); } catch(e) { console.error('Failed:', e); process.exit(1); }"
-        
-    - name: Run full tests
-      working-directory: native-addon/win
-      run: npm test
+        echo "Running tests..."
+        npm test
       continue-on-error: false
-        
-    - name: Create version info
-      working-directory: native-addon/win
-      run: |
-        echo "{`"node`": `"${{ matrix.node-version }}`", `"arch`": `"${{ matrix.architecture }}`", `"built`": `"$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')`"}" > build/Release/version.json
-      shell: pwsh
         
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       if: success()
       with:
-        name: capture-node${{ matrix.node-version }}-${{ matrix.architecture }}
-        path: |
-          native-addon/win/build/Release/capture.node
-          native-addon/win/build/Release/version.json
+        name: windows-capture-module
+        path: native-addon/win/build/Release/capture.node
         retention-days: 30
         
-    - name: Upload build logs on failure
+    - name: Upload build logs
       uses: actions/upload-artifact@v4
       if: failure()
       with:
-        name: build-logs-node${{ matrix.node-version }}
+        name: build-logs
         path: |
-          native-addon/win/build/**/*.log
+          native-addon/win/build/
           native-addon/win/npm-debug.log
         retention-days: 7
-
-  create-release:
-    needs: build-windows
-    runs-on: ubuntu-latest
-    if: success() && github.ref == 'refs/heads/main'
-    
-    steps:
-    - name: Download artifacts
-      uses: actions/download-artifact@v4
-      with:
-        path: artifacts
-        
-    - name: Display artifacts
-      run: |
-        echo "Downloaded artifacts:"
-        find artifacts -type f -name "*.node" -exec ls -lh {} \;
-        
-    - name: Create Release
-      id: create_release
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: v1.0.${{ github.run_number }}
-        release_name: Release v1.0.${{ github.run_number }}
-        body: |
-          ## Windows Native Capture Module
-          
-          ### Features
-          - ✅ Screen/Window capture via DXGI
-          - ✅ Application-specific audio capture
-          - ✅ System audio capture fallback
-          - ✅ Process-based audio filtering
-          
-          ### Supported Node.js versions
-          - Node.js 18.x
-          - Node.js 20.x
-          
-          ### Changes
-          - Application audio capture support
-          - Improved audio session monitoring
-          - Process-based filtering
-          
-          Built on: ${{ github.event.head_commit.timestamp }}
-          Commit: ${{ github.sha }}
-        draft: false
-        prerelease: false
-        
-    - name: Upload Release Assets
-      uses: actions/github-script@v7
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        script: |
-          const fs = require('fs').promises;
-          const path = require('path');
-          
-          const release_id = '${{ steps.create_release.outputs.id }}';
-          const upload_url = '${{ steps.create_release.outputs.upload_url }}';
-          
-          async function uploadAsset(filePath, name) {
-            const data = await fs.readFile(filePath);
-            await github.rest.repos.uploadReleaseAsset({
-              url: upload_url,
-              headers: {
-                'content-type': 'application/octet-stream',
-                'content-length': data.length
-              },
-              name: name,
-              data: data
-            });
-            console.log(`Uploaded ${name}`);
-          }
-          
-          // Найдем и загрузим все .node файлы
-          const artifactsDir = 'artifacts';
-          const dirs = await fs.readdir(artifactsDir);
-          
-          for (const dir of dirs) {
-            const nodePath = path.join(artifactsDir, dir, 'capture.node');
-            try {
-              await fs.access(nodePath);
-              const newName = `capture-${dir}.node`;
-              await uploadAsset(nodePath, newName);
-            } catch (e) {
-              console.log(`Skipping ${dir}: ${e.message}`);
-            }
-          }

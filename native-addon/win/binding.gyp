@@ -1,11 +1,12 @@
 {
   "targets": [{
-    "target_name": "native_capture",
+    "target_name": "capture",
     "sources": [
-      "main.cpp"
+      "src/main.cpp"
     ],
     "include_dirs": [
-      "<!@(node -p \"require('node-addon-api').include\")"
+      "<!@(node -p \"require('node-addon-api').include\")",
+      "src"
     ],
     "dependencies": [
       "<!(node -p \"require('node-addon-api').gyp\")"
@@ -29,7 +30,6 @@
           "-ldwmapi.lib",
           "-lpsapi.lib",
           "-lwinmm.lib",
-          "-lruntimeobject.lib",
           "-lmmdevapi.lib",
           "-lpropsys.lib"
         ],
@@ -40,7 +40,9 @@
               "/std:c++17",
               "/EHsc"
             ],
-            "RuntimeLibrary": 2
+            "RuntimeLibrary": 2,
+            "WarningLevel": 3,
+            "DisableSpecificWarnings": ["4996", "4244", "4267"]
           },
           "VCLinkerTool": {
             "AdditionalOptions": [
