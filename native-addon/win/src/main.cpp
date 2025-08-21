@@ -104,31 +104,56 @@ struct EnumWindowsData {
     std::vector<CaptureSource>* sources;
 };
 
-double GetTimestamp() {
-    // Ваш код остается без изменений
-    #ifdef _WIN32
-        static LARGE_INTEGER frequency;
-        static LARGE_INTEGER startTime;
-        static bool initialized = false;
+struct SimpleSyncManager {
+    LARGE_INTEGER frequency;
+    LARGE_INTEGER startTime;
+    double audioLatencyMs = 0.0;  // Компенсация задержки аудио
+    double videoLatencyMs = 0.0;  // Компенсация задержки видео
+    bool initialized = false;
+    
+    void Initialize() {
+        QueryPerformanceFrequency(&frequency);
+        QueryPerformanceCounter(&startTime);
+        initialized = true;
         
-        if (!initialized) {
-            QueryPerformanceFrequency(&frequency);
-            QueryPerformanceCounter(&startTime);
-            initialized = true;
-        }
+        // На Windows типичная задержка:
+        // - WASAPI loopback: ~10-20ms
+        // - DXGI: ~5-10ms
+        // Компенсируем разницу
+        audioLatencyMs = 15.0;  // Среднее для WASAPI
+        videoLatencyMs = 7.0;   // Среднее для DXGI
+    }
+    
+    double GetTimestamp() {
+        if (!initialized) Initialize();
         
         LARGE_INTEGER currentTime;
         QueryPerformanceCounter(&currentTime);
         
-        // Возвращаем в миллисекундах для совместимости с JS
-        double elapsed = (double)(currentTime.QuadPart - startTime.QuadPart);
-        return (elapsed / frequency.QuadPart) * 1000.0;
-    #else
-        // Для других платформ оставляем как было
-        static auto start = std::chrono::high_resolution_clock::now();
-        auto now = std::chrono::high_resolution_clock::now();
-        return std::chrono::duration<double, std::milli>(now - start).count();
-    #endif
+        double elapsedSeconds = (double)(currentTime.QuadPart - startTime.QuadPart) 
+                               / (double)frequency.QuadPart;
+        return elapsedSeconds * 1000.0; // В миллисекундах
+    }
+    
+    double GetAudioTimestamp() {
+        // Вычитаем задержку аудио для синхронизации
+        return GetTimestamp() - audioLatencyMs;
+    }
+    
+    double GetVideoTimestamp() {
+        // Вычитаем задержку видео для синхронизации
+        return GetTimestamp() - videoLatencyMs;
+    }
+    
+    void Reset() {
+        QueryPerformanceCounter(&startTime);
+    }
+};
+
+static SimpleSyncManager g_syncManager;
+
+double GetTimestamp() {
+    return g_syncManager.GetTimestamp();
 }
 
 // Класс для захвата экрана через DXGI
@@ -314,7 +339,7 @@ public:
             VideoFrameData* frameData = new VideoFrameData();
             frameData->width = targetWidth;
             frameData->height = targetHeight;
-            frameData->timestamp = GetPreciseVideoTimestamp();
+            frameData->timestamp = g_syncManager.GetVideoTimestamp(); // ИСПОЛЬЗУЕМ СИНХРОНИЗИРОВАННОЕ ВРЕМЯ
             frameData->hasRealPixels = true;
             
             // Масштабируем если нужно
@@ -488,7 +513,6 @@ public:
         #ifdef AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM
             streamFlags |= AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM;
         #endif
-
         
         hr = audioClient->Initialize(
             AUDCLNT_SHAREMODE_SHARED,
@@ -603,7 +627,7 @@ public:
         size_t sampleCount = numFrames * waveFormat->nChannels;
         std::vector<float> samples(sampleCount);
         
-        // === КРИТИЧНОЕ ИЗМЕНЕНИЕ №1: Правильная конвертация для Windows ===
+        // === КРИТИЧЕСКОЕ ИЗМЕНЕНИЕ №1: Правильная конвертация для Windows ===
         if (waveFormat->wFormatTag == WAVE_FORMAT_EXTENSIBLE) {
             // Для EXTENSIBLE проверяем SubFormat
             WAVEFORMATEXTENSIBLE* pWaveFormatExt = (WAVEFORMATEXTENSIBLE*)waveFormat;
@@ -632,27 +656,17 @@ public:
             ConvertPCMToFloat(data, samples.data(), sampleCount, waveFormat->wBitsPerSample);
         }
         
-        // === КРИТИЧНОЕ ИЗМЕНЕНИЕ №2: Добавляем временную метку ===
-        double currentTimestamp = GetPreciseTimestamp(); // Используем новый GetTimestamp
+        // === КРИТИЧЕСКОЕ ИЗМЕНЕНИЕ №2: Добавляем временную метку ===
+        double currentTimestamp = g_syncManager.GetAudioTimestamp(); // ИСПОЛЬЗУЕМ СИНХРОНИЗИРОВАННОЕ ВРЕМЯ
         
-        // Добавляем в буфер с точной меткой времени
+        // Накапливаем в буфер
         {
             std::lock_guard<std::mutex> lock(bufferMutex);
-            
-            // Сохраняем timestamp для каждого пакета
-            AudioPacketInfo packetInfo;
-            packetInfo.timestamp = currentTimestamp;
-            packetInfo.samples = samples;
-            packetInfo.numFrames = numFrames;
-            
-            audioPacketQueue.push_back(packetInfo);
-            
-            // Копируем samples в accumulation buffer
             accumulationBuffer.insert(accumulationBuffer.end(), 
                                     samples.begin(), samples.end());
         }
         
-        // === КРИТИЧНОЕ ИЗМЕНЕНИЕ №3: Передаем timestamp в SendBufferedFrames ===
+        // === КРИТИЧЕСКОЕ ИЗМЕНЕНИЕ №3: Передаем timestamp в SendBufferedFrames ===
         SendBufferedFrames(currentTimestamp);
     }
 
@@ -693,7 +707,7 @@ public:
     
     void SendBufferedFrames(double baseTimestamp = -1) {
         if (baseTimestamp < 0) {
-            baseTimestamp = GetPreciseTimestamp();
+            baseTimestamp = g_syncManager.GetAudioTimestamp();
         }
         
         while (true) {
@@ -709,12 +723,11 @@ public:
             frameData->sampleRate = waveFormat->nSamplesPerSec;
             frameData->channels = waveFormat->nChannels;
             
-            // ВАЖНО: Точный расчет timestamp для каждого фрейма
-            // Учитываем продолжительность предыдущих фреймов
-            double frameDurationMs = (TARGET_FRAME_SIZE * 1000.0) / waveFormat->nSamplesPerSec;
+            // Точный расчет времени для каждого фрейма
             frameData->timestamp = baseTimestamp;
             
-            // Обновляем baseTimestamp для следующего фрейма
+            // Сдвигаем timestamp для следующего фрейма
+            double frameDurationMs = (TARGET_FRAME_SIZE * 1000.0) / waveFormat->nSamplesPerSec;
             baseTimestamp += frameDurationMs;
             
             frameData->isSystemAudio = isSystemAudio;
@@ -731,7 +744,6 @@ public:
             
             lock.unlock();
             
-            // Отправляем с точным timestamp
             g_audio_frame_count++;
             
             if (g_audio_tsfn) {
@@ -1101,6 +1113,11 @@ napi_value SetCaptureQuality(napi_env env, napi_callback_info info) {
 
 // Начало захвата
 napi_value StartCapture(napi_env env, napi_callback_info info) {
+    // === НОВОЕ: Инициализируем синхронизацию ===
+    g_syncManager.Initialize();
+    g_syncManager.Reset();
+    OutputDebugStringA("Sync manager initialized\n");
+    
     // Останавливаем предыдущий захват
     if (g_screenCapture) {
         g_screenCapture->StopCapture();
@@ -1130,7 +1147,7 @@ napi_value StartCapture(napi_env env, napi_callback_info info) {
         if (g_screenCapture->Initialize(displayId)) {
             // Применяем настройки качества
             std::lock_guard<std::mutex> lock(g_quality.mutex);
-            g_screenCapture->SetQuality(1, 1, 1);
+            g_screenCapture->SetQuality(g_quality.width, g_quality.height, g_quality.fps);
             
             g_screenCapture->StartCapture();
             videoStarted = true;
