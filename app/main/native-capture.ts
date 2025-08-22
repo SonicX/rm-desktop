@@ -81,8 +81,8 @@ export class NativeCaptureManager {
     private addonType: 'mac-swift' | 'windows-cpp' | 'unknown' = 'unknown';
     private debugCallback?: (packetInfo: any) => void; // 🆕
 
-    private useWindowsSync: boolean = false;
-    private windowsSyncBuffer?: AudioSyncBuffer;
+    // private useWindowsSync: boolean = false;
+    // private windowsSyncBuffer?: AudioSyncBuffer;
 
     // 🆕 НОВЫЙ МЕТОД - установка debug callback
     setDebugCallback(callback: (packetInfo: any) => void): void {
@@ -117,17 +117,49 @@ export class NativeCaptureManager {
           audioFrameCount: 0,
           callbacks: {}
       };
-        if (!addon) {
-            this.loadAddon(); // Загружаем только если не передан
-        }
+        // if (!addon) {
+        this.loadAddon(); // Загружаем только если не передан
+        // }
+
+        this.detectAddonType();
         this.registerHandlers();
-        if (this.addonType === 'windows-cpp' && process.platform === 'win32') {
-                this.useWindowsSync = true;
-                this.windowsSyncBuffer = new AudioSyncBuffer(48000);
-                log.info("[NATIVE-CAPTURE] Windows sync mode ENABLED");
+    }
+
+    private detectAddonType(): void {
+        console.log("🪟 [detectAddonType] Start detect");
+        if (typeof this.state.addon.getAvailableSources === 'function') {
+            // Проверяем наличие testMethod для определения Windows плагина
+            console.log("🪟 [detectAddonType] Start more");
+            if (typeof this.state.addon.testMethod === 'function') {
+                try {
+                    const testResult = this.state.addon.testMethod();
+                    if (testResult && testResult.includes('Windows')) {
+                        this.addonType = 'windows-cpp';
+                        console.log("🪟 [detectAddonType] Detected Windows C++ addon");
+                        return;
+                    }
+                } catch (e) {
+                    console.log("🪟 [detectAddonType] Error 1");
+                }
+            }
+            
+            // Проверка на Mac Swift плагин
+            if (typeof this.state.addon.startAudioOnlyCapture === 'function') {
+                this.addonType = 'mac-swift';
+                console.log("🍎 [detectAddonType] Detected macOS Swift addon");
+            } else if (process.platform === 'win32') {
+                // Если мы на Windows и есть базовые методы - это Windows плагин
+                this.addonType = 'windows-cpp';
+                console.log("🪟 [detectAddonType] Detected Windows C++ addon (by platform)");
+            } else {
+                this.addonType = 'unknown';
+                console.log("❓[detectAddonType] Unknown addon type");
+            }
         } else {
-                log.info("[NATIVE-CAPTURE] Using standard mode (macOS or other)");
+            this.addonType = 'unknown';
+            console.log("❓[detectAddonType] Unknown addon type - no getAvailableSources");
         }
+        console.log("🪟 [detectAddonType] End detect");
     }
 
     async startAudioOnlyCapture(sourceId: string): Promise<{ success: boolean; error?: string }> {
@@ -498,21 +530,6 @@ export class NativeCaptureManager {
         }
     }
 
-    private detectAddonType(): void {
-        if (typeof this.state.addon.getAvailableSources === 'function') {
-            if (typeof this.state.addon.startAudioOnlyCapture === 'function') {
-            this.addonType = 'mac-swift'; // Ваш текущий Swift плагин
-            log.info("🍎 Detected macOS Swift addon");
-            } else {
-            this.addonType = 'windows-cpp'; // Новый Windows плагин
-            log.info("🪟 Detected Windows C++ addon");
-            }
-        } else {
-            this.addonType = 'unknown';
-            log.warn("❓ Unknown addon type");
-        }
-    }
-
     private getRequiredMethods(): string[] {
         const baseMethods = ['getAvailableSources', 'startCapture', 'stopCapture', 
                             'setWebRTCVideoCallback', 'setWebRTCAudioCallback'];
@@ -672,6 +689,25 @@ export class NativeCaptureManager {
         return { healthy, details, addonType: this.addonType };
     }
 
+    private async syncTimeWithNative(): Promise<void> {
+        if (!this.state.addon || typeof this.state.addon.syncTimeBase !== 'function') {
+            log.warn("[NATIVE-CAPTURE] syncTimeBase not available");
+            return;
+        }
+        
+        try {
+            // Синхронизируем несколько раз для точности
+            for (let i = 0; i < 3; i++) {
+                const jsTime = performance.now();
+                await this.state.addon.syncTimeBase(jsTime);
+                await new Promise(resolve => setTimeout(resolve, 10));
+            }
+            log.info("[NATIVE-CAPTURE] Time synchronized with native addon");
+        } catch (error: any) {
+            log.error(`[NATIVE-CAPTURE] Time sync failed: ${error.message}`);
+        }
+    }
+
     async startCapture(sourceId: string): Promise<{ success: boolean; error?: string }> {
         if (!this.state.addon) {
             return { success: false, error: "Native addon not loaded" };
@@ -679,6 +715,10 @@ export class NativeCaptureManager {
         
         if (this.state.isCapturing) {
             await this.stopCapture();
+        }
+
+        if (this.addonType === 'windows-cpp') {
+            await this.syncTimeWithNative();
         }
         
         try {
@@ -836,6 +876,52 @@ export class NativeCaptureManager {
         }
     }
 
+    private decodeAudioData(
+        arrayBuffer: ArrayBuffer, 
+        samples: number, 
+        channels: number
+    ): { leftChannel: Float32Array; rightChannel: Float32Array } {
+        
+        const float32Data = new Float32Array(arrayBuffer);
+        const leftChannel = new Float32Array(samples);
+        const rightChannel = new Float32Array(samples);
+        
+        // Windows использует INTERLEAVED формат (L,R,L,R,L,R...)
+        // 480 samples * 2 channels * 4 bytes = 3840 bytes
+        if (arrayBuffer.byteLength === samples * channels * 4) {
+            // Interleaved формат
+            for (let i = 0; i < samples; i++) {
+                leftChannel[i] = float32Data[i * 2];
+                rightChannel[i] = float32Data[i * 2 + 1];
+            }
+        } else {
+            console.log(`[DECODE] Unexpected buffer size: ${arrayBuffer.byteLength} bytes for ${samples} samples`);
+            // Пробуем прочитать как есть
+            for (let i = 0; i < samples && i < float32Data.length / 2; i++) {
+                leftChannel[i] = float32Data[i * 2] || 0;
+                rightChannel[i] = float32Data[i * 2 + 1] || 0;
+            }
+        }
+        
+        // Проверка на валидность
+        let hasData = false;
+        let maxAmp = 0;
+        for (let i = 0; i < Math.min(100, samples); i++) {
+            const absLeft = Math.abs(leftChannel[i]);
+            const absRight = Math.abs(rightChannel[i]);
+            maxAmp = Math.max(maxAmp, absLeft, absRight);
+            if (absLeft > 0.00001 || absRight > 0.00001) {
+                hasData = true;
+            }
+        }
+        
+        if (this.state.audioFrameCount === 1 || this.state.audioFrameCount % 100 === 0) {
+            console.log(`[DECODE] Frame ${this.state.audioFrameCount}: maxAmp=${maxAmp.toFixed(4)}, hasData=${hasData}`);
+        }
+        
+        return { leftChannel, rightChannel };
+    }
+
     private setupCallbacks(): void {
         if (!this.state.addon) return;
 
@@ -900,47 +986,193 @@ export class NativeCaptureManager {
         this.state.addon.setWebRTCAudioCallback((audioData: any) => {
             this.state.audioFrameCount++;
 
+            // Критично для Windows: проверяем формат данных
             if (this.state.audioFrameCount === 1) {
-                    log.info("First audio frame:", {
-                        hasData: !!audioData?.data,
-                        dataByteLength: audioData?.data?.byteLength,
-                        sampleRate: audioData?.sampleRate,
-                        channels: audioData?.channels,
-                        source: audioData?.source
+                console.log("[NATIVE-CAPTURE] First audio frame structure:", {
+                    hasData: !!audioData?.data,
+                    dataType: audioData?.data?.constructor?.name,
+                    dataByteLength: audioData?.data?.byteLength,
+                    sampleRate: audioData?.sampleRate,
+                    channels: audioData?.channels,
+                    numSamples: audioData?.numSamples,
+                    source: audioData?.source || audioData?.applicationName
                 });
+                
+                // Проверяем реальные данные
+                if (audioData?.data && audioData.data.byteLength > 0) {
+                    const testArray = new Float32Array(audioData.data);
+                    let maxAmp = 0;
+                    for (let i = 0; i < Math.min(100, testArray.length); i++) {
+                        maxAmp = Math.max(maxAmp, Math.abs(testArray[i]));
+                    }
+                    console.log(`[NATIVE-CAPTURE] First frame max amplitude: ${maxAmp.toFixed(4)}`);
+                    console.log(`[NATIVE-CAPTURE] First 10 samples: ${Array.from(testArray.slice(0, 10)).map(v => v.toFixed(4)).join(', ')}`);
+                }
             }
 
-            if (this.useWindowsSync && this.windowsSyncBuffer) {
+            // Обработка в зависимости от платформы
+            if (this.addonType === 'windows-cpp' && this.useWindowsSync) {
                 this.processWindowsAudioWithSync(audioData);
             } else {
                 this.processStandardAudio(audioData);
             }
-            if (this.state.audioFrameCount % 100 === 0) {
-                log.info(`Audio frames: ${this.state.audioFrameCount}`);
-            }
             
+            if (this.state.audioFrameCount % 100 === 0) {
+                console.log(`[NATIVE-CAPTURE] Audio frames: ${this.state.audioFrameCount}`);
+            }
         });
         
         log.info("Native capture callbacks setup complete");
     }
 
+    private processNativeAudio(audioData: any): void {
+        if (!this.state.window || this.state.window.isDestroyed()) return;
+        
+        this.state.audioFrameCount++;
+        
+        // Добавляем диагностику
+        if (this.state.audioFrameCount <= 5 || this.state.audioFrameCount % 50 === 0) {
+            log.info(`[PROCESS-AUDIO] Frame ${this.state.audioFrameCount}:`, {
+                hasData: !!audioData?.data,
+                dataByteLength: audioData?.data?.byteLength,
+                numSamples: audioData?.numSamples,
+                channels: audioData?.channels
+            });
+        }
+        
+        try {
+            const arrayBuffer = audioData.data;
+            const samples = audioData.numSamples || 960;
+            const channels = audioData.channels || 2;
+            
+            // КРИТИЧНО: Исправляем декодирование для Windows
+            const { leftChannel, rightChannel } = this.decodeAudioDataWindows(arrayBuffer, samples, channels);
+            
+            // Анализируем уровни
+            const levels = this.analyzeAudioLevels(leftChannel, rightChannel);
+            
+            if (this.state.audioFrameCount % 50 === 0) {
+                log.info(`[STREAM-ELECTRON] Audio: Frame ${this.state.audioFrameCount}, ` +
+                        `L=${levels.maxLeft.toFixed(4)}, R=${levels.maxRight.toFixed(4)}, ` +
+                        `hasAudio=${levels.hasAudio}`);
+            }
+            
+            // Если данные пустые, проверяем альтернативное декодирование
+            if (!levels.hasAudio && this.state.audioFrameCount <= 10) {
+                log.warn(`[AUDIO-DECODE] No audio detected, trying alternative decode`);
+                // Пробуем другой формат декодирования
+                const altDecode = this.tryAlternativeDecode(arrayBuffer, samples, channels);
+                if (altDecode.hasAudio) {
+                    log.info(`[AUDIO-DECODE] Alternative decode successful!`);
+                    leftChannel.set(altDecode.left);
+                    rightChannel.set(altDecode.right);
+                }
+            }
+            
+            const { processedLeft, processedRight } = this.normalizeAudio(
+                leftChannel, 
+                rightChannel, 
+                levels
+            );
+            
+            this.sendAudioToJitsi(processedLeft, processedRight, samples);
+            
+        } catch (error: any) {
+            log.error(`[STREAM-ELECTRON] processNativeAudio ERROR: ${error.message}`);
+        }
+    }
+
+    private decodeAudioDataWindows(
+        arrayBuffer: ArrayBuffer, 
+        samples: number, 
+        channels: number
+    ): { leftChannel: Float32Array; rightChannel: Float32Array } {
+        
+        let leftChannel = new Float32Array(samples);
+        let rightChannel = new Float32Array(samples);
+        
+        if (!arrayBuffer || arrayBuffer.byteLength === 0) {
+            log.warn('[AUDIO-DECODE] Empty buffer received');
+            return { leftChannel, rightChannel };
+        }
+        
+        const dataView = new DataView(arrayBuffer);
+        const bytesPerSample = 4; // Float32
+        const expectedSize = samples * channels * bytesPerSample;
+        
+        log.info(`[AUDIO-DECODE] Buffer size: ${arrayBuffer.byteLength}, Expected: ${expectedSize}`);
+        
+        // Windows C++ addon может отправлять данные в разных форматах
+        if (arrayBuffer.byteLength === samples * channels * bytesPerSample) {
+            // Проверяем, интерливд или планарный формат
+            
+            // Сначала пробуем интерливд (L,R,L,R,...)
+            let hasDataInterleaved = false;
+            for (let i = 0; i < samples; i++) {
+                const leftSample = dataView.getFloat32((i * channels) * bytesPerSample, true);
+                const rightSample = channels > 1 ? 
+                    dataView.getFloat32((i * channels + 1) * bytesPerSample, true) : 
+                    leftSample;
+                
+                leftChannel[i] = leftSample;
+                rightChannel[i] = rightSample;
+                
+                if (Math.abs(leftSample) > 0.00001 || Math.abs(rightSample) > 0.00001) {
+                    hasDataInterleaved = true;
+                }
+            }
+            
+            // Если интерливд пустой, пробуем планарный (LLLL...RRRR...)
+            if (!hasDataInterleaved) {
+                log.info('[AUDIO-DECODE] Interleaved was empty, trying planar format');
+                
+                const samplesPerChannel = arrayBuffer.byteLength / (channels * bytesPerSample);
+                for (let i = 0; i < samplesPerChannel; i++) {
+                    leftChannel[i] = dataView.getFloat32(i * bytesPerSample, true);
+                    if (channels > 1) {
+                        const rightOffset = samplesPerChannel * bytesPerSample;
+                        rightChannel[i] = dataView.getFloat32(rightOffset + i * bytesPerSample, true);
+                    } else {
+                        rightChannel[i] = leftChannel[i];
+                    }
+                }
+            }
+        }
+        
+        return { leftChannel, rightChannel };
+    }
+
     private processStandardAudio(audioData: any): void {
-        // Передаем ArrayBuffer напрямую
         if (audioData && audioData.data && audioData.data.byteLength > 0) {
+            // Для отладки - проверяем реальные данные
+            if (this.state.audioFrameCount % 100 === 0) {
+                const float32 = new Float32Array(audioData.data);
+                let maxAmp = 0;
+                for (let i = 0; i < Math.min(100, float32.length); i++) {
+                    maxAmp = Math.max(maxAmp, Math.abs(float32[i]));
+                }
+                console.log(`[STANDARD-AUDIO] Frame ${this.state.audioFrameCount}: maxAmp=${maxAmp.toFixed(4)}, bytes=${audioData.data.byteLength}`);
+            }
+            
             if (this.state.callbacks.audio) {
-                this.state.callbacks.audio({
+                // Для Windows важно передать правильные numSamples
+                const correctedData = {
                     data: audioData.data, // ArrayBuffer как есть
                     sampleRate: audioData?.sampleRate || 48000,
                     channels: audioData?.channels || 2,
-                    numSamples: audioData?.numSamples || 960,
-                    source: audioData?.source || 'unknown'
-                });
-                        
+                    numSamples: audioData?.numSamples || 480, // Windows использует 480!
+                    source: audioData?.source || audioData?.applicationName || 'unknown'
+                };
+                
+                this.state.callbacks.audio(correctedData);
+                
                 if (this.state.audioFrameCount === 1) {
-                    log.info("✅ First audio frame sent to callback");
+                    console.log("✅ First audio frame sent to callback");
                 }
             }
-        }    
+        } else {
+            console.log(`[STANDARD-AUDIO] Empty frame ${this.state.audioFrameCount}`);
+        }
     }
 
     private processWindowsAudioWithSync(audioData: any): void {

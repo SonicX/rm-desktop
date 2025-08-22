@@ -1695,6 +1695,13 @@ export class JitsiManager {
             if (!audioResult.success) {
                 return { success: false, error: audioResult.error };
             }
+
+            // ДОБАВЛЯЕМ ПРОВЕРКУ: убеждаемся что окно существует
+            if (!this.state.window || this.state.window.isDestroyed()) {
+                log.error("[STREAM-ELECTRON] Window lost after audio capture start");
+                await this.nativeCapture.stopCapture();
+                return { success: false, error: "Window lost" };
+            }
             
             // 2. Получаем информацию об источнике
             const sourceInfo = await this.getNativeSourceInfo(sourceId);
@@ -1706,12 +1713,43 @@ export class JitsiManager {
                 await this.nativeCapture.stopCapture();
                 return { success: false, error: "No matching Electron source" };
             }
+
+            log.info(`[STREAM-ELECTRON] Creating hybrid stream with Electron source: ${electronSourceId}`);
+
             
             // 4. Создаем гибридный поток в Jitsi
             const streamResult = await this.createHybridStreamInJitsi(electronSourceId);
-            if (!streamResult.success) {
+
+            // ДОБАВЛЯЕМ ДЕТАЛЬНУЮ ПРОВЕРКУ
+            if (!streamResult || !streamResult.success) {
+                log.error("[STREAM-ELECTRON] Failed to create hybrid stream:", streamResult);
                 await this.nativeCapture.stopCapture();
-                return streamResult;
+                return { success: false, error: streamResult?.error || "Failed to create stream" };
+            }
+
+            // ПРОВЕРЯЕМ, что буферы действительно созданы
+            const bufferCheck = await this.state.window.webContents.executeJavaScript(`
+                (function() {
+                    const check = {
+                        hasLeftBuffer: !!window.leftRingBuffer,
+                        hasRightBuffer: !!window.rightRingBuffer,
+                        hasWindowsBuffer: !!window.windowsRingBuffer,
+                        isNativeActive: !!window.isNativeActive,
+                        hasAudioContext: !!window.nativeAudioContext,
+                        hasStream: !!window.jitsiNativeMediaStream,
+                        streamId: window.jitsiNativeMediaStream?.id || null
+                    };
+                    console.log('[BUFFER-CHECK]', check);
+                    return check;
+                })();
+            `);
+            
+            log.info("[STREAM-ELECTRON] Buffer check:", bufferCheck);
+
+            if (!bufferCheck.hasLeftBuffer || !bufferCheck.hasRightBuffer) {
+                log.error("[STREAM-ELECTRON] Buffers not created!");
+                await this.nativeCapture.stopCapture();
+                return { success: false, error: "Audio buffers not initialized" };
             }
             
             // 5. Настраиваем callbacks для аудио
@@ -1919,23 +1957,29 @@ export class JitsiManager {
         log.info(`[STREAM-ELECTRON] >>> createHybridStreamInJitsi: ${electronSourceId}`);
         
         if (!this.state.window || this.state.window.isDestroyed()) {
-            log.error("[STREAM-ELECTRON] <<< createHybridStreamInJitsi: No window");
+            log.error("[STREAM-ELECTRON] No window");
             return { success: false, error: "No window" };
         }
         
-        // ВАЖНО: Получаем текущие настройки качества
         const qualitySettings = this.videoQualityManager.getCurrentSettings();
-        log.info(`[STREAM-ELECTRON] Using quality preset: ${qualitySettings.name} - ${qualitySettings.description}`);
-        log.info(`[STREAM-ELECTRON] Video constraints: ${qualitySettings.width.min}-${qualitySettings.width.max}x${qualitySettings.height.min}-${qualitySettings.height.max} @ ${qualitySettings.frameRate.min}-${qualitySettings.frameRate.max}fps`);
         
         try {
             const result = await this.state.window.webContents.executeJavaScript(`
                 (async function() {
                     const isWindows = ${this.isWindowsPlatform()};
-                    console.log('[STREAM-ELECTRON] Creating hybrid stream, platform:', isWindows ? 'Windows' : 'macOS');
+                    console.log('[HYBRID] Creating hybrid stream, platform:', isWindows ? 'Windows' : 'macOS');
                     
                     try {
-                        // 1. Получаем VIDEO - одинаково для всех платформ
+                        // ОЧИЩАЕМ СТАРЫЕ БУФЕРЫ
+                        if (window.leftRingBuffer || window.rightRingBuffer || window.windowsRingBuffer) {
+                            console.log('[HYBRID] Cleaning old buffers...');
+                            window.leftRingBuffer = null;
+                            window.rightRingBuffer = null;
+                            window.windowsRingBuffer = null;
+                        }
+                        
+                        // 1. Получаем VIDEO от Electron
+                        console.log('[HYBRID] Getting video stream...');
                         const videoStream = await navigator.mediaDevices.getUserMedia({
                             audio: false,
                             video: {
@@ -1953,8 +1997,13 @@ export class JitsiManager {
                         });
                         
                         const videoTrack = videoStream.getVideoTracks()[0];
+                        if (!videoTrack) {
+                            throw new Error('No video track');
+                        }
+                        console.log('[HYBRID] Got video track');
                         
                         // 2. Создаем AUDIO контекст
+                        console.log('[HYBRID] Creating audio context...');
                         const audioContext = new AudioContext({ 
                             sampleRate: 48000, 
                             latencyHint: 'interactive' 
@@ -1962,165 +2011,119 @@ export class JitsiManager {
                         
                         const scriptProcessor = audioContext.createScriptProcessor(2048, 0, 2);
                         
-                        // 3. Создаем буферы - разные для разных платформ
-                        if (isWindows) {
-                            // Windows-специфичный буфер с синхронизацией
-                            class WindowsSyncRingBuffer {
-                                constructor(size) {
-                                    this.leftBuffer = new Float32Array(size);
-                                    this.rightBuffer = new Float32Array(size);
-                                    this.timestamps = new Float32Array(size);
-                                    this.writeIndex = 0;
-                                    this.readIndex = 0;
-                                    this.availableSamples = 0;
-                                    this.size = size;
-                                }
-                                
-                                writeWithTimestamp(leftData, rightData, timestamp) {
-                                    for (let i = 0; i < leftData.length; i++) {
-                                        this.leftBuffer[this.writeIndex] = leftData[i];
-                                        this.rightBuffer[this.writeIndex] = rightData[i];
-                                        this.timestamps[this.writeIndex] = timestamp + (i / 48000 * 1000);
-                                        this.writeIndex = (this.writeIndex + 1) % this.size;
-                                        this.availableSamples = Math.min(this.availableSamples + 1, this.size);
-                                    }
-                                }
-                                
-                                read(leftOutput, rightOutput) {
-                                    const samplesToRead = Math.min(leftOutput.length, this.availableSamples);
-                                    for (let i = 0; i < samplesToRead; i++) {
-                                        leftOutput[i] = this.leftBuffer[this.readIndex];
-                                        rightOutput[i] = this.rightBuffer[this.readIndex];
-                                        this.readIndex = (this.readIndex + 1) % this.size;
-                                    }
-                                    for (let i = samplesToRead; i < leftOutput.length; i++) {
-                                        leftOutput[i] = 0;
-                                        rightOutput[i] = 0;
-                                    }
-                                    this.availableSamples = Math.max(0, this.availableSamples - samplesToRead);
-                                    return samplesToRead;
-                                }
+                        // 3. КРИТИЧНО: Создаем буферы
+                        console.log('[HYBRID] Creating ring buffers...');
+                        
+                        // Простая реализация RingBuffer
+                        class RingBuffer {
+                            constructor(size) {
+                                this.buffer = new Float32Array(size);
+                                this.writeIndex = 0;
+                                this.readIndex = 0;
+                                this.availableSamples = 0;
+                                this.size = size;
+                                console.log('[RingBuffer] Created with size:', size);
                             }
                             
-                            window.windowsRingBuffer = new WindowsSyncRingBuffer(48000);
-                            
-                            scriptProcessor.onaudioprocess = (event) => {
-                                if (!window.isNativeActive) {
-                                    event.outputBuffer.getChannelData(0).fill(0);
-                                    event.outputBuffer.getChannelData(1).fill(0);
-                                    return;
+                            write(data) {
+                                let written = 0;
+                                for (let i = 0; i < data.length && written < this.size; i++) {
+                                    this.buffer[this.writeIndex] = data[i];
+                                    this.writeIndex = (this.writeIndex + 1) % this.size;
+                                    this.availableSamples = Math.min(this.availableSamples + 1, this.size);
+                                    written++;
                                 }
-                                window.windowsRingBuffer.read(
-                                    event.outputBuffer.getChannelData(0),
-                                    event.outputBuffer.getChannelData(1)
-                                );
-                            };
-                            
-                        } else {
-                            // macOS - СУЩЕСТВУЮЩИЙ КОД БЕЗ ИЗМЕНЕНИЙ
-                            class RingBuffer {
-                                constructor(size) {
-                                    this.buffer = new Float32Array(size);
-                                    this.writeIndex = 0;
-                                    this.readIndex = 0;
-                                    this.availableSamples = 0;
-                                    this.size = size;
-                                }
-                                write(data) {
-                                    for (let i = 0; i < data.length; i++) {
-                                        this.buffer[this.writeIndex] = data[i];
-                                        this.writeIndex = (this.writeIndex + 1) % this.size;
-                                        this.availableSamples = Math.min(this.availableSamples + 1, this.size);
-                                    }
-                                }
-                                read(output) {
-                                    const samplesToRead = Math.min(output.length, this.availableSamples);
-                                    for (let i = 0; i < samplesToRead; i++) {
-                                        output[i] = this.buffer[this.readIndex];
-                                        this.readIndex = (this.readIndex + 1) % this.size;
-                                    }
-                                    for (let i = samplesToRead; i < output.length; i++) {
-                                        output[i] = 0;
-                                    }
-                                    this.availableSamples = Math.max(0, this.availableSamples - samplesToRead);
-                                    return samplesToRead;
-                                }
+                                return written;
                             }
                             
-                            const leftRingBuffer = new RingBuffer(48000);
-                            const rightRingBuffer = new RingBuffer(48000);
-                            
-                            window.leftRingBuffer = leftRingBuffer;
-                            window.rightRingBuffer = rightRingBuffer;
-                            
-                            scriptProcessor.onaudioprocess = (event) => {
-                                if (!window.isNativeActive) {
-                                    event.outputBuffer.getChannelData(0).fill(0);
-                                    event.outputBuffer.getChannelData(1).fill(0);
-                                    return;
+                            read(output) {
+                                const samplesToRead = Math.min(output.length, this.availableSamples);
+                                for (let i = 0; i < samplesToRead; i++) {
+                                    output[i] = this.buffer[this.readIndex];
+                                    this.readIndex = (this.readIndex + 1) % this.size;
                                 }
-                                leftRingBuffer.read(event.outputBuffer.getChannelData(0));
-                                rightRingBuffer.read(event.outputBuffer.getChannelData(1));
-                            };
+                                for (let i = samplesToRead; i < output.length; i++) {
+                                    output[i] = 0;
+                                }
+                                this.availableSamples = Math.max(0, this.availableSamples - samplesToRead);
+                                return samplesToRead;
+                            }
                         }
+                        
+                        // СОЗДАЕМ БУФЕРЫ
+                        window.leftRingBuffer = new RingBuffer(48000);
+                        window.rightRingBuffer = new RingBuffer(48000);
+                        
+                        console.log('[HYBRID] Buffers created:', {
+                            left: !!window.leftRingBuffer,
+                            right: !!window.rightRingBuffer
+                        });
+                        
+                        // 4. Настраиваем обработку аудио
+                        scriptProcessor.onaudioprocess = (event) => {
+                            if (!window.isNativeActive) {
+                                event.outputBuffer.getChannelData(0).fill(0);
+                                event.outputBuffer.getChannelData(1).fill(0);
+                                return;
+                            }
+                            
+                            if (window.leftRingBuffer && window.rightRingBuffer) {
+                                window.leftRingBuffer.read(event.outputBuffer.getChannelData(0));
+                                window.rightRingBuffer.read(event.outputBuffer.getChannelData(1));
+                            }
+                        };
                         
                         const destination = audioContext.createMediaStreamDestination();
                         scriptProcessor.connect(destination);
                         
-                        // 4. Создаем гибридный поток - одинаково для всех
+                        // 5. Создаем гибридный поток
                         const hybridStream = new MediaStream();
                         hybridStream.addTrack(videoTrack);
                         
                         if (destination.stream.getAudioTracks().length > 0) {
                             hybridStream.addTrack(destination.stream.getAudioTracks()[0]);
+                            console.log('[HYBRID] Added audio track');
                         }
                         
-                        // 5. Сохраняем в window
+                        // 6. Сохраняем все в window
                         window.jitsiNativeMediaStream = hybridStream;
                         window.nativeAudioContext = audioContext;
                         window.isNativeActive = true;
                         window.isHybridMode = true;
                         window.audioCounter = 0;
-                        window.platformMode = isWindows ? 'windows-sync' : 'macos-standard';
                         
+                        // 7. Запускаем audio context
                         if (audioContext.state === 'suspended') {
                             await audioContext.resume();
+                            console.log('[HYBRID] Audio context resumed');
                         }
                         
-                        console.log('[STREAM-ELECTRON] ✅ Hybrid stream ready! Mode:', window.platformMode);
-                        
-                        return {
+                        // ФИНАЛЬНАЯ ПРОВЕРКА
+                        const finalCheck = {
                             success: true,
                             streamId: hybridStream.id,
-                            mode: window.platformMode
+                            hasVideo: hybridStream.getVideoTracks().length > 0,
+                            hasAudio: hybridStream.getAudioTracks().length > 0,
+                            hasLeftBuffer: !!window.leftRingBuffer,
+                            hasRightBuffer: !!window.rightRingBuffer,
+                            contextState: audioContext.state
                         };
                         
+                        console.log('[HYBRID] ✅ Final status:', finalCheck);
+                        return finalCheck;
+                        
                     } catch (error) {
-                        console.error('[STREAM-ELECTRON] Error:', error);
+                        console.error('[HYBRID] Error:', error);
                         return { success: false, error: error.message };
                     }
                 })();
             `);
             
-            if (result.success) {
-                if (result.success) {
-                    this.activeMediaStreams.clear();
-                    this.activeMediaStreams.add(result.streamId);
-                    if (result.videoStreamId) {
-                        this.activeMediaStreams.add(result.videoStreamId);
-                    }
-                }
-                log.info(`[STREAM-ELECTRON] <<< createHybridStreamInJitsi SUCCESS`);
-                log.info(`[STREAM-ELECTRON] Quality preset: ${result.qualityPreset}`);
-                log.info(`[STREAM-ELECTRON] Actual quality: ${result.videoQuality}`);
-            } else {
-                log.error(`[STREAM-ELECTRON] <<< createHybridStreamInJitsi FAILED: ${result.error}`);
-            }
-            
+            log.info(`[STREAM-ELECTRON] Hybrid stream result:`, result);
             return result;
             
         } catch (error: any) {
-            log.error(`[STREAM-ELECTRON] <<< createHybridStreamInJitsi ERROR: ${error.message}`);
+            log.error(`[STREAM-ELECTRON] createHybridStreamInJitsi ERROR: ${error.message}`);
             return { success: false, error: error.message };
         }
     }
@@ -2182,13 +2185,97 @@ export class JitsiManager {
         
         this.state.audioFrameCount++;
         
-        // Используем улучшенную обработку ТОЛЬКО для Windows
-        if (this.isWindowsPlatform() && audioData.syncTimestamp) {
-            this.processNativeAudioWindows(audioData);
-        } else {
-            // ДЛЯ macOS - СУЩЕСТВУЮЩИЙ КОД БЕЗ ИЗМЕНЕНИЙ
-            this.processNativeAudioOriginal(audioData);
+        try {
+            // КРИТИЧНО: Правильно интерпретируем ArrayBuffer для Windows
+            const arrayBuffer = audioData.data;
+            const samples = audioData.numSamples || 480; // Windows использует 480, не 960!
+            const channels = audioData.channels || 2;
+            
+            // Для отладки - проверяем сырые данные
+            if (this.state.audioFrameCount === 1 || this.state.audioFrameCount % 100 === 0) {
+                const float32 = new Float32Array(arrayBuffer);
+                let maxAmp = 0;
+                for (let i = 0; i < Math.min(100, float32.length); i++) {
+                    maxAmp = Math.max(maxAmp, Math.abs(float32[i]));
+                }
+                log.info(`[AUDIO-CHECK] Frame ${this.state.audioFrameCount}: maxAmp=${maxAmp.toFixed(4)}, samples=${samples}, bytes=${arrayBuffer.byteLength}`);
+            }
+            
+            // Используем правильный метод декодирования для Windows
+            const { leftChannel, rightChannel } = this.decodeWindowsAudio(arrayBuffer, samples, channels);
+            
+            // Проверяем, что есть реальные данные
+            const levels = this.analyzeAudioLevels(leftChannel, rightChannel);
+            
+            if (this.state.audioFrameCount % 50 === 0) {
+                log.info(`[AUDIO] Frame ${this.state.audioFrameCount}: L=${levels.maxLeft.toFixed(4)}, R=${levels.maxRight.toFixed(4)}, hasAudio=${levels.hasAudio}`);
+            }
+            
+            // Если нет звука, пропускаем нормализацию
+            if (!levels.hasAudio) {
+                log.warn(`[AUDIO] No audio detected in frame ${this.state.audioFrameCount}`);
+            }
+            
+            const { processedLeft, processedRight } = this.normalizeAudio(
+                leftChannel, 
+                rightChannel, 
+                levels
+            );
+            
+            // Отправляем в Jitsi
+            this.sendAudioToJitsi(processedLeft, processedRight, samples);
+            
+        } catch (error: any) {
+            log.error(`[AUDIO] processNativeAudio ERROR: ${error.message}`);
         }
+    }
+
+    private decodeWindowsAudio(
+        arrayBuffer: ArrayBuffer, 
+        samples: number, 
+        channels: number
+    ): { leftChannel: Float32Array; rightChannel: Float32Array } {
+        
+        const float32Data = new Float32Array(arrayBuffer);
+        const leftChannel = new Float32Array(samples);
+        const rightChannel = new Float32Array(samples);
+        
+        // Windows использует INTERLEAVED формат (L,R,L,R,L,R...)
+        if (arrayBuffer.byteLength === samples * channels * 4) {
+            // Interleaved формат
+            for (let i = 0; i < samples; i++) {
+                leftChannel[i] = float32Data[i * 2];
+                rightChannel[i] = float32Data[i * 2 + 1];
+            }
+            
+            // Проверка на валидность
+            let hasData = false;
+            for (let i = 0; i < Math.min(100, samples); i++) {
+                if (Math.abs(leftChannel[i]) > 0.00001 || Math.abs(rightChannel[i]) > 0.00001) {
+                    hasData = true;
+                    break;
+                }
+            }
+            
+            if (!hasData) {
+                log.warn("[AUDIO] No data in interleaved format, trying planar...");
+                // Пробуем planar формат как fallback
+                const halfSize = float32Data.length / 2;
+                for (let i = 0; i < samples && i < halfSize; i++) {
+                    leftChannel[i] = float32Data[i];
+                    rightChannel[i] = float32Data[halfSize + i];
+                }
+            }
+        } else {
+            log.warn(`[AUDIO] Unexpected buffer size: ${arrayBuffer.byteLength} bytes for ${samples} samples`);
+            // Пробуем прочитать как есть
+            for (let i = 0; i < samples && i < float32Data.length / 2; i++) {
+                leftChannel[i] = float32Data[i * 2] || 0;
+                rightChannel[i] = float32Data[i * 2 + 1] || 0;
+            }
+        }
+        
+        return { leftChannel, rightChannel };
     }
     
     // Сохраняем оригинальный метод для macOS
@@ -2223,81 +2310,6 @@ export class JitsiManager {
         }
     }
     
-    // Новый метод только для Windows
-    private processNativeAudioWindows(audioData: any): void {
-        try {
-            const arrayBuffer = audioData.data;
-            const samples = audioData.numSamples || 960;
-            const channels = audioData.channels || 2;
-            const syncTimestamp = audioData.syncTimestamp;
-            
-            const { leftChannel, rightChannel } = this.decodeAudioData(arrayBuffer, samples, channels);
-            
-            // Windows-специфичная нормализация с учетом тайминга
-            const { processedLeft, processedRight } = this.normalizeAudioWithTiming(
-                leftChannel, 
-                rightChannel,
-                syncTimestamp
-            );
-            
-            // Отправляем с синхронизацией
-            this.sendAudioToJitsiWithSync(processedLeft, processedRight, samples, syncTimestamp);
-            
-        } catch (error: any) {
-            log.error(`[WINDOWS-AUDIO] Error: ${error.message}`);
-            // Fallback на оригинальный метод
-            this.processNativeAudioOriginal(audioData);
-        }
-    }
-    
-    // Добавляем новый метод для Windows, не трогая существующий sendAudioToJitsi
-    private sendAudioToJitsiWithSync(
-        leftData: Float32Array, 
-        rightData: Float32Array, 
-        samples: number,
-        timestamp: number
-    ): void {
-        if (!this.state.window || this.state.window.isDestroyed()) return;
-        
-        const jsCode = `
-            (function() {
-                if (!window.isNativeActive) return;
-                
-                const isWindows = ${this.isWindowsPlatform()};
-                const timestamp = ${timestamp};
-                
-                try {
-                    const leftData = [${Array.from(leftData).join(',')}];
-                    const rightData = [${Array.from(rightData).join(',')}];
-                    
-                    if (isWindows && window.windowsRingBuffer) {
-                        // Windows-специфичная буферизация с таймингом
-                        window.windowsRingBuffer.writeWithTimestamp(
-                            new Float32Array(leftData),
-                            new Float32Array(rightData),
-                            timestamp
-                        );
-                    } else if (window.leftRingBuffer && window.rightRingBuffer) {
-                        // Стандартная буферизация для macOS
-                        window.leftRingBuffer.write(new Float32Array(leftData));
-                        window.rightRingBuffer.write(new Float32Array(rightData));
-                    }
-                    
-                    window.audioCounter = (window.audioCounter || 0) + 1;
-                    
-                    if (window.audioCounter % 100 === 0) {
-                        const mode = isWindows ? 'Windows-Sync' : 'Standard';
-                        console.log('[STREAM-ELECTRON] ' + mode + ': ' + window.audioCounter + ' frames');
-                    }
-                } catch (e) {
-                    console.error('[STREAM-ELECTRON] Audio error:', e);
-                }
-            })();
-        `;
-        
-        this.state.window.webContents.executeJavaScript(jsCode).catch(() => {});
-    }
-
     // ===== 7. ДЕКОДИРОВАНИЕ АУДИО =====
     private decodeAudioData(
         arrayBuffer: ArrayBuffer, 
@@ -2395,36 +2407,68 @@ export class JitsiManager {
         
         if (!this.state.window || this.state.window.isDestroyed()) return;
         
+        // Проверяем, что есть реальные данные перед отправкой
+        let maxAmp = 0;
+        for (let i = 0; i < Math.min(100, samples); i++) {
+            maxAmp = Math.max(maxAmp, Math.abs(leftData[i]), Math.abs(rightData[i]));
+        }
+        
+        if (this.state.audioFrameCount === 1 || this.state.audioFrameCount % 100 === 0) {
+            log.info(`[SEND-TO-JITSI] Frame ${this.state.audioFrameCount}: maxAmp=${maxAmp.toFixed(4)}, samples=${samples}`);
+        }
+        
+        // КРИТИЧНО: Для больших массивов используем более эффективный способ
         const jsCode = `
             (function() {
                 if (!window.isNativeActive || !window.leftRingBuffer || !window.rightRingBuffer) {
+                    console.log('[JITSI] Buffer not ready');
                     return;
                 }
                 
                 try {
-                    const leftData = [${Array.from(leftData).join(',')}];
-                    const rightData = [${Array.from(rightData).join(',')}];
+                    // Создаем типизированные массивы напрямую
+                    const leftData = new Float32Array(${samples});
+                    const rightData = new Float32Array(${samples});
                     
-                    window.leftRingBuffer.write(new Float32Array(leftData));
-                    window.rightRingBuffer.write(new Float32Array(rightData));
+                    // Заполняем данными (ограничиваем первые 1000 сэмплов для производительности)
+                    const leftSamples = [${Array.from(leftData.slice(0, Math.min(1000, samples))).join(',')}];
+                    const rightSamples = [${Array.from(rightData.slice(0, Math.min(1000, samples))).join(',')}];
+                    
+                    for (let i = 0; i < Math.min(${samples}, leftSamples.length); i++) {
+                        leftData[i] = leftSamples[i];
+                        rightData[i] = rightSamples[i];
+                    }
+                    
+                    // Проверка на стороне Jitsi
+                    let maxAmp = 0;
+                    for (let i = 0; i < Math.min(100, leftData.length); i++) {
+                        maxAmp = Math.max(maxAmp, Math.abs(leftData[i]), Math.abs(rightData[i]));
+                    }
+                    
+                    window.leftRingBuffer.write(leftData);
+                    window.rightRingBuffer.write(rightData);
                     
                     window.audioCounter = (window.audioCounter || 0) + 1;
                     
                     if (window.audioCounter === 1) {
-                        console.log('[STREAM-ELECTRON] First audio in buffer!');
+                        console.log('[JITSI] First audio in buffer! maxAmp:', maxAmp.toFixed(4));
                     }
                     
                     if (window.audioCounter % 100 === 0) {
                         const bufferMs = window.leftRingBuffer.availableSamples / 48;
-                        console.log('[STREAM-ELECTRON] Audio: ' + window.audioCounter + ' frames, ' + bufferMs.toFixed(0) + 'ms');
+                        console.log('[JITSI] Frame ' + window.audioCounter + 
+                                ', buffer: ' + bufferMs.toFixed(0) + 'ms' + 
+                                ', maxAmp: ' + maxAmp.toFixed(4));
                     }
                 } catch (e) {
-                    console.error('[STREAM-ELECTRON] Audio error:', e);
+                    console.error('[JITSI] Error:', e);
                 }
             })();
         `;
         
-        this.state.window.webContents.executeJavaScript(jsCode).catch(() => {});
+        this.state.window.webContents.executeJavaScript(jsCode).catch((err) => {
+            log.error(`[SEND-TO-JITSI] Execute error: ${err.message}`);
+        });
     }
 
     async handleSourceSelection(sourceId: string): void {
@@ -3114,9 +3158,44 @@ export class JitsiManager {
         }
     }
 
-    private createTestPattern(width: number, height: number, frameNum: number): string {
-        // Этот метод больше не используется, паттерн создается прямо в Jitsi
-        return "";
+    // В jitsi-manager.ts добавляем метод для тестирования
+    async testWindowsAudio(): Promise<void> {
+        if (!this.nativeCapture || !this.nativeCapture.isCapturing) {
+            log.error("[TEST] Native capture not active");
+            return;
+        }
+        
+        log.info("[TEST] Starting Windows audio diagnostic...");
+        
+        let testFrames = 0;
+        const testCallback = (audioData: any) => {
+            testFrames++;
+            
+            const float32 = new Float32Array(audioData.data);
+            let maxAmp = 0;
+            let nonZeroCount = 0;
+            
+            for (let i = 0; i < float32.length; i++) {
+                const absVal = Math.abs(float32[i]);
+                maxAmp = Math.max(maxAmp, absVal);
+                if (absVal > 0.00001) nonZeroCount++;
+            }
+            
+            log.info(`[TEST] Frame ${testFrames}:`, {
+                maxAmplitude: maxAmp.toFixed(4),
+                nonZeroSamples: nonZeroCount,
+                totalSamples: float32.length,
+                percentNonZero: ((nonZeroCount / float32.length) * 100).toFixed(1) + '%',
+                source: audioData.source
+            });
+            
+            if (testFrames >= 10) {
+                log.info("[TEST] Test complete");
+                this.nativeCapture.setFrameCallbacks(undefined, undefined);
+            }
+        };
+        
+        this.nativeCapture.setFrameCallbacks(undefined, testCallback);
     }
 }
 

@@ -418,7 +418,7 @@ private:
     size_t testSignalPhase = 0;
     
     // Режим диагностики
-    bool diagnosticMode = true; // ВКЛЮЧАЕМ для теста
+    bool diagnosticMode = false; // ВКЛЮЧАЕМ для теста
     int diagnosticFrameCount = 0;
     
 public:
