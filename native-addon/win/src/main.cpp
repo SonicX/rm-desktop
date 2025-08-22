@@ -697,21 +697,31 @@ public:
         size_t sampleCount = numFrames * waveFormat->nChannels;
         std::vector<float> samples(sampleCount);
         
-        // Добавляем диагностику
-        static int processCount = 0;
-        processCount++;
+        // ОТЛАДКА: Проверим что приходит от Windows
+        static int debugCounter = 0;
+        debugCounter++;
         
-        // Конвертируем в float (существующий код)
+        // Конвертируем в float
+        bool hasNonZero = false;
+        
         if (waveFormat->wFormatTag == WAVE_FORMAT_IEEE_FLOAT) {
             float* srcFloat = (float*)data;
             for (size_t i = 0; i < sampleCount; i++) {
                 samples[i] = srcFloat[i];
+                if (fabs(samples[i]) > 0.0001f) hasNonZero = true;
             }
         } else if (waveFormat->wFormatTag == WAVE_FORMAT_PCM) {
             if (waveFormat->wBitsPerSample == 16) {
                 INT16* src = (INT16*)data;
                 for (size_t i = 0; i < sampleCount; i++) {
                     samples[i] = src[i] / 32768.0f;
+                    if (fabs(samples[i]) > 0.0001f) hasNonZero = true;
+                }
+            } else if (waveFormat->wBitsPerSample == 32) {
+                INT32* src = (INT32*)data;
+                for (size_t i = 0; i < sampleCount; i++) {
+                    samples[i] = src[i] / 2147483648.0f;
+                    if (fabs(samples[i]) > 0.0001f) hasNonZero = true;
                 }
             }
         } else if (waveFormat->wFormatTag == WAVE_FORMAT_EXTENSIBLE) {
@@ -721,54 +731,56 @@ public:
                 float* srcFloat = (float*)data;
                 for (size_t i = 0; i < sampleCount; i++) {
                     samples[i] = srcFloat[i];
+                    if (fabs(samples[i]) > 0.0001f) hasNonZero = true;
                 }
             } else if (IsEqualGUID(pWaveFormatExt->SubFormat, KSDATAFORMAT_SUBTYPE_PCM)) {
                 if (waveFormat->wBitsPerSample == 16) {
                     INT16* src = (INT16*)data;
                     for (size_t i = 0; i < sampleCount; i++) {
                         samples[i] = src[i] / 32768.0f;
+                        if (fabs(samples[i]) > 0.0001f) hasNonZero = true;
+                    }
+                } else if (waveFormat->wBitsPerSample == 32) {
+                    INT32* src = (INT32*)data;
+                    for (size_t i = 0; i < sampleCount; i++) {
+                        samples[i] = src[i] / 2147483648.0f;
+                        if (fabs(samples[i]) > 0.0001f) hasNonZero = true;
+                    }
+                } else if (waveFormat->wBitsPerSample == 24) {
+                    for (size_t i = 0; i < sampleCount; i++) {
+                        BYTE* samplePtr = data + (i * 3);
+                        INT32 sample = (samplePtr[0] | (samplePtr[1] << 8) | (samplePtr[2] << 16));
+                        if (sample & 0x800000) sample |= 0xFF000000;
+                        samples[i] = sample / 8388608.0f;
+                        if (fabs(samples[i]) > 0.0001f) hasNonZero = true;
                     }
                 }
             }
         }
         
-        // ДИАГНОСТИКА: Проверяем уровень звука ДО фильтрации
-        if (processCount % 50 == 0) { // Каждые 50 пакетов
-            float maxSample = 0.0f;
-            float avgSample = 0.0f;
-            for (size_t i = 0; i < sampleCount; i++) {
-                float absSample = fabs(samples[i]);
-                if (absSample > maxSample) maxSample = absSample;
-                avgSample += absSample;
-            }
-            avgSample /= sampleCount;
-            
+        // ОТЛАДКА: Выводим информацию о первых нескольких пакетах
+        if (debugCounter <= 5 || debugCounter % 100 == 0) {
             char log[512];
-            sprintf_s(log, "[AUDIO-DEBUG] Packet %d: Frames=%u, Samples=%zu, Max=%.4f, Avg=%.6f, Format=%d, Bits=%d\n",
-                    processCount, numFrames, sampleCount, maxSample, avgSample, 
-                    waveFormat->wFormatTag, waveFormat->wBitsPerSample);
+            sprintf_s(log, "[AUDIO-DEBUG] Frame %d: Format=0x%X, Bits=%d, Channels=%d, Samples=%u, HasData=%s\n",
+                    debugCounter, waveFormat->wFormatTag, waveFormat->wBitsPerSample,
+                    waveFormat->nChannels, numFrames, hasNonZero ? "YES" : "NO");
             OutputDebugStringA(log);
             
-            // Если есть звук на входе
-            if (maxSample > 0.001f) {
-                OutputDebugStringA("[AUDIO-DEBUG] ✓ Audio signal detected on input!\n");
-            } else {
-                OutputDebugStringA("[AUDIO-DEBUG] ✗ No audio signal (silence)\n");
-            }
-        }
-        
-        // Применяем фильтрацию (если targetProcessId != 0)
-        if (targetProcessId != 0) {
-            // ApplyProcessFilter(samples); // ВРЕМЕННО ОТКЛЮЧЕНО
-            
-            if (processCount % 50 == 0) {
-                char log[256];
-                sprintf_s(log, "[AUDIO-DEBUG] Skipping filter for PID %lu (testing)\n", targetProcessId);
+            if (hasNonZero && debugCounter <= 5) {
+                // Выводим первые несколько значений
+                sprintf_s(log, "[AUDIO-DEBUG] First samples: %.4f, %.4f, %.4f, %.4f, %.4f\n",
+                        samples[0], samples[1], samples[2], samples[3], samples[4]);
                 OutputDebugStringA(log);
             }
         }
         
-        // Продолжаем с буферизацией...
+        // НЕ применяем фильтрацию если targetProcessId == 0 (системный звук)
+        if (targetProcessId != 0) {
+            // Применяем фильтрацию только для конкретного приложения
+            ApplyProcessFilter(samples);
+        }
+        
+        // Добавляем в буфер
         {
             std::lock_guard<std::mutex> lock(bufferMutex);
             accumulationBuffer.insert(accumulationBuffer.end(), 
@@ -779,17 +791,10 @@ public:
     }
     
     void ApplyProcessFilter(std::vector<float>& samples) {
-        // ВРЕМЕННО ОТКЛЮЧАЕМ ФИЛЬТРАЦИЮ ДЛЯ ОТЛАДКИ
+        // ВРЕМЕННО ОТКЛЮЧЕНО для отладки
+        return;
         
-        char log[256];
-        sprintf_s(log, "[AUDIO-FILTER] Process %lu, Active: %s, Volume: %.2f\n", 
-                targetProcessId, 
-                isTargetProcessActive.load() ? "YES" : "NO",
-                targetProcessVolume.load());
-        OutputDebugStringA(log);
-        
-        // Закомментируем фильтрацию для теста
-        /*
+        /* Оригинальный код фильтрации
         if (!isTargetProcessActive) {
             for (auto& sample : samples) {
                 sample *= 0.1f;
@@ -803,9 +808,6 @@ public:
             }
         }
         */
-        
-        // Пока просто пропускаем весь звук без изменений
-        // Это позволит проверить, что захват работает
     }
     
     void SendBufferedFrames() {
@@ -833,9 +835,25 @@ public:
             size_t frameSampleCount = TARGET_FRAME_SIZE * waveFormat->nChannels;
             frameData->samples = new float[frameSampleCount];
             
+            // ВАЖНО: Копируем данные правильно
             std::copy(accumulationBuffer.begin(), 
                     accumulationBuffer.begin() + frameSampleCount,
                     frameData->samples);
+            
+            // ОТЛАДКА: Проверяем что отправляем
+            static int sendCounter = 0;
+            sendCounter++;
+            if (sendCounter <= 5 || sendCounter % 100 == 0) {
+                float maxVal = 0;
+                for (size_t i = 0; i < frameSampleCount; i++) {
+                    maxVal = std::max(maxVal, std::abs(frameData->samples[i]));
+                }
+                
+                char log[256];
+                sprintf_s(log, "[SEND-DEBUG] Sending frame %d: max=%.4f, samples=%d\n",
+                        sendCounter, maxVal, frameData->numSamples);
+                OutputDebugStringA(log);
+            }
             
             accumulationBuffer.erase(accumulationBuffer.begin(), 
                                 accumulationBuffer.begin() + frameSampleCount);
