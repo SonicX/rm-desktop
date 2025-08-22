@@ -846,7 +846,7 @@ public:
             if (sendCounter <= 5 || sendCounter % 100 == 0) {
                 float maxVal = 0;
                 for (size_t i = 0; i < frameSampleCount; i++) {
-                    maxVal = std::max(maxVal, std::abs(frameData->samples[i]));
+                    maxVal = (std::max)(maxVal, std::abs(frameData->samples[i]));
                 }
                 
                 char log[256];
