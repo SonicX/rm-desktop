@@ -697,6 +697,11 @@ public:
         size_t sampleCount = numFrames * waveFormat->nChannels;
         std::vector<float> samples(sampleCount);
         
+        // Добавляем диагностику
+        static int processCount = 0;
+        processCount++;
+        
+        // Конвертируем в float (существующий код)
         if (waveFormat->wFormatTag == WAVE_FORMAT_IEEE_FLOAT) {
             float* srcFloat = (float*)data;
             for (size_t i = 0; i < sampleCount; i++) {
@@ -727,10 +732,43 @@ public:
             }
         }
         
-        if (targetProcessId != 0) {
-            ApplyProcessFilter(samples);
+        // ДИАГНОСТИКА: Проверяем уровень звука ДО фильтрации
+        if (processCount % 50 == 0) { // Каждые 50 пакетов
+            float maxSample = 0.0f;
+            float avgSample = 0.0f;
+            for (size_t i = 0; i < sampleCount; i++) {
+                float absSample = fabs(samples[i]);
+                if (absSample > maxSample) maxSample = absSample;
+                avgSample += absSample;
+            }
+            avgSample /= sampleCount;
+            
+            char log[512];
+            sprintf_s(log, "[AUDIO-DEBUG] Packet %d: Frames=%u, Samples=%zu, Max=%.4f, Avg=%.6f, Format=%d, Bits=%d\n",
+                    processCount, numFrames, sampleCount, maxSample, avgSample, 
+                    waveFormat->wFormatTag, waveFormat->wBitsPerSample);
+            OutputDebugStringA(log);
+            
+            // Если есть звук на входе
+            if (maxSample > 0.001f) {
+                OutputDebugStringA("[AUDIO-DEBUG] ✓ Audio signal detected on input!\n");
+            } else {
+                OutputDebugStringA("[AUDIO-DEBUG] ✗ No audio signal (silence)\n");
+            }
         }
         
+        // Применяем фильтрацию (если targetProcessId != 0)
+        if (targetProcessId != 0) {
+            // ApplyProcessFilter(samples); // ВРЕМЕННО ОТКЛЮЧЕНО
+            
+            if (processCount % 50 == 0) {
+                char log[256];
+                sprintf_s(log, "[AUDIO-DEBUG] Skipping filter for PID %lu (testing)\n", targetProcessId);
+                OutputDebugStringA(log);
+            }
+        }
+        
+        // Продолжаем с буферизацией...
         {
             std::lock_guard<std::mutex> lock(bufferMutex);
             accumulationBuffer.insert(accumulationBuffer.end(), 
@@ -741,6 +779,17 @@ public:
     }
     
     void ApplyProcessFilter(std::vector<float>& samples) {
+        // ВРЕМЕННО ОТКЛЮЧАЕМ ФИЛЬТРАЦИЮ ДЛЯ ОТЛАДКИ
+        
+        char log[256];
+        sprintf_s(log, "[AUDIO-FILTER] Process %lu, Active: %s, Volume: %.2f\n", 
+                targetProcessId, 
+                isTargetProcessActive.load() ? "YES" : "NO",
+                targetProcessVolume.load());
+        OutputDebugStringA(log);
+        
+        // Закомментируем фильтрацию для теста
+        /*
         if (!isTargetProcessActive) {
             for (auto& sample : samples) {
                 sample *= 0.1f;
@@ -753,6 +802,10 @@ public:
                 }
             }
         }
+        */
+        
+        // Пока просто пропускаем весь звук без изменений
+        // Это позволит проверить, что захват работает
     }
     
     void SendBufferedFrames() {
