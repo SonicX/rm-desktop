@@ -411,6 +411,15 @@ private:
     
     LARGE_INTEGER performanceFrequency;
     LARGE_INTEGER captureStartTime;
+
+    bool enableTestSignal = false;
+    float testSignalFrequency = 440.0f; // Частота ноты Ля
+    float testSignalAmplitude = 0.3f;
+    size_t testSignalPhase = 0;
+    
+    // Режим диагностики
+    bool diagnosticMode = true; // ВКЛЮЧАЕМ для теста
+    int diagnosticFrameCount = 0;
     
 public:
     bool InitializeForApplication(HWND hwnd) {
@@ -697,11 +706,11 @@ public:
         size_t sampleCount = numFrames * waveFormat->nChannels;
         std::vector<float> samples(sampleCount);
         
-        // ОТЛАДКА: Проверим что приходит от Windows
+        // ДИАГНОСТИКА: Проверяем что приходит от Windows
         static int debugCounter = 0;
         debugCounter++;
         
-        // Конвертируем в float
+        // Конвертируем в float (существующий код)
         bool hasNonZero = false;
         
         if (waveFormat->wFormatTag == WAVE_FORMAT_IEEE_FLOAT) {
@@ -758,25 +767,84 @@ public:
             }
         }
         
-        // ОТЛАДКА: Выводим информацию о первых нескольких пакетах
-        if (debugCounter <= 5 || debugCounter % 100 == 0) {
-            char log[512];
-            sprintf_s(log, "[AUDIO-DEBUG] Frame %d: Format=0x%X, Bits=%d, Channels=%d, Samples=%u, HasData=%s\n",
-                    debugCounter, waveFormat->wFormatTag, waveFormat->wBitsPerSample,
-                    waveFormat->nChannels, numFrames, hasNonZero ? "YES" : "NO");
-            OutputDebugStringA(log);
+        // ============================================
+        // ТЕСТОВЫЙ РЕЖИМ: Генерация тестового сигнала
+        // ============================================
+        if (diagnosticMode) {
+            diagnosticFrameCount++;
             
-            if (hasNonZero && debugCounter <= 5) {
-                // Выводим первые несколько значений
-                sprintf_s(log, "[AUDIO-DEBUG] First samples: %.4f, %.4f, %.4f, %.4f, %.4f\n",
-                        samples[0], samples[1], samples[2], samples[3], samples[4]);
-                OutputDebugStringA(log);
+            // Первые 5 секунд - генерируем тестовый сигнал
+            // Следующие 5 секунд - реальный захват
+            // Потом снова тестовый и т.д.
+            int cyclePosition = (diagnosticFrameCount / 100) % 2; // Меняем каждые ~2 секунды при 48kHz
+            
+            if (cyclePosition == 0) {
+                // ГЕНЕРИРУЕМ ТЕСТОВЫЙ СИГНАЛ (синусоида 440 Гц)
+                float omega = 2.0f * 3.14159265f * testSignalFrequency / waveFormat->nSamplesPerSec;
+                
+                for (size_t i = 0; i < numFrames; i++) {
+                    float sampleValue = testSignalAmplitude * sinf(omega * testSignalPhase);
+                    testSignalPhase++;
+                    
+                    // Записываем во все каналы
+                    for (UINT ch = 0; ch < waveFormat->nChannels; ch++) {
+                        samples[i * waveFormat->nChannels + ch] = sampleValue;
+                    }
+                }
+                
+                // Логируем переключение на тестовый сигнал
+                if (diagnosticFrameCount % 100 == 1) {
+                    char log[256];
+                    sprintf_s(log, "[TEST-SIGNAL] Frame %d: Generating 440Hz sine wave, amplitude=%.2f\n",
+                            diagnosticFrameCount, testSignalAmplitude);
+                    OutputDebugStringA(log);
+                }
+                
+                hasNonZero = true; // Гарантируем что есть данные
+            } else {
+                // РЕАЛЬНЫЙ ЗАХВАТ - добавляем маркер для идентификации
+                // Добавляем очень тихий пилот-тон 1kHz чтобы отличить от тишины
+                float pilotFreq = 1000.0f;
+                float pilotAmp = 0.001f; // Очень тихий
+                float omega = 2.0f * 3.14159265f * pilotFreq / waveFormat->nSamplesPerSec;
+                
+                for (size_t i = 0; i < sampleCount; i++) {
+                    samples[i] += pilotAmp * sinf(omega * (testSignalPhase + i));
+                }
+                testSignalPhase += sampleCount;
+                
+                if (diagnosticFrameCount % 100 == 51) {
+                    char log[256];
+                    sprintf_s(log, "[REAL-CAPTURE] Frame %d: Real audio + pilot tone, hasData=%s\n",
+                            diagnosticFrameCount, hasNonZero ? "YES" : "NO");
+                    OutputDebugStringA(log);
+                }
             }
         }
         
-        // НЕ применяем фильтрацию если targetProcessId == 0 (системный звук)
-        if (targetProcessId != 0) {
-            // Применяем фильтрацию только для конкретного приложения
+        // ============================================
+        // ДЕТАЛЬНАЯ ДИАГНОСТИКА
+        // ============================================
+        if (debugCounter <= 10 || debugCounter % 100 == 0) {
+            // Вычисляем RMS (среднеквадратичное) для оценки громкости
+            float rms = 0;
+            float maxSample = 0;
+            for (size_t i = 0; i < sampleCount && i < 1000; i++) {
+                rms += samples[i] * samples[i];
+                if (fabs(samples[i]) > maxSample) maxSample = fabs(samples[i]);
+            }
+            rms = sqrt(rms / min(sampleCount, (size_t)1000));
+            
+            char log[512];
+            sprintf_s(log, "[AUDIO-DIAG] Frame %d: Format=0x%X, Bits=%d, Ch=%d, Samples=%u, RMS=%.6f, Max=%.6f, Mode=%s\n",
+                    debugCounter, waveFormat->wFormatTag, waveFormat->wBitsPerSample,
+                    waveFormat->nChannels, numFrames, rms, maxSample,
+                    diagnosticMode ? (diagnosticFrameCount/100 % 2 == 0 ? "TEST_SIGNAL" : "REAL+PILOT") : "NORMAL");
+            OutputDebugStringA(log);
+        }
+        
+        // НЕ применяем фильтрацию в режиме диагностики
+        if (!diagnosticMode && targetProcessId != 0) {
             ApplyProcessFilter(samples);
         }
         
@@ -826,7 +894,14 @@ public:
             frameData->timestamp = g_syncManager.GetAudioTimestamp();
             frameData->isSystemAudio = (targetProcessId == 0);
             
-            if (!applicationName.empty()) {
+            // В режиме диагностики добавляем маркер
+            if (diagnosticMode) {
+                char diagName[256];
+                sprintf_s(diagName, "DIAG_%s_%s", 
+                        (diagnosticFrameCount/100 % 2 == 0) ? "TEST" : "REAL",
+                        applicationName.empty() ? "System" : "App");
+                frameData->applicationName = diagName;
+            } else if (!applicationName.empty()) {
                 char appName[256] = {0};
                 wcstombs(appName, applicationName.c_str(), sizeof(appName) - 1);
                 frameData->applicationName = appName;
@@ -835,23 +910,26 @@ public:
             size_t frameSampleCount = TARGET_FRAME_SIZE * waveFormat->nChannels;
             frameData->samples = new float[frameSampleCount];
             
-            // ВАЖНО: Копируем данные правильно
             std::copy(accumulationBuffer.begin(), 
                     accumulationBuffer.begin() + frameSampleCount,
                     frameData->samples);
             
-            // ОТЛАДКА: Проверяем что отправляем
+            // ДИАГНОСТИКА: Проверяем что отправляем
             static int sendCounter = 0;
             sendCounter++;
-            if (sendCounter <= 5 || sendCounter % 100 == 0) {
+            if (sendCounter <= 10 || sendCounter % 100 == 0) {
                 float maxVal = 0;
+                float rms = 0;
                 for (size_t i = 0; i < frameSampleCount; i++) {
                     maxVal = (std::max)(maxVal, std::abs(frameData->samples[i]));
+                    rms += frameData->samples[i] * frameData->samples[i];
                 }
+                rms = sqrt(rms / frameSampleCount);
                 
                 char log[256];
-                sprintf_s(log, "[SEND-DEBUG] Sending frame %d: max=%.4f, samples=%d\n",
-                        sendCounter, maxVal, frameData->numSamples);
+                sprintf_s(log, "[SEND-DIAG] Sending frame %d: RMS=%.6f, MAX=%.6f, samples=%d, source=%s\n",
+                        sendCounter, rms, maxVal, frameData->numSamples,
+                        frameData->applicationName.c_str());
                 OutputDebugStringA(log);
             }
             
