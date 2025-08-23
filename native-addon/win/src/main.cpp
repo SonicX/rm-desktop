@@ -404,7 +404,7 @@ private:
     std::thread captureThread;
     std::vector<float> accumulationBuffer;
     std::mutex bufferMutex;
-    const int TARGET_FRAME_SIZE = 480;
+    const int TARGET_FRAME_SIZE = 960;
     
     std::atomic<float> targetProcessVolume{0.0f};
     std::atomic<bool> isTargetProcessActive{false};
@@ -490,7 +490,7 @@ public:
         hr = audioClient->Initialize(
             AUDCLNT_SHAREMODE_SHARED,
             AUDCLNT_STREAMFLAGS_LOOPBACK,
-            10000000,
+            20000000,
             0,
             waveFormat,
             nullptr
@@ -630,7 +630,7 @@ public:
         hr = audioClient->Initialize(
             AUDCLNT_SHAREMODE_SHARED,
             AUDCLNT_STREAMFLAGS_LOOPBACK,
-            10000000,
+            20000000,
             0,
             waveFormat,
             nullptr
@@ -654,7 +654,7 @@ public:
         {
             std::lock_guard<std::mutex> lock(bufferMutex);
             accumulationBuffer.clear();
-            accumulationBuffer.reserve(96000);
+            accumulationBuffer.reserve(192000);
         }
         
         HRESULT hr = audioClient->Start();
@@ -697,7 +697,7 @@ public:
                     captureClient->ReleaseBuffer(numFramesAvailable);
                 }
             } else {
-                Sleep(5);
+                Sleep(2);
             }
         }
     }
