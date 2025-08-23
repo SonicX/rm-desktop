@@ -24,6 +24,7 @@
     "build-only": "vite build && npm run copy-addon",
     "copy-addon": "cp native-addon/addon.node dist-electron/native-addon.node",
     "copy-addon-for-win": "cp native-addon/win/capture.node dist-electron/native-addon.node",
+    "build-and-run": "rimraf dist dist-electron && vite build && tsc -p tsconfig.json --skipLibCheck || echo 'TypeScript compilation errors ignored' && copy \"C:\\Users\\Admin\\Documents\\GitHub\\zulip-desktop\\native-addon\\capture.node\" \"dist-electron\\native-addon.node\" && electron dist-electron/index.js",
     "build-for-win": "vite build && npm run copy-addon-for-win",
     "dist-win": "npm run build-for-win && electron-builder --windows --config.win.target=nsis",
     "watch-ts": "tsc -w",

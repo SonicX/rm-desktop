@@ -1157,11 +1157,13 @@ export class NativeCaptureManager {
             if (this.state.callbacks.audio) {
                 // КРИТИЧНО: Правильные numSamples для каждой платформы
                 const isWindows = process.platform === 'win32';
+
                 const correctedData = {
                     data: audioData.data, // ArrayBuffer как есть
                     sampleRate: audioData?.sampleRate || 48000,
                     channels: audioData?.channels || 2,
                     numSamples: audioData?.numSamples || (isWindows ? 480 : 960), // Windows: 480, macOS: 960
+
                     source: audioData?.source || audioData?.applicationName || 'unknown'
                 };
                 
@@ -1174,7 +1176,7 @@ export class NativeCaptureManager {
         } else {
             console.log(`[STANDARD-AUDIO] Empty frame ${this.state.audioFrameCount}`);
         }
-}
+    }
 
     private processWindowsAudioWithSync(audioData: any): void {
         if (!this.windowsSyncBuffer) return;
