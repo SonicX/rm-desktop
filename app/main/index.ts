@@ -620,7 +620,9 @@ async function createMainWindow(): Promise<BrowserWindow> {
             displayName: options.userInfo?.displayName || 'Guest',
             email: options.userInfo?.email || '',
             avatarUrl: options.userInfo?.avatarUrl || '',
-            jwt: options.jwt || ''
+            jwt: options.jwt || '',
+            topic: options.topic || '',
+            stream: options.stream || ''
         });
         
         if (result.success) {

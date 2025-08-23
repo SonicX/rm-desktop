@@ -15,6 +15,7 @@ export class JitsiScreenShareMonitor {
         window.__screenShareMonitor = {
             isSharing: false,
             lastCheckTime: Date.now(),
+            lastStateChangeTime: Date.now(),
             checkInterval: null,
             mutationObserver: null,
             originalFunctions: {},
@@ -29,6 +30,11 @@ export class JitsiScreenShareMonitor {
             if (!window.APP?.store) {
                 console.log('[ScreenShareMonitor] Redux store not ready');
                 return false;
+            }
+
+            if (window.APP.store.__screenShareMonitorIntercepted) {
+                console.log('[ScreenShareMonitor] Redux already intercepted');
+                return true;
             }
 
             const originalDispatch = window.APP.store.dispatch;
@@ -52,6 +58,8 @@ export class JitsiScreenShareMonitor {
                 
                 return originalDispatch.call(this, action);
             };
+
+            window.APP.store.__screenShareMonitorIntercepted = true;
             
             console.log('[ScreenShareMonitor] Redux store intercepted');
             return true;
@@ -63,55 +71,53 @@ export class JitsiScreenShareMonitor {
                 monitor.mutationObserver.disconnect();
             }
 
+            const buttonStates = new WeakMap();
+
             monitor.mutationObserver = new MutationObserver((mutations) => {
                 mutations.forEach((mutation) => {
                     if (mutation.type === 'attributes') {
                         const target = mutation.target;
                         
-                        // ÐŸÑ€Ð¾Ð²ÐµÑ€ÑÐµÐ¼ ÐºÐ½Ð¾Ð¿ÐºÑƒ Ð´ÐµÐ¼Ð¾Ð½ÑÑ‚Ñ€Ð°Ñ†Ð¸Ð¸ ÑÐºÑ€Ð°Ð½Ð°
-                        if (target.matches && (
-                            target.matches('[aria-label*="screen" i]') ||
-                            target.matches('[aria-label*="share" i]') ||
-                            target.matches('[aria-label*="desktop" i]') ||
-                            target.matches('.toolbox-button')
-                        )) {
-                            const wasPressed = mutation.oldValue?.includes('true');
-                            const isPressed = target.getAttribute('aria-pressed') === 'true';
+                        // УЛУЧШЕННАЯ ПРОВЕРКА: Убеждаемся что это именно кнопка screen share
+                        const isScreenShareButton = target.matches && (
+                            target.matches('[aria-label*="screen" i]:not([aria-label*="full" i])') ||
+                            target.matches('[aria-label*="share" i]:not([aria-label*="video" i])') ||
+                            target.matches('[aria-label*="desktop" i]')
+                        ) && !target.matches('[aria-label*="microphone" i]') 
+                        && !target.matches('[aria-label*="audio" i]')
+                        && !target.matches('[aria-label*="mute" i]')
+                        && !target.matches('[aria-label*="camera" i]')
+                        && !target.matches('[aria-label*="video" i]:not([aria-label*="share" i])');
+                        
+                        if (!isScreenShareButton) {
+                            return;
+                        }
+                        
+                        // ДОБАВЛЯЕМ: Получаем сохраненное состояние
+                        const savedState = buttonStates.get(target);
+                        const currentPressed = target.getAttribute('aria-pressed') === 'true';
+                        
+                        // Проверяем изменение только если у нас есть предыдущее состояние
+                        if (savedState !== undefined && savedState !== currentPressed) {
+                            console.log('[ScreenShareMonitor] Screen share button state changed:', 
+                                savedState, '->', currentPressed);
                             
-                            if (wasPressed !== isPressed) {
-                                console.log('[ScreenShareMonitor] Button state changed:', 
-                                    wasPressed, '->', isPressed);
-                                
-                                if (wasPressed && !isPressed) {
-                                    // ÐžÑÑ‚Ð°Ð½Ð¾Ð²ÐºÐ° Ð´ÐµÐ¼Ð¾Ð½ÑÑ‚Ñ€Ð°Ñ†Ð¸Ð¸
-                                    handleScreenShareStopped('button-change');
-                                } else if (!wasPressed && isPressed) {
-                                    // ÐÐ°Ñ‡Ð°Ð»Ð¾ Ð´ÐµÐ¼Ð¾Ð½ÑÑ‚Ñ€Ð°Ñ†Ð¸Ð¸  
-                                    handleScreenShareStarted('button-change');
-                                }
+                            // ВАЖНО: Проверяем реальное состояние демонстрации
+                            const isActuallySharing = checkActualScreenShareState();
+                            
+                            if (savedState && !currentPressed && isActuallySharing) {
+                                // Была нажата, стала не нажата, И демонстрация действительно идет
+                                handleScreenShareStopped('button-change');
+                            } else if (!savedState && currentPressed && !isActuallySharing) {
+                                // Не была нажата, стала нажата, И демонстрации действительно нет
+                                handleScreenShareStarted('button-change');
+                            } else {
+                                console.log('[ScreenShareMonitor] Button state mismatch, actual sharing:', isActuallySharing);
                             }
                         }
-                    }
-                    
-                    // Ð¢Ð°ÐºÐ¶Ðµ Ð¾Ñ‚ÑÐ»ÐµÐ¶Ð¸Ð²Ð°ÐµÐ¼ Ð¸Ð·Ð¼ÐµÐ½ÐµÐ½Ð¸Ñ ÐºÐ»Ð°ÑÑÐ¾Ð²
-                    if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
-                        const target = mutation.target;
-                        if (target.classList && (
-                            target.classList.contains('toolbox-button') ||
-                            target.querySelector?.('[aria-label*="screen" i]')
-                        )) {
-                            const wasToggled = mutation.oldValue?.includes('toggled');
-                            const isToggled = target.classList.contains('toggled');
-                            
-                            if (wasToggled !== isToggled) {
-                                console.log('[ScreenShareMonitor] Button toggled:', 
-                                    wasToggled, '->', isToggled);
-                                    
-                                if (wasToggled && !isToggled) {
-                                    handleScreenShareStopped('button-toggle');
-                                }
-                            }
-                        }
+                        
+                        // Сохраняем новое состояние
+                        buttonStates.set(target, currentPressed);
                     }
                 });
             });
@@ -125,6 +131,36 @@ export class JitsiScreenShareMonitor {
             });
             
             console.log('[ScreenShareMonitor] DOM monitoring started');
+        }
+
+        // ДОБАВЛЯЕМ: Вспомогательная функция для проверки реального состояния
+        function checkActualScreenShareState() {
+            // Способ 1: Через conference API
+            if (window.APP?.conference?.isSharingScreen) {
+                const sharing = window.APP.conference.isSharingScreen();
+                if (sharing) return true;
+            }
+            
+            // Способ 2: Через локальные треки
+            if (window.APP?.conference?.room) {
+                const localTracks = window.APP.conference.room.getLocalTracks();
+                const hasDesktop = localTracks.some(track => 
+                    track.getType?.() === 'video' && 
+                    track.getVideoType?.() === 'desktop'
+                );
+                if (hasDesktop) return true;
+            }
+            
+            // Способ 3: Проверяем наличие активного native stream
+            if (window.jitsiNativeMediaStream && window.isNativeActive) {
+                const tracks = window.jitsiNativeMediaStream.getTracks();
+                const hasActiveVideo = tracks.some(t => 
+                    t.kind === 'video' && t.readyState === 'live'
+                );
+                if (hasActiveVideo) return true;
+            }
+            
+            return false;
         }
 
         // ===== ÐœÐ•Ð¢ÐžÐ” 3: ÐŸÐµÑ€ÐµÑ…Ð²Ð°Ñ‚ ÐºÐ¾Ð½Ñ„ÐµÑ€ÐµÐ½Ñ†Ð¸Ð¸ API =====
@@ -193,16 +229,52 @@ export class JitsiScreenShareMonitor {
                 room.__trackMonitoringEnabled = true;
                 
                 room.on('track.removed', (track) => {
-                    if (track && track.isLocal() && track.getVideoType() === 'desktop') {
-                        console.log('[ScreenShareMonitor] Desktop track removed');
-                        handleScreenShareStopped('track-removed');
+                    console.log('[ScreenShareMonitor] Track removed event, track:', track);
+                    console.log('[ScreenShareMonitor] Track details:', {
+                        isLocal: track?.isLocal?.(),
+                        type: track?.getType?.(),
+                        videoType: track?.getVideoType?.(),
+                        muted: track?.isMuted?.()
+                    });
+                    
+                    // ИСПРАВЛЕНИЕ: Проверяем что это именно VIDEO трек типа desktop
+                    if (track && track.isLocal()) {
+                        const trackType = track.getType?.();
+                        const videoType = track.getVideoType?.();
+                        
+                        // Убеждаемся, что это VIDEO трек И он типа desktop
+                        if (trackType === 'video' && videoType === 'desktop') {
+                            console.log('[ScreenShareMonitor] Desktop VIDEO track removed - triggering stop');
+                            handleScreenShareStopped('track-removed');
+                        } else if (trackType === 'audio') {
+                            console.log('[ScreenShareMonitor] Audio track removed, ignoring for screen share');
+                        } else if (trackType === 'video' && videoType !== 'desktop') {
+                            console.log('[ScreenShareMonitor] Camera video track removed, ignoring');
+                        }
                     }
                 });
-                
+
                 room.on('track.added', (track) => {
-                    if (track && track.isLocal() && track.getVideoType() === 'desktop') {
-                        console.log('[ScreenShareMonitor] Desktop track added');
-                        handleScreenShareStarted('track-added');
+                    console.log('[ScreenShareMonitor] Track added event, track:', track);
+                    console.log('[ScreenShareMonitor] Track details:', {
+                        isLocal: track?.isLocal?.(),
+                        type: track?.getType?.(),
+                        videoType: track?.getVideoType?.(),
+                        muted: track?.isMuted?.()
+                    });
+                    
+                    // ИСПРАВЛЕНИЕ: Аналогично для track.added
+                    if (track && track.isLocal()) {
+                        const trackType = track.getType?.();
+                        const videoType = track.getVideoType?.();
+                        
+                        // Убеждаемся, что это VIDEO трек И он типа desktop
+                        if (trackType === 'video' && videoType === 'desktop') {
+                            console.log('[ScreenShareMonitor] Desktop VIDEO track added - triggering start');
+                            handleScreenShareStarted('track-added');
+                        } else if (trackType === 'audio') {
+                            console.log('[ScreenShareMonitor] Audio track added, ignoring for screen share');
+                        }
                     }
                 });
                 
@@ -223,52 +295,258 @@ export class JitsiScreenShareMonitor {
             console.log('[ScreenShareMonitor] Polling started');
         }
 
-        // ===== ÐžÑÐ½Ð¾Ð²Ð½Ð°Ñ Ñ„ÑƒÐ½ÐºÑ†Ð¸Ñ Ð¿Ñ€Ð¾Ð²ÐµÑ€ÐºÐ¸ ÑÐ¾ÑÑ‚Ð¾ÑÐ½Ð¸Ñ =====
+        // Исправляем функцию checkScreenShareState (примерно строка 293)
         function checkScreenShareState(source) {
             try {
                 let isCurrentlySharing = false;
+                let detectedBy = null;
                 
-                // Ð¡Ð¿Ð¾ÑÐ¾Ð± 1: Ð§ÐµÑ€ÐµÐ· APP.conference
-                if (window.APP?.conference?.isSharingScreen) {
-                    isCurrentlySharing = window.APP.conference.isSharingScreen();
-                }
-                
-                // Ð¡Ð¿Ð¾ÑÐ¾Ð± 2: Ð§ÐµÑ€ÐµÐ· Redux store
-                if (!isCurrentlySharing && window.APP?.store) {
-                    const state = window.APP.store.getState();
-                    const tracks = state['features/base/tracks'];
-                    if (tracks) {
-                        isCurrentlySharing = tracks.some(track => 
-                            track.local && track.videoType === 'desktop'
-                        );
+                // Способ 1: Через локальные треки в conference.room - САМЫЙ НАДЕЖНЫЙ
+                if (window.APP?.conference?.room) {
+                    const localTracks = window.APP.conference.room.getLocalTracks();
+                    const desktopTracks = localTracks.filter(track => 
+                        track.getVideoType && track.getVideoType() === 'desktop'
+                    );
+                    if (desktopTracks.length > 0) {
+                        isCurrentlySharing = true;
+                        detectedBy = 'room.getLocalTracks';
+                        if (source !== 'polling') {
+                            console.log('[ScreenShareMonitor] Found desktop tracks in room:', desktopTracks.length);
+                        }
                     }
                 }
                 
-                // Ð¡Ð¿Ð¾ÑÐ¾Ð± 3: Ð§ÐµÑ€ÐµÐ· JitsiConference
-                if (!isCurrentlySharing && window.APP?.conference?.room) {
-                    const localTracks = window.APP.conference.room.getLocalTracks();
-                    isCurrentlySharing = localTracks.some(track => 
-                        track.getVideoType && track.getVideoType() === 'desktop'
-                    );
+                // Способ 2: Через conference.isSharingScreen()
+                if (!isCurrentlySharing && window.APP?.conference?.isSharingScreen) {
+                    const sharingViaAPI = window.APP.conference.isSharingScreen();
+                    if (sharingViaAPI) {
+                        isCurrentlySharing = true;
+                        detectedBy = 'conference.isSharingScreen';
+                    }
                 }
                 
-                // Ð”ÐµÑ‚ÐµÐºÑ‚Ð¸Ñ€ÑƒÐµÐ¼ Ð¸Ð·Ð¼ÐµÐ½ÐµÐ½Ð¸Ðµ ÑÐ¾ÑÑ‚Ð¾ÑÐ½Ð¸Ñ
+                // ДОБАВЛЯЕМ: Способ 3: Проверяем native stream
+                if (!isCurrentlySharing && window.jitsiNativeMediaStream && window.isNativeActive) {
+                    const videoTracks = window.jitsiNativeMediaStream.getVideoTracks();
+                    const hasActiveVideo = videoTracks.some(t => t.readyState === 'live');
+                    if (hasActiveVideo) {
+                        isCurrentlySharing = true;
+                        detectedBy = 'native.stream';
+                        if (source !== 'polling') {
+                            console.log('[ScreenShareMonitor] Active native stream detected');
+                        }
+                    }
+                }
+                
+                // Способ 4: Через Redux store - только для диагностики
+                if (window.APP?.store) {
+                    const state = window.APP.store.getState();
+                    const tracks = state['features/base/tracks'];
+                    if (tracks) {
+                        const desktopTracks = tracks.filter(track => 
+                            track.local && track.videoType === 'desktop'
+                        );
+                        
+                        const activeDesktopTracks = desktopTracks.filter(track => 
+                            !track.muted && track.participantId
+                        );
+                        
+                        // ИЗМЕНЕНО: Проверяем orphaned треки только если:
+                        // 1. Есть треки в Redux
+                        // 2. НЕТ реального sharing (ни через room, ни через API, ни через native)
+                        // 3. НЕТ активного native stream
+                        if (activeDesktopTracks.length > 0 && !isCurrentlySharing) {
+                            // Дополнительная проверка native stream
+                            let hasActiveNativeStream = false;
+                            if (window.jitsiNativeMediaStream) {
+                                const videoTracks = window.jitsiNativeMediaStream.getVideoTracks();
+                                hasActiveNativeStream = videoTracks.some(t => t.readyState === 'live');
+                            }
+                            
+                            // Это действительно orphaned трек только если нет активного stream
+                            if (!hasActiveNativeStream) {
+                                console.warn('[ScreenShareMonitor] Found TRUE orphaned desktop tracks in Redux:', activeDesktopTracks.length);
+                                
+                                const now = Date.now();
+                                const timeSinceLastChange = now - (monitor.lastStateChangeTime || 0);
+                                
+                                // Очищаем только после задержки
+                                if (timeSinceLastChange > 5000 && !monitor.__cleanupAttempted) {
+                                    monitor.__cleanupAttempted = true;
+                                    console.log('[ScreenShareMonitor] Scheduling cleanup after', timeSinceLastChange, 'ms');
+                                    setTimeout(() => {
+                                        // Финальная проверка перед очисткой
+                                        if (!checkActualScreenShareState()) {
+                                            cleanupOrphanedTracks();
+                                        }
+                                        setTimeout(() => {
+                                            monitor.__cleanupAttempted = false;
+                                        }, 5000);
+                                    }, 2000);
+                                }
+                            } else if (source !== 'polling') {
+                                // Есть активный stream - это НЕ orphaned, а нормальная работа
+                                console.log('[ScreenShareMonitor] Redux tracks present with active native stream - normal operation');
+                            }
+                        } else if (activeDesktopTracks.length > 0 && isCurrentlySharing && source !== 'polling') {
+                            // Треки в Redux соответствуют реальному состоянию
+                            console.log('[ScreenShareMonitor] Redux tracks match actual state');
+                        }
+                        
+                        if (desktopTracks.length > 0 && source !== 'polling') {
+                            console.log('[ScreenShareMonitor] Desktop tracks in Redux:', desktopTracks.length, 'active:', activeDesktopTracks.length);
+                        }
+                    }
+                }
+                
+                // Детектируем изменение состояния
                 if (monitor.isSharing !== isCurrentlySharing) {
                     console.log('[ScreenShareMonitor] State changed:', 
                         monitor.isSharing, '->', isCurrentlySharing, 
-                        'detected by:', source);
+                        'detected by:', detectedBy || source);
                     
                     monitor.isSharing = isCurrentlySharing;
+                    monitor.lastStateChangeTime = Date.now();
                     
                     if (!isCurrentlySharing) {
                         handleScreenShareStopped(source);
                     } else {
                         handleScreenShareStarted(source);
                     }
+                } else if (source !== 'polling' && source !== 'redux-action') {
+                    console.log('[ScreenShareMonitor] State unchanged:', isCurrentlySharing, 'source:', source);
                 }
                 
             } catch (error) {
                 console.error('[ScreenShareMonitor] Error checking state:', error);
+            }
+        }
+
+        // ===== Функция очистки застрявших треков =====
+        function cleanupOrphanedTracks() {
+            console.log('[ScreenShareMonitor] Attempting to cleanup orphaned tracks');
+            
+            try {
+                // Проверяем реальное состояние через локальные треки
+                let hasRealDesktopTrack = false;
+                let localTracks = [];
+                
+                console.log('[ScreenShareMonitor] Checking for real desktop tracks...');
+                
+                if (window.APP?.conference?.room) {
+                    try {
+                        localTracks = window.APP.conference.room.getLocalTracks();
+                        console.log('[ScreenShareMonitor] Got local tracks:', localTracks.length);
+                        
+                        const desktopTracks = localTracks.filter(track => {
+                            const videoType = track.getVideoType ? track.getVideoType() : null;
+                            console.log('[ScreenShareMonitor] Track videoType:', videoType);
+                            return videoType === 'desktop';
+                        });
+                        
+                        hasRealDesktopTrack = desktopTracks.length > 0;
+                        console.log('[ScreenShareMonitor] Has real desktop track:', hasRealDesktopTrack);
+                    } catch (err) {
+                        console.error('[ScreenShareMonitor] Error getting local tracks:', err);
+                    }
+                }
+                
+                // ДОБАВЛЯЕМ: Проверяем, используется ли stream в данный момент
+                let streamInUse = false;
+                if (window.jitsiNativeMediaStream) {
+                    const videoTracks = window.jitsiNativeMediaStream.getVideoTracks();
+                    streamInUse = videoTracks.some(track => track.readyState === 'live');
+                    console.log('[ScreenShareMonitor] Native stream in use:', streamInUse);
+                }
+                    
+                if (!hasRealDesktopTrack && !streamInUse) {  // ИЗМЕНЕНО: добавили проверку !streamInUse
+                    // Нет реальных desktop треков И stream не используется
+                    console.log('[ScreenShareMonitor] No real desktop tracks and stream not in use, cleaning up');
+                    
+                    // Принудительно сбрасываем флаги
+                    window.isNativeActive = false;
+                    window.isHybridMode = false;
+                    
+                    // Очищаем потоки только если они НЕ используются
+                    if (window.jitsiNativeMediaStream) {
+                        const videoTracks = window.jitsiNativeMediaStream.getVideoTracks();
+                        const hasLiveTracks = videoTracks.some(t => t.readyState === 'live');
+                        
+                        if (!hasLiveTracks) {
+                            console.log('[ScreenShareMonitor] Stopping unused jitsiNativeMediaStream');
+                            try {
+                                window.jitsiNativeMediaStream.getTracks().forEach(t => {
+                                    console.log('[ScreenShareMonitor] Stopping track:', t.kind, t.label);
+                                    t.stop();
+                                });
+                                window.jitsiNativeMediaStream = null;
+                            } catch (err) {
+                                console.error('[ScreenShareMonitor] Error stopping jitsiNativeMediaStream:', err);
+                            }
+                        } else {
+                            console.log('[ScreenShareMonitor] Keeping live jitsiNativeMediaStream');
+                        }
+                    }
+                    
+                    if (window.electronVideoStream) {
+                        console.log('[ScreenShareMonitor] Stopping electronVideoStream');
+                        try {
+                            window.electronVideoStream.getTracks().forEach(t => {
+                                console.log('[ScreenShareMonitor] Stopping track:', t.kind, t.label);
+                                t.stop();
+                            });
+                            window.electronVideoStream = null;
+                        } catch (err) {
+                            console.error('[ScreenShareMonitor] Error stopping electronVideoStream:', err);
+                        }
+                    }
+                    
+                    // Очищаем Redux только если нет активных треков
+                    if (window.APP?.store?.dispatch) {
+                        console.log('[ScreenShareMonitor] Clearing Redux state');
+                        try {
+                            const state = window.APP.store.getState();
+                            const tracks = state['features/base/tracks'];
+                            const orphanedTracks = tracks?.filter(track => 
+                                track.local && track.videoType === 'desktop'
+                            ) || [];
+                            
+                            if (orphanedTracks.length > 0) {
+                                console.log('[ScreenShareMonitor] Removing', orphanedTracks.length, 'orphaned tracks from Redux');
+                                
+                                // Очищаем Redux
+                                window.APP.store.dispatch({
+                                    type: 'SET_SCREENSHARING',
+                                    screensharing: false
+                                });
+                                
+                                window.APP.store.dispatch({
+                                    type: 'TOGGLE_SCREENSHARING',
+                                    enabled: false
+                                });
+                            }
+                            
+                        } catch (err) {
+                            console.error('[ScreenShareMonitor] Error dispatching actions:', err);
+                        }
+                    }
+                    
+                    // Сбрасываем состояние монитора только если действительно все очистили
+                    monitor.isSharing = false;
+                    console.log('[ScreenShareMonitor] Monitor state reset to false');
+                    
+                } else if (hasRealDesktopTrack) {
+                    console.log('[ScreenShareMonitor] Real desktop tracks exist, skipping cleanup');
+                } else if (streamInUse) {
+                    console.log('[ScreenShareMonitor] Stream in use, skipping cleanup');
+                    // ДОБАВЛЯЕМ: Если stream используется, но нет треков в Jitsi, 
+                    // возможно демонстрация только запускается
+                    monitor.isSharing = true;
+                }
+            } catch (error) {
+                console.error('[ScreenShareMonitor] Error in cleanup:', error);
+                console.error('[ScreenShareMonitor] Stack:', error.stack);
+                // При ошибке НЕ сбрасываем флаги автоматически
             }
         }
 
@@ -288,6 +566,27 @@ export class JitsiScreenShareMonitor {
         }
 
         function handleScreenShareStopped(source) {
+            // Дополнительная проверка перед остановкой
+            let stillSharing = false;
+            
+            // Проверяем через API
+            if (window.APP?.conference?.isSharingScreen) {
+                stillSharing = window.APP.conference.isSharingScreen();
+            }
+            
+            // Проверяем через треки
+            if (!stillSharing && window.APP?.conference?.room) {
+                const localTracks = window.APP.conference.room.getLocalTracks();
+                stillSharing = localTracks.some(track => 
+                    track.getVideoType && track.getVideoType() === 'desktop'
+                );
+            }
+            
+            if (stillSharing) {
+                console.log('[ScreenShareMonitor] ⚠️ Ignoring stop event, still sharing, source:', source);
+                return;
+            }
+        
             console.log('[ScreenShareMonitor] ðŸ”´ SCREEN SHARE STOPPED, source:', source);
             monitor.isSharing = false;
             
@@ -308,6 +607,23 @@ export class JitsiScreenShareMonitor {
         async function stopNativeCapture(source) {
             console.log('[ScreenShareMonitor] ðŸ›‘ Stopping native capture, triggered by:', source);
             
+            if (source === 'track-removed') {
+                // Проверяем, действительно ли остановлена демонстрация экрана
+                let stillHasDesktopTrack = false;
+                if (window.APP?.conference?.room) {
+                    const localTracks = window.APP.conference.room.getLocalTracks();
+                    stillHasDesktopTrack = localTracks.some(track => 
+                        track.getType?.() === 'video' && 
+                        track.getVideoType?.() === 'desktop'
+                    );
+                }
+                
+                if (stillHasDesktopTrack) {
+                    console.log('[ScreenShareMonitor] Desktop track still exists, skipping cleanup');
+                    return;
+                }
+            }
+
             try {
                 // ÐžÑÑ‚Ð°Ð½Ð°Ð²Ð»Ð¸Ð²Ð°ÐµÐ¼ Ð²ÑÐµ Ñ‚Ñ€ÐµÐºÐ¸
                 if (window.jitsiNativeMediaStream) {

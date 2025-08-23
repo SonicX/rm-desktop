@@ -12,6 +12,8 @@ interface JitsiOptions {
   email?: string;
   avatarUrl?: string;
   jwt?: string;
+  topic?: string;
+  stream?: string;
 }
 
 interface JitsiState {
@@ -947,6 +949,8 @@ export class JitsiManager {
             const server = options.serverUrl || 'https://jitsi-connectrm.ru';
             const roomName = options.roomName.replace(/[^a-zA-Z0-9-_]/g, '');
             const displayName = options.displayName || 'Guest';
+            const topic = options.topic || '';
+            const stream = options.stream || '';
 
             log.info(`Creating Jitsi window: ${server}/${roomName}`);
 
@@ -956,7 +960,7 @@ export class JitsiManager {
             height: 800,
             minWidth: 800,
             minHeight: 600,
-            title: `Конференция: ${roomName}`,
+            title: `Трансляция: ${stream} - ${topic}`,
             icon: this.iconPath,
             webPreferences: {
                 nodeIntegration: false,
@@ -968,6 +972,10 @@ export class JitsiManager {
             },
             show: true,
             center: true
+            });
+
+            this.state.window.on('page-title-updated', (event) => {
+                event.preventDefault(); // Предотвращаем изменение заголовка
             });
 
             // Формируем URL
