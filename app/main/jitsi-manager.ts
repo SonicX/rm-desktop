@@ -2186,25 +2186,29 @@ export class JitsiManager {
         this.state.audioFrameCount++;
         
         try {
-            // КРИТИЧНО: Правильно интерпретируем ArrayBuffer для Windows
             const arrayBuffer = audioData.data;
-            const samples = audioData.numSamples || 480; // Windows использует 480, не 960!
+            // КРИТИЧНО: Разное количество сэмплов для разных платформ
+            const samples = this.isWindowsPlatform() 
+                ? (audioData.numSamples || 480)  // Windows: 480 samples
+                : (audioData.numSamples || 960); // macOS: 960 samples
             const channels = audioData.channels || 2;
             
-            // Для отладки - проверяем сырые данные
+            // Проверка для отладки
             if (this.state.audioFrameCount === 1 || this.state.audioFrameCount % 100 === 0) {
                 const float32 = new Float32Array(arrayBuffer);
                 let maxAmp = 0;
                 for (let i = 0; i < Math.min(100, float32.length); i++) {
                     maxAmp = Math.max(maxAmp, Math.abs(float32[i]));
                 }
-                log.info(`[AUDIO-CHECK] Frame ${this.state.audioFrameCount}: maxAmp=${maxAmp.toFixed(4)}, samples=${samples}, bytes=${arrayBuffer.byteLength}`);
+                log.info(`[AUDIO-CHECK] Frame ${this.state.audioFrameCount}: platform=${this.isWindowsPlatform() ? 'Windows' : 'macOS'}, samples=${samples}, bytes=${arrayBuffer.byteLength}, maxAmp=${maxAmp.toFixed(4)}`);
             }
             
-            // Используем правильный метод декодирования для Windows
-            const { leftChannel, rightChannel } = this.decodeWindowsAudio(arrayBuffer, samples, channels);
+            // КРИТИЧНО: Используем правильный метод декодирования для каждой платформы
+            const { leftChannel, rightChannel } = this.isWindowsPlatform()
+                ? this.decodeWindowsAudio(arrayBuffer, samples, channels)
+                : this.decodeMacOSAudio(arrayBuffer, samples, channels);
             
-            // Проверяем, что есть реальные данные
+            // Анализируем уровни
             const levels = this.analyzeAudioLevels(leftChannel, rightChannel);
             
             if (this.state.audioFrameCount % 50 === 0) {
@@ -2277,6 +2281,47 @@ export class JitsiManager {
         
         return { leftChannel, rightChannel };
     }
+
+    private decodeMacOSAudio(
+        arrayBuffer: ArrayBuffer, 
+        samples: number, 
+        channels: number
+    ): { leftChannel: Float32Array; rightChannel: Float32Array } {
+        
+        let leftChannel = new Float32Array(samples);
+        let rightChannel = new Float32Array(samples);
+        
+        if (arrayBuffer.byteLength === samples * channels * 4) {
+            // Float32 формат для macOS - ПЛАНАРНЫЙ формат
+            const dataView = new DataView(arrayBuffer);
+            
+            // Планарный формат: сначала все левые сэмплы, потом все правые
+            const halfSize = arrayBuffer.byteLength / 2;
+            for (let i = 0; i < samples; i++) {
+                leftChannel[i] = dataView.getFloat32(i * 4, true);
+                rightChannel[i] = dataView.getFloat32(halfSize + i * 4, true);
+            }
+            
+            // Проверка на валидность данных
+            let hasData = false;
+            for (let i = 0; i < samples; i++) {
+                if (Math.abs(leftChannel[i]) > 0.00001 || Math.abs(rightChannel[i]) > 0.00001) {
+                    hasData = true;
+                    break;
+                }
+            }
+            
+            // Если планарный формат пустой, пробуем интерливд
+            if (!hasData) {
+                for (let i = 0; i < samples; i++) {
+                    leftChannel[i] = dataView.getFloat32(i * 8, true);
+                    rightChannel[i] = dataView.getFloat32(i * 8 + 4, true);
+                }
+            }
+        }
+        
+        return { leftChannel, rightChannel };
+}
     
     // Сохраняем оригинальный метод для macOS
     private processNativeAudioOriginal(audioData: any): void {

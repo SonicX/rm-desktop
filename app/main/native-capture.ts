@@ -1155,25 +1155,26 @@ export class NativeCaptureManager {
             }
             
             if (this.state.callbacks.audio) {
-                // Для Windows важно передать правильные numSamples
+                // КРИТИЧНО: Правильные numSamples для каждой платформы
+                const isWindows = process.platform === 'win32';
                 const correctedData = {
                     data: audioData.data, // ArrayBuffer как есть
                     sampleRate: audioData?.sampleRate || 48000,
                     channels: audioData?.channels || 2,
-                    numSamples: audioData?.numSamples || 480, // Windows использует 480!
+                    numSamples: audioData?.numSamples || (isWindows ? 480 : 960), // Windows: 480, macOS: 960
                     source: audioData?.source || audioData?.applicationName || 'unknown'
                 };
                 
                 this.state.callbacks.audio(correctedData);
                 
                 if (this.state.audioFrameCount === 1) {
-                    console.log("✅ First audio frame sent to callback");
+                    console.log(`✅ First audio frame sent to callback (${isWindows ? 'Windows' : 'macOS'}: ${correctedData.numSamples} samples)`);
                 }
             }
         } else {
             console.log(`[STANDARD-AUDIO] Empty frame ${this.state.audioFrameCount}`);
         }
-    }
+}
 
     private processWindowsAudioWithSync(audioData: any): void {
         if (!this.windowsSyncBuffer) return;
