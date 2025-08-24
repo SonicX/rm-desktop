@@ -318,201 +318,153 @@ export class JitsiManager {
 
     // В jitsi-manager.ts, обновите метод injectDebugOverlay()
     private async injectDebugOverlay(): Promise<void> {
-        log.info("[JITSI-MANAGER] ============ DEBUG OVERLAY INJECTION START ============");
-        log.info("[JITSI-MANAGER] Config enableDebugUI:", this.config.enableDebugUI);
-        log.info("[JITSI-MANAGER] Window exists:", !!this.state.window);
-        log.info("[JITSI-MANAGER] Window destroyed:", this.state.window?.isDestroyed());
+        log.info("[JITSI-MANAGER] Injecting minimal debug indicator...");
         
         if (!this.config.enableDebugUI) {
-            log.warn("[JITSI-MANAGER] Debug UI is disabled in config");
             return;
         }
         
         if (!this.state.window || this.state.window.isDestroyed()) {
-            log.error("[JITSI-MANAGER] No window available for debug overlay");
             return;
         }
         
         try {
-            // Проверяем наличие панели
             const alreadyInjected = await this.state.window.webContents.executeJavaScript(`
-                !!(document.getElementById('native-debug-overlay'))
+                !!(document.getElementById('native-debug-indicator'))
             `);
             
-            log.info("[JITSI-MANAGER] Already injected:", alreadyInjected);
-            
             if (alreadyInjected) {
-                log.info("[JITSI-MANAGER] Debug overlay already exists");
                 return;
             }
-            
-            // Пробуем инъектировать основную панель
-            log.info("[JITSI-MANAGER] Injecting main debug overlay...");
             
             const result = await this.state.window.webContents.executeJavaScript(`
                 (function() {
                     try {
-                        console.log('[INJECTION] Starting main overlay injection...');
+                        console.log('[DEBUG] Injecting minimal indicator...');
                         
-                        // Проверяем, что можем создавать элементы
-                        const testDiv = document.createElement('div');
-                        if (!testDiv) {
-                            throw new Error('Cannot create elements');
-                        }
-                        
-                        // Удаляем старые панели
+                        // Удаляем старые панели если есть
                         const oldOverlay = document.getElementById('native-debug-overlay');
                         if (oldOverlay) oldOverlay.remove();
                         
-                        const oldSimple = document.getElementById('simple-debug');
-                        if (oldSimple) oldSimple.remove();
+                        const oldIndicator = document.getElementById('native-debug-indicator');
+                        if (oldIndicator) oldIndicator.remove();
                         
-                        // Создаем панель пошагово
-                        const overlay = document.createElement('div');
-                        overlay.id = 'native-debug-overlay';
+                        // Создаем минималистичный индикатор
+                        const indicator = document.createElement('div');
+                        indicator.id = 'native-debug-indicator';
                         
-                        // Устанавливаем стили по одному
-                        overlay.style.position = 'fixed';
-                        overlay.style.top = '20px';
-                        overlay.style.right = '20px';
-                        overlay.style.width = '350px';
-                        overlay.style.background = 'rgba(0, 0, 0, 0.9)';
-                        overlay.style.color = 'white';
-                        overlay.style.fontFamily = 'monospace';
-                        overlay.style.fontSize = '12px';
-                        overlay.style.padding = '15px';
-                        overlay.style.borderRadius = '10px';
-                        overlay.style.zIndex = '999999';
-                        overlay.style.border = '2px solid #333';
+                        // Стили для компактного индикатора (уменьшенные размеры и в левом углу)
+                        indicator.style.cssText = \`
+                            position: fixed;
+                            top: 15px;
+                            left: 15px;
+                            display: flex;
+                            gap: 8px;
+                            padding: 6px 10px;
+                            background: rgba(0, 0, 0, 0.6);
+                            border-radius: 15px;
+                            z-index: 999999;
+                            align-items: center;
+                            backdrop-filter: blur(8px);
+                            transition: opacity 0.3s;
+                        \`;
                         
-                        // Простой HTML для теста
-                        overlay.innerHTML = '<div style="color: #4CAF50; font-size: 16px; font-weight: bold;">🔧 Native Debug Panel v2</div>' +
-                            '<div style="margin-top: 10px;">' +
-                            '<div id="plugin-status" style="margin: 5px 0;">Plugin: Checking...</div>' +
-                            '<div id="capture-status" style="margin: 5px 0;">Capture: Not active</div>' +
-                            '<div id="audio-packets" style="margin: 5px 0;">Audio: 0 packets</div>' +
-                            '<div id="video-packets" style="margin: 5px 0;">Video: 0 packets</div>' +
-                            '</div>' +
-                            '<button id="debug-close" style="position: absolute; top: 5px; right: 5px; background: red; color: white; border: none; padding: 2px 6px; cursor: pointer;">X</button>';
+                        // HTML для двух точек (уменьшенный размер)
+                        indicator.innerHTML = \`
+                            <div id="plugin-dot" style="
+                                width: 8px;
+                                height: 8px;
+                                border-radius: 50%;
+                                background: #2196F3;
+                                transition: background 0.3s;
+                                box-shadow: 0 0 3px rgba(0,0,0,0.2);
+                            " title="Plugin Status"></div>
+                            <div id="audio-dot" style="
+                                width: 8px;
+                                height: 8px;
+                                border-radius: 50%;
+                                background: #2196F3;
+                                transition: background 0.3s;
+                                box-shadow: 0 0 3px rgba(0,0,0,0.2);
+                            " title="Audio Status"></div>
+                        \`;
                         
-                        // Добавляем в DOM
-                        document.body.appendChild(overlay);
-                        console.log('[INJECTION] Overlay added to DOM');
-                        
-                        // Добавляем обработчик закрытия
-                        const closeBtn = document.getElementById('debug-close');
-                        if (closeBtn) {
-                            closeBtn.onclick = function() {
-                                overlay.remove();
-                            };
-                        }
+                        document.body.appendChild(indicator);
                         
                         // Создаем глобальную функцию обновления
-                        window.updateDebugStatus = function(data) {
-                            console.log('[INJECTION] Updating debug status:', data);
+                        window.updateDebugIndicator = function(data) {
+                            const pluginDot = document.getElementById('plugin-dot');
+                            const audioDot = document.getElementById('audio-dot');
                             
-                            const pluginEl = document.getElementById('plugin-status');
-                            if (pluginEl && data.hasAddon !== undefined) {
-                                pluginEl.textContent = 'Plugin: ' + (data.hasAddon ? '✅ Loaded' : '❌ Not loaded');
+                            if (pluginDot && data.hasAddon !== undefined) {
+                                // Первая точка: зеленая если плагин подключен, синяя если нет
+                                pluginDot.style.background = data.hasAddon ? '#4CAF50' : '#2196F3';
+                                pluginDot.title = data.hasAddon ? 'Native Plugin: Connected' : 'Native Plugin: Not Connected';
                             }
                             
-                            const captureEl = document.getElementById('capture-status');
-                            if (captureEl && data.nativeCaptureActive !== undefined) {
-                                captureEl.textContent = 'Capture: ' + (data.nativeCaptureActive ? '✅ Active' : '❌ Inactive');
-                            }
-                            
-                            const audioEl = document.getElementById('audio-packets');
-                            if (audioEl && data.audioFrameCount !== undefined) {
-                                audioEl.textContent = 'Audio: ' + data.audioFrameCount + ' packets';
-                            }
-                            
-                            const videoEl = document.getElementById('video-packets');
-                            if (videoEl && data.videoFrameCount !== undefined) {
-                                videoEl.textContent = 'Video: ' + data.videoFrameCount + ' packets';
+                            if (audioDot) {
+                                // Вторая точка: зеленая если аудио активно, синяя если нет
+                                const isAudioActive = data.nativeCaptureActive && 
+                                                    data.audioFrameCount > 0 && 
+                                                    data.isStreamActive;
+                                audioDot.style.background = isAudioActive ? '#4CAF50' : '#2196F3';
+                                audioDot.title = isAudioActive ? 'Audio: Active' : 'Audio: Inactive';
+                                
+                                // Добавляем пульсацию для активного аудио
+                                if (isAudioActive) {
+                                    audioDot.style.animation = 'pulse 2s infinite';
+                                } else {
+                                    audioDot.style.animation = 'none';
+                                }
                             }
                         };
                         
-                        console.log('[INJECTION] ✅ Main overlay injected successfully');
-                        return { success: true, type: 'main' };
+                        // Добавляем CSS анимацию для пульсации
+                        const style = document.createElement('style');
+                        style.textContent = \`
+                            @keyframes pulse {
+                                0% { opacity: 1; }
+                                50% { opacity: 0.5; }
+                                100% { opacity: 1; }
+                            }
+                        \`;
+                        document.head.appendChild(style);
+                        
+                        // Опциональная возможность скрыть индикатор по двойному клику
+                        indicator.ondblclick = function() {
+                            indicator.style.opacity = '0.1';
+                            setTimeout(() => {
+                                indicator.style.opacity = '1';
+                            }, 3000);
+                        };
+                        
+                        console.log('[DEBUG] ✅ Minimal indicator injected');
+                        return { success: true };
                         
                     } catch (error) {
-                        console.error('[INJECTION] Main overlay failed:', error.message);
+                        console.error('[DEBUG] Injection failed:', error.message);
                         return { success: false, error: error.message };
                     }
                 })();
             `);
             
-            log.info("[JITSI-MANAGER] Injection result:", JSON.stringify(result));
-            
             if (result && result.success) {
-                log.info("✅ Main debug overlay injected successfully");
+                log.info("✅ Minimal debug indicator injected successfully");
                 
                 // Сразу отправляем начальные данные
                 const debugInfo = await this.getDebugInfo();
                 await this.state.window.webContents.executeJavaScript(`
-                    if (window.updateDebugStatus) {
-                        window.updateDebugStatus(${JSON.stringify(debugInfo)});
+                    if (window.updateDebugIndicator) {
+                        window.updateDebugIndicator(${JSON.stringify(debugInfo)});
                     }
                 `);
                 
                 // Запускаем мониторинг
                 this.startDebugMonitoring();
-                
-            } else {
-                log.error("Main overlay failed, trying simple fallback...");
-                log.error("Error was:", result?.error);
-                
-                // Fallback на простую версию
-                await this.injectSimpleDebugOverlay();
             }
             
         } catch (error: any) {
             log.error(`[JITSI-MANAGER] Exception during injection: ${error.message}`);
-            log.error("Full error:", error);
-            
-            // Fallback
-            await this.injectSimpleDebugOverlay();
-        }
-        
-        log.info("[JITSI-MANAGER] ============ DEBUG OVERLAY INJECTION END ============");
-    }
-
-    private async injectSimpleDebugOverlay(): Promise<void> {
-        if (!this.state.window || this.state.window.isDestroyed()) return;
-        
-        try {
-            await this.state.window.webContents.executeJavaScript(`
-                (function() {
-                    // Удаляем старую панель если есть
-                    const existing = document.getElementById('simple-debug');
-                    if (existing) existing.remove();
-                    
-                    // Создаем простую панель
-                    const panel = document.createElement('div');
-                    panel.id = 'simple-debug';
-                    panel.style.cssText = \`
-                        position: fixed;
-                        top: 10px;
-                        right: 10px;
-                        background: rgba(255, 0, 0, 0.9);
-                        color: white;
-                        padding: 10px;
-                        z-index: 999999;
-                        font-family: monospace;
-                        font-size: 12px;
-                        border-radius: 5px;
-                    \`;
-                    panel.innerHTML = '🔧 DEBUG PANEL ACTIVE';
-                    document.body.appendChild(panel);
-                    
-                    console.log('✅ Simple debug panel injected');
-                    return true;
-                })();
-            `);
-            
-            log.info("Simple debug overlay injected as fallback");
-        } catch (error: any) {
-            log.error(`Simple overlay injection failed: ${error.message}`);
         }
     }
 
@@ -520,9 +472,9 @@ export class JitsiManager {
     private startDebugMonitoring(): void {
         if (!this.config.enableDebugUI || this.debugMonitoringInterval) return;
         
-        log.info("[JITSI-MANAGER] Starting debug monitoring...");
+        log.info("[JITSI-MANAGER] Starting minimal debug monitoring...");
         
-        const updateInterval = 1000; // Обновляем каждую секунду
+        const updateInterval = 2000; // Обновляем каждые 2 секунды (реже чем раньше)
         
         this.debugMonitoringInterval = setInterval(async () => {
             if (!this.state.window || this.state.window.isDestroyed()) {
@@ -534,13 +486,9 @@ export class JitsiManager {
             try {
                 const debugInfo = await this.getDebugInfo();
                 
-                // Добавляем счетчики из state
-                debugInfo.audioFrameCount = this.state.audioFrameCount || 0;
-                debugInfo.videoFrameCount = this.state.videoFrameCount || 0;
-                
                 await this.state.window.webContents.executeJavaScript(`
-                    if (window.updateDebugStatus) {
-                        window.updateDebugStatus(${JSON.stringify(debugInfo)});
+                    if (window.updateDebugIndicator) {
+                        window.updateDebugIndicator(${JSON.stringify(debugInfo)});
                     }
                 `);
                 
@@ -769,30 +717,14 @@ export class JitsiManager {
     }
 
     async getDebugInfo(): Promise<any> {
-        // 🆕 Получаем информацию о здоровье плагина
         const addonHealth = await this.nativeCapture.testAddonHealth();
         
-        const debugInfo = {
-            hasWindow: !!this.state.window && !this.state.window.isDestroyed(),
-            isStreamActive: this.state.isStreamActive,
-            streamId: this.state.streamId,
+        return {
+            hasAddon: this.nativeCapture.isAvailable && addonHealth.healthy,
             nativeCaptureActive: this.nativeCapture.isCapturing,
-            videoFrameCount: this.state.videoFrameCount || 0,
             audioFrameCount: this.state.audioFrameCount || 0,
-            lastSelectedSource: this.state.lastSelectedSourceId,
-            currentQuality: this.videoQualityManager?.getCurrentSettings()?.name || 'unknown',
-            useHybridMode: this.config.useHybridMode,
-            timestamp: new Date().toISOString(),
-            
-            // 🆕 Информация о плагине
-            hasAddon: this.nativeCapture.isAvailable,
-            addonType: addonHealth.addonType,
-            addonHealthy: addonHealth.healthy,
-            addonDetails: addonHealth.details
+            isStreamActive: this.state.isStreamActive
         };
-        
-        log.info("[STREAM-ELECTRON] Debug info:", debugInfo);
-        return debugInfo;
     }
 
     private async nukeClearAllStreams(): Promise<void> {
