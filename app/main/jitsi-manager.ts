@@ -1308,7 +1308,9 @@ export class JitsiManager {
                 partition: `jitsi-${Date.now()}`,
                 preload: path.join(this.bundlePath, "preload.js")
             },
+            backgroundColor: '#000000', // Темный фон
             show: true,
+            paintWhenInitiallyHidden: true,
             center: true
             });
 
@@ -1316,23 +1318,59 @@ export class JitsiManager {
                 event.preventDefault(); // Предотвращаем изменение заголовка
             });
 
+            // Инжектируем HTML с индикатором загрузки ПЕРЕД загрузкой Jitsi
+            await this.injectLoadingScreen();
+
+            // Показываем окно с индикатором загрузки
+            this.state.window.show();
+
+            // Перед загрузкой URL инжектируем CSS
+            this.state.window.webContents.on('did-start-loading', () => {
+                this.state.window.webContents.insertCSS(`
+                    html, body {
+                        background: #1a1a2e !important;
+                        transition: opacity 0.3s ease-in-out;
+                    }
+                    
+                    /* Скрываем контент пока не загрузится */
+                    body > * {
+                        opacity: 0;
+                        animation: fadeIn 0.5s ease-in-out 0.5s forwards;
+                    }
+                    
+                    @keyframes fadeIn {
+                        to { opacity: 1; }
+                    }
+                `);
+            });
+
             // Формируем URL
             const conferenceUrl = this.buildConferenceUrl(server, roomName, options);
             
             log.info(`Loading conference URL: ${conferenceUrl}`);
             
-            // ВАЖНО: Ждем полной загрузки страницы
-            await this.state.window.loadURL(conferenceUrl);
+            let isLoaded = false;
 
             this.state.window.webContents.on('did-finish-load', async () => {
                 log.info("[JITSI-MANAGER] Page loaded, injecting debug overlay...");
                 
+                // Ждем полной инициализации Jitsi
+                await this.waitForJitsiReady();
+                
+                // Плавно скрываем индикатор загрузки
+                await this.hideLoadingScreen();
+                
+                isLoaded = true;
+
                 // Небольшая задержка для инициализации DOM
                 setTimeout(async () => {
                     await this.injectDebugOverlay();
                     await this.startDebugMonitoring();
-                }, 1000);
+                }, 500);
             });
+
+            // ВАЖНО: Ждем полной загрузки страницы
+            await this.state.window.loadURL(conferenceUrl);
 
             // Также пробуем инъектировать при навигации
             this.state.window.webContents.on('did-navigate', async () => {
@@ -1406,6 +1444,299 @@ export class JitsiManager {
         } catch (error: any) {
             log.error(`Failed to create Jitsi window: ${error.message}`);
             return { success: false, error: error.message };
+        }
+    }
+
+    private async injectLoadingScreen(): Promise<void> {
+        if (!this.state.window || this.state.window.isDestroyed()) return;
+        
+        const loadingHTML = `
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <style>
+                    * {
+                        margin: 0;
+                        padding: 0;
+                        box-sizing: border-box;
+                    }
+                    
+                    body {
+                        background: linear-gradient(135deg, #1a1a2e 0%, #0f0f1e 100%);
+                        display: flex;
+                        justify-content: center;
+                        align-items: center;
+                        height: 100vh;
+                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+                        overflow: hidden;
+                    }
+                    
+                    .loading-container {
+                        text-align: center;
+                        animation: fadeIn 0.5s ease-in;
+                    }
+                    
+                    @keyframes fadeIn {
+                        from { opacity: 0; transform: translateY(20px); }
+                        to { opacity: 1; transform: translateY(0); }
+                    }
+                    
+                    .logo {
+                        width: 80px;
+                        height: 80px;
+                        margin: 0 auto 30px;
+                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                        border-radius: 20px;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        box-shadow: 0 10px 40px rgba(102, 126, 234, 0.3);
+                        animation: pulse 2s ease-in-out infinite;
+                    }
+                    
+                    @keyframes pulse {
+                        0%, 100% { transform: scale(1); }
+                        50% { transform: scale(1.05); }
+                    }
+                    
+                    .logo svg {
+                        width: 50px;
+                        height: 50px;
+                        fill: white;
+                    }
+                    
+                    .loading-text {
+                        color: #ffffff;
+                        font-size: 18px;
+                        font-weight: 500;
+                        margin-bottom: 20px;
+                        letter-spacing: 0.5px;
+                    }
+                    
+                    .loading-subtext {
+                        color: #8892b0;
+                        font-size: 14px;
+                        margin-bottom: 40px;
+                    }
+                    
+                    .spinner-container {
+                        position: relative;
+                        width: 50px;
+                        height: 50px;
+                        margin: 0 auto;
+                    }
+                    
+                    .spinner {
+                        width: 50px;
+                        height: 50px;
+                        border: 3px solid rgba(255, 255, 255, 0.1);
+                        border-top-color: #667eea;
+                        border-radius: 50%;
+                        animation: spin 1s linear infinite;
+                    }
+                    
+                    @keyframes spin {
+                        to { transform: rotate(360deg); }
+                    }
+                    
+                    .progress-bar {
+                        width: 250px;
+                        height: 4px;
+                        background: rgba(255, 255, 255, 0.1);
+                        border-radius: 2px;
+                        margin: 30px auto;
+                        overflow: hidden;
+                    }
+                    
+                    .progress-fill {
+                        height: 100%;
+                        background: linear-gradient(90deg, #667eea, #764ba2);
+                        border-radius: 2px;
+                        width: 0%;
+                        /* Более реалистичная анимация прогресса - 7 секунд */
+                        animation: progress 7s ease-out forwards;
+                    }
+                    
+                    @keyframes progress {
+                        0% { width: 0%; }
+                        20% { width: 25%; }
+                        40% { width: 45%; }
+                        60% { width: 65%; }
+                        80% { width: 85%; }
+                        90% { width: 92%; }
+                        100% { width: 98%; }
+                    }
+                    
+                    .tips {
+                        position: absolute;
+                        bottom: 40px;
+                        left: 50%;
+                        transform: translateX(-50%);
+                        color: #64748b;
+                        font-size: 13px;
+                        animation: tipChange 3s ease-in-out infinite;
+                    }
+                    
+                    @keyframes tipChange {
+                        0%, 100% { opacity: 0.6; }
+                        50% { opacity: 1; }
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="loading-container">
+                    <div class="logo">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/>
+                        </svg>
+                    </div>
+                    <div class="loading-text">Подключаемся к конференции</div>
+                    <div class="loading-subtext" id="loading-status">Инициализация...</div>
+                    <div class="spinner-container">
+                        <div class="spinner"></div>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill"></div>
+                    </div>
+                </div>
+                <div class="tips" id="loading-tips">Проверяем соединение...</div>
+                
+                <script>
+                    // Меняем текст подсказок
+                    const tips = [
+                        'Проверяем соединение...',
+                        'Загружаем интерфейс...',
+                        'Настраиваем аудио и видео...',
+                        'Подготавливаем конференцию...',
+                        'Почти готово...'
+                    ];
+                    const statusTexts = [
+                        'Инициализация...',
+                        'Подключение к серверу...',
+                        'Загрузка модулей...',
+                        'Настройка параметров...',
+                        'Финальная подготовка...'
+                    ];
+                    
+                    let tipIndex = 0;
+                    const tipsElement = document.getElementById('loading-tips');
+                    const statusElement = document.getElementById('loading-status');
+                    
+                    setInterval(() => {
+                        tipIndex = (tipIndex + 1) % tips.length;
+                        tipsElement.style.opacity = '0';
+                        setTimeout(() => {
+                            tipsElement.textContent = tips[tipIndex];
+                            tipsElement.style.opacity = '1';
+                        }, 300);
+                        
+                        if (statusElement) {
+                            statusElement.textContent = statusTexts[tipIndex];
+                        }
+                    }, 1500);
+                </script>
+            </body>
+            </html>
+        `;
+        
+        await this.state.window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(loadingHTML)}`);
+    }
+
+    // Метод для ожидания готовности Jitsi
+    private async waitForJitsiReady(): Promise<boolean> {
+        if (!this.state.window || this.state.window.isDestroyed()) return false;
+        
+        let attempts = 0;
+        const maxAttempts = 100; // 5 секунд максимум
+        
+        while (attempts < maxAttempts) {
+            try {
+                const isReady = await this.state.window.webContents.executeJavaScript(`
+                    (function() {
+                        // Проверяем различные индикаторы готовности Jitsi
+                        const checks = {
+                            hasJitsiMeetJS: typeof JitsiMeetJS !== 'undefined',
+                            hasAPP: typeof APP !== 'undefined',
+                            hasConference: !!(window.APP && window.APP.conference),
+                            hasRoom: !!(window.APP && window.APP.conference && window.APP.conference._room),
+                            domReady: document.readyState === 'complete',
+                            hasToolbar: !!document.querySelector('.toolbox-content-items'),
+                            // Добавляем проверку видео элементов
+                            hasVideoContainer: !!document.querySelector('#largeVideoContainer'),
+                            // Проверяем что UI полностью загружен
+                            hasUIElements: !!document.querySelector('.filmstrip') && 
+                                        !!document.querySelector('.toolbox'),
+                            // Проверяем что нет видимых лоадеров
+                            noLoaders: !document.querySelector('.spinner') && 
+                                    !document.querySelector('.loading')
+                        };
+                        
+                        // Считаем готовым если основные компоненты загружены
+                        const isReady = checks.hasJitsiMeetJS && 
+                                checks.hasAPP && 
+                                checks.hasConference &&
+                                checks.domReady &&
+                                checks.hasToolbar &&
+                                checks.hasVideoContainer &&
+                                checks.hasUIElements;
+                        
+                        console.log('[LOADING] Jitsi ready check:', checks, 'Ready:', isReady);
+                        return isReady;
+                    })();
+                `);
+                
+                if (isReady) {
+                    await new Promise(resolve => setTimeout(resolve, 1500)); // 1.5 секунды дополнительно
+                    log.info("[JITSI-MANAGER] Jitsi is ready!");
+                    return true;
+                }
+            } catch (error) {
+                // Игнорируем ошибки во время загрузки
+            }
+            
+            await new Promise(resolve => setTimeout(resolve, 100));
+            attempts++;
+        }
+        
+        log.warn("[JITSI-MANAGER] Jitsi initialization timeout, proceeding anyway");
+        return false;
+    }
+
+    // Метод для плавного скрытия индикатора загрузки
+    private async hideLoadingScreen(): Promise<void> {
+        if (!this.state.window || this.state.window.isDestroyed()) return;
+        
+        try {
+            await this.state.window.webContents.executeJavaScript(`
+                (function() {
+                    // Создаем элемент для плавного перехода
+                    const fadeOverlay = document.createElement('div');
+                    fadeOverlay.style.cssText = \`
+                        position: fixed;
+                        top: 0;
+                        left: 0;
+                        right: 0;
+                        bottom: 0;
+                        background: #1a1a2e;
+                        z-index: 999999;
+                        transition: opacity 0.8s ease-out;
+                        pointer-events: none;
+                    \`;
+                    document.body.appendChild(fadeOverlay);
+                    
+                    // Более плавное скрытие
+                    setTimeout(() => {
+                        fadeOverlay.style.opacity = '0';
+                        setTimeout(() => {
+                            fadeOverlay.remove();
+                        }, 800); // Совпадает с временем transition
+                    }, 200); // Небольшая задержка перед началом
+                    
+                    console.log('[LOADING] Loading screen hidden with smooth transition');
+                })();
+            `);
+        } catch (error) {
+            log.error("[JITSI-MANAGER] Error hiding loading screen:", error);
         }
     }
 
