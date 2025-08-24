@@ -616,20 +616,6 @@ export class JitsiManager {
             return { success: true };
         });
 
-        ipcMain.handle("get-electron-desktop-sources", async () => {
-            const { desktopCapturer } = require('electron');
-            const sources = await desktopCapturer.getSources({
-                types: ['window', 'screen'],
-                thumbnailSize: { width: 150, height: 150 }
-            });
-            
-            return sources.map(s => ({
-                id: s.id,
-                name: s.name,
-                display_id: s.display_id
-            }));
-        });
-
         ipcMain.handle("jitsi:get-config", async () => {
             return this.getConfig();
         });
@@ -763,6 +749,21 @@ export class JitsiManager {
                 log.error(`[STREAM-ELECTRON] Error stopping: ${error.message}`);
                 return { success: false, error: error.message };
             }
+        });
+
+        ipcMain.handle("get-electron-desktop-sources", async () => {
+            const { desktopCapturer } = require('electron');
+            const sources = await desktopCapturer.getSources({
+                types: ['window', 'screen'],
+                thumbnailSize: { width: 300, height: 200 }
+            });
+            
+            return sources.map(s => ({
+                id: s.id,
+                name: s.name,
+                display_id: s.display_id,
+                thumbnail: s.thumbnail.toDataURL()
+            }));
         });
 
     }
@@ -1695,11 +1696,16 @@ export class JitsiManager {
         }
 
         try {
-            const sourceId = this.state.lastSelectedSourceId || 'screen:2077748985:0';
-            log.info(`[STREAM-ELECTRON] Source ID: ${sourceId}`);
+            const electronSourceId = this.state.lastSelectedSourceId;
+            if (!electronSourceId) {
+                log.error("[STREAM-ELECTRON] No source selected");
+                return { success: false, error: "No source selected" };
+            }
+            
+            log.info(`[STREAM-ELECTRON] Using Electron source: ${electronSourceId}`);
             
             // 1. Запускаем Native аудио захват
-            const audioResult = await this.startNativeAudioCapture(sourceId);
+            const audioResult = await this.startNativeAudioCapture(electronSourceId);
             if (!audioResult.success) {
                 return { success: false, error: audioResult.error };
             }
@@ -1712,21 +1718,20 @@ export class JitsiManager {
             }
             
             // 2. Получаем информацию об источнике
-            const sourceInfo = await this.getNativeSourceInfo(sourceId);
+            // const sourceInfo = await this.getNativeSourceInfo(electronSourceId);
+            log.info(`[STREAM-ELECTRON] Creating hybrid stream with Electron source: ${electronSourceId}`);
             
-            // 3. Находим соответствующий Electron источник
-            const electronSourceId = await this.findElectronSource(sourceInfo);
-            if (!electronSourceId) {
-                log.error("[STREAM-ELECTRON] Could not find Electron source");
+            // 3. Создаем гибридный поток в Jitsi
+            const streamResult = await this.createHybridStreamInJitsi(electronSourceId);
+
+            if (!streamResult || !streamResult.success) {
+                log.error("[STREAM-ELECTRON] Failed to create hybrid stream:", streamResult);
                 await this.nativeCapture.stopCapture();
-                return { success: false, error: "No matching Electron source" };
+                return { success: false, error: streamResult?.error || "Failed to create stream" };
             }
 
             log.info(`[STREAM-ELECTRON] Creating hybrid stream with Electron source: ${electronSourceId}`);
 
-            
-            // 4. Создаем гибридный поток в Jitsi
-            const streamResult = await this.createHybridStreamInJitsi(electronSourceId);
 
             // ДОБАВЛЯЕМ ДЕТАЛЬНУЮ ПРОВЕРКУ
             if (!streamResult || !streamResult.success) {
@@ -1823,14 +1828,16 @@ export class JitsiManager {
     // ===== 1. ЗАПУСК NATIVE АУДИО =====
     private async startNativeAudioCapture(sourceId: string): Promise<{ success: boolean; error?: string }> {
         log.info("[STREAM-ELECTRON] >>> startNativeAudioCapture");
+        log.info(`[STREAM-ELECTRON] Electron sourceId: ${sourceId}`);
         
         try {
-            // Для гибридного режима используем оптимизированный audio-only захват
+            // Конвертируем Electron ID в формат для нативного плагина
+            const nativeSourceId = await this.convertElectronToNativeId(sourceId);
+            log.info(`[STREAM-ELECTRON] Converted to native ID: ${nativeSourceId}`);
+            
             if (this.config.useHybridMode) {
                 log.info("[STREAM-ELECTRON] Using optimized audio-only capture for hybrid mode");
-                
-                // Используем новый оптимизированный метод
-                const result = await this.nativeCapture.startAudioOnlyCapture(sourceId);
+                const result = await this.nativeCapture.startAudioOnlyCapture(nativeSourceId);
                 
                 if (result.success) {
                     log.info("[STREAM-ELECTRON] ✅ Audio-only capture started (CPU optimized)");
@@ -1838,127 +1845,92 @@ export class JitsiManager {
                     log.error(`[STREAM-ELECTRON] ❌ Audio-only capture failed: ${result.error}`);
                 }
                 
-                log.info("[STREAM-ELECTRON] <<< startNativeAudioCapture");
                 return result;
             }
             
             // Для non-hybrid режима используем полный захват
             log.info("[STREAM-ELECTRON] Using full audio+video capture for native mode");
-            const result = await this.nativeCapture.startAudioVideoCapture(sourceId);
+            const result = await this.nativeCapture.startAudioVideoCapture(nativeSourceId);
             
             if (result.success) {
-                log.info("[STREAM-ELECTRON] <<< startNativeAudioCapture SUCCESS (full capture)");
+                log.info("[STREAM-ELECTRON] ✅ Audio+Video capture started");
             } else {
-                log.error(`[STREAM-ELECTRON] <<< startNativeAudioCapture FAILED: ${result.error}`);
+                log.error(`[STREAM-ELECTRON] ❌ Capture failed: ${result.error}`);
             }
             
             return result;
             
         } catch (error: any) {
-            log.error(`[STREAM-ELECTRON] <<< startNativeAudioCapture ERROR: ${error.message}`);
+            log.error(`[STREAM-ELECTRON] startNativeAudioCapture ERROR: ${error.message}`);
             return { success: false, error: error.message };
         }
     }
 
     // ===== 2. ПОЛУЧЕНИЕ ИНФОРМАЦИИ ОБ ИСТОЧНИКЕ =====
-    private async getNativeSourceInfo(sourceId: string): Promise<{ name: string; type: string }> {
-        log.info(`[STREAM-ELECTRON] >>> getNativeSourceInfo: ${sourceId}`);
+    private async convertElectronToNativeId(electronSourceId: string): Promise<string> {
+        log.info(`[CONVERT-ID] Converting Electron ID: ${electronSourceId}`);
         
-        try {
-            const nativeSources = await this.nativeCapture.getSources();
+        // Electron формат: "screen:0:0" или "window:12345:0"
+        // Native формат зависит от плагина
+        
+        if (electronSourceId.startsWith('screen:')) {
+            // Для экранов
+            const parts = electronSourceId.split(':');
+            const displayId = parts[1] || '0';
             
-            const source = nativeSources.find(s => {
-                return s.id === sourceId || 
-                    `screen:${s.id}:0` === sourceId ||
-                    `window:${s.id}:0` === sourceId;
-            });
-            
-            if (source) {
-                log.info(`[STREAM-ELECTRON] <<< getNativeSourceInfo: ${source.name} (${source.type})`);
-                return { name: source.name || '', type: source.type || '' };
+            if (this.isWindowsPlatform()) {
+                // Windows плагин ожидает числовой ID
+                return `screen:${displayId}:0`;
+            } else {
+                // macOS плагин может использовать другой формат
+                return `display:${displayId}`;
             }
+        } else if (electronSourceId.startsWith('window:')) {
+            // Для окон
+            const parts = electronSourceId.split(':');
+            const windowId = parts[1] || '0';
             
-            // Fallback по формату
-            if (sourceId.startsWith('screen:')) {
-                log.info("[STREAM-ELECTRON] <<< getNativeSourceInfo: Screen (fallback)");
-                return { name: 'Screen', type: 'screen' };
-            } else if (sourceId.startsWith('window:')) {
-                log.info("[STREAM-ELECTRON] <<< getNativeSourceInfo: Window (fallback)");
-                return { name: 'Window', type: 'window' };
+            if (this.isWindowsPlatform()) {
+                // Windows - нужно найти соответствующее окно по ID
+                const nativeSources = await this.nativeCapture.getSources();
+                
+                // Пытаемся найти окно по частичному совпадению ID или названия
+                const electronSources = await this.getElectronSources();
+                const electronWindow = electronSources.find(s => s.id === electronSourceId);
+                
+                if (electronWindow) {
+                    // Ищем по названию в нативных источниках
+                    const nativeWindow = nativeSources.find(ns => 
+                        ns.name && electronWindow.name && 
+                        ns.name.includes(electronWindow.name)
+                    );
+                    
+                    if (nativeWindow) {
+                        return `window:${nativeWindow.id}:0`;
+                    }
+                }
+                
+                // Fallback на ID
+                return `window:${windowId}:0`;
+            } else {
+                // macOS
+                return `window:${windowId}`;
             }
-            
-            log.warn("[STREAM-ELECTRON] <<< getNativeSourceInfo: Unknown");
-            return { name: '', type: '' };
-            
-        } catch (error: any) {
-            log.error(`[STREAM-ELECTRON] <<< getNativeSourceInfo ERROR: ${error.message}`);
-            return { name: '', type: '' };
         }
+        
+        // Если не можем распознать формат, возвращаем как есть
+        log.warn(`[CONVERT-ID] Unknown format, returning as-is: ${electronSourceId}`);
+        return electronSourceId;
+    }
+
+    private async getElectronSources(): Promise<any[]> {
+        const { desktopCapturer } = require('electron');
+        return await desktopCapturer.getSources({
+            types: ['window', 'screen']
+        });
     }
 
     // ===== 3. ПОИСК ELECTRON ИСТОЧНИКА =====
-    private async findElectronSource(sourceInfo: { name: string; type: string }): Promise<string | null> {
-        log.info(`[STREAM-ELECTRON] >>> findElectronSource: ${sourceInfo.name} (${sourceInfo.type})`);
-        
-        if (!this.state.window || this.state.window.isDestroyed()) {
-            log.error("[STREAM-ELECTRON] <<< findElectronSource: No window");
-            return null;
-        }
-        
-        try {
-            const electronSourceId = await this.state.window.webContents.executeJavaScript(`
-                (async function() {
-                    console.log('[STREAM-ELECTRON] Finding Electron source...');
-                    
-                    // Получаем источники через IPC
-                    const sources = await window.ipcRenderer.invoke('get-desktop-sources');
-                    console.log('[STREAM-ELECTRON] Got', sources.length, 'sources');
-                    
-                    const nativeName = '${sourceInfo.name}';
-                    const nativeType = '${sourceInfo.type}';
-                    
-                    let matchedSource = null;
-                    
-                    if (nativeType === 'screen' || nativeType === 'display') {
-                        matchedSource = sources.find(s => s.id.startsWith('screen:'));
-                    } else if (nativeType === 'window') {
-                        // Ищем по имени
-                        matchedSource = sources.find(s => {
-                            if (!s.id.startsWith('window:')) return false;
-                            
-                            const nameMatch = s.name && nativeName && 
-                                s.name.toLowerCase().includes(nativeName.toLowerCase());
-                            
-                            return nameMatch;
-                        });
-                        
-                        // Fallback на первое окно
-                        if (!matchedSource) {
-                            matchedSource = sources.find(s => s.id.startsWith('window:'));
-                        }
-                    }
-                    
-                    if (!matchedSource) {
-                        matchedSource = sources[0];
-                    }
-                    
-                    if (matchedSource) {
-                        console.log('[STREAM-ELECTRON] Matched:', matchedSource.id, matchedSource.name);
-                        return matchedSource.id;
-                    }
-                    
-                    return null;
-                })();
-            `);
-            
-            log.info(`[STREAM-ELECTRON] <<< findElectronSource: ${electronSourceId || 'NOT FOUND'}`);
-            return electronSourceId;
-            
-        } catch (error: any) {
-            log.error(`[STREAM-ELECTRON] <<< findElectronSource ERROR: ${error.message}`);
-            return null;
-        }
-    }
 
     // ===== 4. СОЗДАНИЕ ГИБРИДНОГО ПОТОКА =====
     private async createHybridStreamInJitsi(electronSourceId: string): Promise<any> {
@@ -2329,82 +2301,8 @@ export class JitsiManager {
         }
         
         return { leftChannel, rightChannel };
-}
-    
-    // Сохраняем оригинальный метод для macOS
-    private processNativeAudioOriginal(audioData: any): void {
-        // ВАШ СУЩЕСТВУЮЩИЙ КОД ИЗ processNativeAudio
-        // Копируем сюда весь существующий рабочий код для macOS
-        
-        try {
-            const arrayBuffer = audioData.data;
-            const samples = audioData.numSamples || 960;
-            const channels = audioData.channels || 2;
-            
-            const { leftChannel, rightChannel } = this.decodeAudioData(arrayBuffer, samples, channels);
-            const levels = this.analyzeAudioLevels(leftChannel, rightChannel);
-            
-            if (this.state.audioFrameCount % 50 === 0) {
-                log.info(`[STREAM-ELECTRON] Audio: Frame ${this.state.audioFrameCount}, ` +
-                        `L=${levels.maxLeft.toFixed(4)}, R=${levels.maxRight.toFixed(4)}`);
-            }
-            
-            const { processedLeft, processedRight } = this.normalizeAudio(
-                leftChannel, 
-                rightChannel, 
-                levels
-            );
-            
-            // Используем существующий метод отправки
-            this.sendAudioToJitsi(processedLeft, processedRight, samples);
-            
-        } catch (error: any) {
-            log.error(`[STREAM-ELECTRON] processNativeAudio ERROR: ${error.message}`);
-        }
     }
     
-    // ===== 7. ДЕКОДИРОВАНИЕ АУДИО =====
-    private decodeAudioData(
-        arrayBuffer: ArrayBuffer, 
-        samples: number, 
-        channels: number
-    ): { leftChannel: Float32Array; rightChannel: Float32Array } {
-        
-        let leftChannel = new Float32Array(samples);
-        let rightChannel = new Float32Array(samples);
-        
-        if (arrayBuffer.byteLength === samples * channels * 4) {
-            // Float32 формат
-            const dataView = new DataView(arrayBuffer);
-            
-            // Планарный формат
-            const halfSize = arrayBuffer.byteLength / 2;
-            for (let i = 0; i < samples; i++) {
-                leftChannel[i] = dataView.getFloat32(i * 4, true);
-                rightChannel[i] = dataView.getFloat32(halfSize + i * 4, true);
-            }
-            
-            // Проверка на валидность
-            let hasData = false;
-            for (let i = 0; i < samples; i++) {
-                if (Math.abs(leftChannel[i]) > 0.00001 || Math.abs(rightChannel[i]) > 0.00001) {
-                    hasData = true;
-                    break;
-                }
-            }
-            
-            // Если нет данных, пробуем интерливд
-            if (!hasData) {
-                for (let i = 0; i < samples; i++) {
-                    leftChannel[i] = dataView.getFloat32(i * 8, true);
-                    rightChannel[i] = dataView.getFloat32(i * 8 + 4, true);
-                }
-            }
-        }
-        
-        return { leftChannel, rightChannel };
-    }
-
     // ===== 8. АНАЛИЗ УРОВНЕЙ =====
     private analyzeAudioLevels(
         leftChannel: Float32Array, 
@@ -2820,321 +2718,270 @@ export class JitsiManager {
     private getScreenShareInterceptorCode(): string {
         return `
             (function() {
-            console.log('[JitsiManager] Installing screen share interceptor...');
-            
-            let isIntercepted = false;
-            let pendingSourcesCallback = null;
-            
-            // Ждем загрузки Jitsi API
-            function waitForJitsiAPI() {
-                return new Promise((resolve) => {
-                let attempts = 0;
-                const checkInterval = setInterval(() => {
-                    attempts++;
-                    
-                    // Проверяем наличие JitsiMeetScreenObtainer
-                    if (window.JitsiMeetScreenObtainer && 
-                        typeof window.JitsiMeetScreenObtainer.openDesktopPicker === 'function') {
-                    clearInterval(checkInterval);
-                    console.log('[JitsiManager] JitsiMeetScreenObtainer found after', attempts, 'attempts');
-                    resolve(true);
-                    } else if (attempts > 100) { // Увеличиваем количество попыток
-                    clearInterval(checkInterval);
-                    console.error('[JitsiManager] JitsiMeetScreenObtainer not found');
-                    resolve(false);
-                    }
-                }, 100);
-                });
-            }
-            
-            waitForJitsiAPI().then(ready => {
-                if (!ready) {
-                console.error('[JitsiManager] Failed to find Jitsi API');
-                return;
-                }
+                console.log('[JitsiManager] Installing screen share interceptor...');
                 
-                // Сохраняем оригинальный метод
-                const originalOpenDesktopPicker = window.JitsiMeetScreenObtainer.openDesktopPicker;
-                console.log('[JitsiManager] Original openDesktopPicker saved');
+                let isIntercepted = false;
+                let pendingSourcesCallback = null;
                 
-                // Перехватываем openDesktopPicker
-                window.JitsiMeetScreenObtainer.openDesktopPicker = function(options, callback) {
-                console.log('[JitsiManager] ✅ Desktop picker INTERCEPTED!', options);
-                
-                if (isIntercepted) {
-                    console.log('[JitsiManager] Already processing, skipping...');
-                    return;
-                }
-                
-                isIntercepted = true;
-                pendingSourcesCallback = callback;
-                
-                // Запрашиваем источники через IPC
-                if (window.ipcRenderer) {
-                    console.log('[JitsiManager] Requesting sources via IPC...');
-                    
-                    window.ipcRenderer.invoke('get-desktop-sources').then(sources => {
-                    console.log('[JitsiManager] Got', sources.length, 'sources from main process');
-                    isIntercepted = false;
-                    
-                    if (sources && sources.length > 0) {
-                        // Показываем диалог выбора источника
-                        showSourcePicker(sources, (selectedId) => {
-                        console.log('[JitsiManager] User selected source:', selectedId);
-                        
-                        const selectedSource = sources.find(s => s.id === selectedId);
-                        
-                        // Проверяем, это native источник?
-                        if (selectedSource && selectedSource.isNative) {
-                            console.log('[JitsiManager] 🎯 NATIVE source selected, starting native stream...');
+                // Ждем загрузки Jitsi API
+                function waitForJitsiAPI() {
+                    return new Promise((resolve) => {
+                        let attempts = 0;
+                        const checkInterval = setInterval(() => {
+                            attempts++;
                             
-                            // Запускаем native stream
-                            startNativeStreamForSource(selectedId, callback);
-                        } else {
-                            console.log('[JitsiManager] Standard source selected');
-                            // Для обычных источников используем стандартный механизм
-                            if (callback) {
-                            callback(selectedId, { audio: true });
+                            if (window.JitsiMeetScreenObtainer && 
+                                typeof window.JitsiMeetScreenObtainer.openDesktopPicker === 'function') {
+                                clearInterval(checkInterval);
+                                console.log('[JitsiManager] JitsiMeetScreenObtainer found after', attempts, 'attempts');
+                                resolve(true);
+                            } else if (attempts > 100) {
+                                clearInterval(checkInterval);
+                                console.error('[JitsiManager] JitsiMeetScreenObtainer not found');
+                                resolve(false);
                             }
-                        }
-                        });
-                    } else {
-                        console.error('[JitsiManager] No sources received');
-                        isIntercepted = false;
-                        // Fallback на оригинальный метод
-                        originalOpenDesktopPicker.call(this, options, callback);
-                    }
-                    }).catch(error => {
-                    console.error('[JitsiManager] Error getting sources:', error);
-                    isIntercepted = false;
-                    originalOpenDesktopPicker.call(this, options, callback);
+                        }, 100);
                     });
-                } else {
-                    console.error('[JitsiManager] ipcRenderer not available');
-                    isIntercepted = false;
-                    originalOpenDesktopPicker.call(this, options, callback);
                 }
-                };
                 
-                console.log('[JitsiManager] ✅ Screen share interceptor installed successfully');
-            });
-            
-            // Функция для запуска native stream
-            async function startNativeStreamForSource(sourceId, callback) {
-                console.log('[JitsiManager] Starting native stream for source:', sourceId);
-                
-                try {
-                    // ВАЖНО: Передаем sourceId в main процесс для сохранения
-                    await window.ipcRenderer.invoke('jitsi:save-selected-source', sourceId);
+                waitForJitsiAPI().then(ready => {
+                    if (!ready) {
+                        console.error('[JitsiManager] Failed to find Jitsi API');
+                        return;
+                    }
                     
-                    // Создаем native stream с захватом
-                    const result = await window.ipcRenderer.invoke('create-native-stream-for-jitsi');
+                    const originalOpenDesktopPicker = window.JitsiMeetScreenObtainer.openDesktopPicker;
+                    console.log('[JitsiManager] Original openDesktopPicker saved');
                     
-                    if (result.success) {
-                        console.log('[JitsiManager] Native stream created successfully');
+                    // Перехватываем openDesktopPicker
+                    window.JitsiMeetScreenObtainer.openDesktopPicker = function(options, callback) {
+                        console.log('[JitsiManager] ✅ Desktop picker INTERCEPTED!', options);
                         
-                        // Вызываем callback чтобы закрыть диалог
-                        if (callback) {
-                            callback(sourceId, { audio: true, screenShareAudio: true });
+                        if (isIntercepted) {
+                            console.log('[JitsiManager] Already processing, skipping...');
+                            return;
                         }
                         
-                        // Ждем и запускаем демонстрацию
-                        setTimeout(async () => {
-                            console.log('[JitsiManager] Starting screen share...');
+                        isIntercepted = true;
+                        pendingSourcesCallback = callback;
+                        
+                        // ИЗМЕНЕНИЕ: Всегда запрашиваем источники от Electron
+                        if (window.ipcRenderer) {
+                            console.log('[JitsiManager] Requesting ELECTRON sources via IPC...');
                             
-                            // Метод 1: Redux dispatch
-                            if (window.APP && window.APP.store) {
-                                try {
-                                    const state = window.APP.store.getState();
-                                    const isSharing = state['features/base/tracks']?.some(
-                                        track => track.videoType === 'desktop' && track.local
-                                    );
-                                    
-                                    if (!isSharing) {
-                                        window.APP.store.dispatch({
-                                            type: 'TOGGLE_SCREENSHARING'
-                                        });
-                                        console.log('[JitsiManager] Dispatched TOGGLE_SCREENSHARING');
-                                    }
-                                } catch (e) {
-                                    console.error('[JitsiManager] Redux dispatch failed:', e);
-                                }
-                            }
-                            
-                            // Метод 2: Прямой вызов createLocalTracks
-                            else if (window.JitsiMeetJS && window.JitsiMeetJS.createLocalTracks) {
-                                try {
-                                    console.log('[JitsiManager] Creating desktop track...');
-                                    const tracks = await window.JitsiMeetJS.createLocalTracks({ 
-                                        devices: ['desktop']
+                            // Получаем источники от Electron's desktopCapturer
+                            window.ipcRenderer.invoke('get-electron-desktop-sources').then(electronSources => {
+                                console.log('[JitsiManager] Got', electronSources.length, 'Electron sources');
+                                isIntercepted = false;
+                                
+                                if (electronSources && electronSources.length > 0) {
+                                    // Показываем диалог выбора с Electron источниками
+                                    showSourcePicker(electronSources, async (selectedElectronId) => {
+                                        console.log('[JitsiManager] User selected Electron source:', selectedElectronId);
+                                        
+                                        // Сохраняем выбранный Electron ID
+                                        await window.ipcRenderer.invoke('jitsi:save-selected-source', selectedElectronId);
+                                        
+                                        // Запускаем native stream с Electron ID
+                                        // (конвертация будет происходить в main процессе)
+                                        const result = await window.ipcRenderer.invoke('create-native-stream-for-jitsi');
+                                        
+                                        if (result.success) {
+                                            console.log('[JitsiManager] Native stream created successfully');
+                                            
+                                            if (callback) {
+                                                callback(selectedElectronId, { audio: true, screenShareAudio: true });
+                                            }
+                                            
+                                            // Запускаем демонстрацию
+                                            setTimeout(async () => {
+                                                console.log('[JitsiManager] Starting screen share...');
+                                                
+                                                if (window.APP && window.APP.store) {
+                                                    try {
+                                                        const state = window.APP.store.getState();
+                                                        const isSharing = state['features/base/tracks']?.some(
+                                                            track => track.videoType === 'desktop' && track.local
+                                                        );
+                                                        
+                                                        if (!isSharing) {
+                                                            window.APP.store.dispatch({
+                                                                type: 'TOGGLE_SCREENSHARING'
+                                                            });
+                                                            console.log('[JitsiManager] Dispatched TOGGLE_SCREENSHARING');
+                                                        }
+                                                    } catch (e) {
+                                                        console.error('[JitsiManager] Redux dispatch failed:', e);
+                                                    }
+                                                } else if (window.JitsiMeetJS && window.JitsiMeetJS.createLocalTracks) {
+                                                    try {
+                                                        console.log('[JitsiManager] Creating desktop track...');
+                                                        const tracks = await window.JitsiMeetJS.createLocalTracks({ 
+                                                            devices: ['desktop']
+                                                        });
+                                                        console.log('[JitsiManager] Desktop track created');
+                                                    } catch (e) {
+                                                        console.error('[JitsiManager] createLocalTracks failed:', e);
+                                                    }
+                                                }
+                                            }, 1500);
+                                            
+                                        } else {
+                                            console.error('[JitsiManager] Failed to create native stream:', result.error);
+                                            if (callback) {
+                                                callback(selectedElectronId, { audio: true });
+                                            }
+                                        }
                                     });
-                                    console.log('[JitsiManager] Desktop track created');
-                                } catch (e) {
-                                    console.error('[JitsiManager] createLocalTracks failed:', e);
+                                } else {
+                                    console.error('[JitsiManager] No Electron sources received');
+                                    isIntercepted = false;
+                                    originalOpenDesktopPicker.call(this, options, callback);
                                 }
-                            }
-                        }, 1500);
-                        
-                    } else {
-                        console.error('[JitsiManager] Failed to create native stream:', result.error);
-                        if (callback) {
-                            callback(sourceId, { audio: true });
+                            }).catch(error => {
+                                console.error('[JitsiManager] Error getting Electron sources:', error);
+                                isIntercepted = false;
+                                originalOpenDesktopPicker.call(this, options, callback);
+                            });
+                        } else {
+                            console.error('[JitsiManager] ipcRenderer not available');
+                            isIntercepted = false;
+                            originalOpenDesktopPicker.call(this, options, callback);
                         }
-                    }
-                } catch (error) {
-                    console.error('[JitsiManager] Error:', error);
-                    if (callback) {
-                        callback(sourceId, { audio: true });
-                    }
-                }
-            }
-
-            
-            
-            // Функция показа диалога выбора источника
-            function showSourcePicker(sources, callback) {
-                console.log('[SourcePicker] Showing picker with', sources.length, 'sources');
-                
-                // Удаляем предыдущий диалог если есть
-                const existing = document.getElementById('source-picker-overlay');
-                if (existing) existing.remove();
-                
-                const overlay = document.createElement('div');
-                overlay.id = 'source-picker-overlay';
-                overlay.style.cssText = \`
-                position: fixed;
-                top: 0;
-                left: 0;
-                right: 0;
-                bottom: 0;
-                background: rgba(0, 0, 0, 0.85);
-                z-index: 10000;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                backdrop-filter: blur(5px);
-                \`;
-                
-                const dialog = document.createElement('div');
-                dialog.style.cssText = \`
-                background: white;
-                border-radius: 16px;
-                padding: 32px;
-                max-width: 90%;
-                max-height: 80%;
-                overflow: auto;
-                min-width: 700px;
-                box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-                \`;
-                
-                let htmlContent = \`
-                <h2 style="margin-top: 0; color: #333; font-size: 24px;">
-                    Выберите экран или окно для демонстрации
-                </h2>
-                <div style="
-                    display: grid; 
-                    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); 
-                    gap: 20px; 
-                    margin: 24px 0;
-                ">
-                \`;
-                
-                sources.forEach((source, index) => {
-                const isNative = source.isNative || false;
-                const borderColor = isNative ? '#4CAF50' : '#2196F3';
-                
-                htmlContent += \`
-                    <div class="source-item" data-source-id="\${source.id}" style="
-                    border: 3px solid #e0e0e0;
-                    border-radius: 12px;
-                    padding: 16px;
-                    cursor: pointer;
-                    text-align: center;
-                    background: white;
-                    position: relative;
-                    transition: all 0.3s;
-                    " onmouseover="this.style.borderColor='\${borderColor}'; this.style.transform='scale(1.05)';" 
-                    onmouseout="this.style.borderColor='#e0e0e0'; this.style.transform='scale(1)';">
-                    \${isNative ? \`
-                        <div style="
-                        position: absolute;
-                        top: 10px;
-                        right: 10px;
-                        background: #4CAF50;
-                        color: white;
-                        padding: 4px 8px;
-                        border-radius: 6px;
-                        font-size: 12px;
-                        font-weight: bold;
-                        ">NATIVE</div>
-                    \` : ''}
-                    <img src="\${source.thumbnail?.dataUrl || ''}" style="
-                        width: 100%; 
-                        height: 160px; 
-                        object-fit: contain; 
-                        margin-bottom: 12px;
-                        border-radius: 8px;
-                        background: #f5f5f5;
-                    ">
-                    <div style="
-                        font-size: 14px; 
-                        color: #666; 
-                        word-wrap: break-word;
-                        font-weight: 500;
-                    ">\${source.name || 'Unknown'}</div>
-                    </div>
-                \`;
+                    };
+                    
+                    console.log('[JitsiManager] ✅ Screen share interceptor installed successfully');
                 });
                 
-                htmlContent += \`
-                </div>
-                <div style="text-align: center; margin-top: 24px;">
-                    <button id="cancel-picker-btn" style="
-                    background: #f44336;
-                    color: white;
-                    border: none;
-                    padding: 12px 32px;
-                    border-radius: 8px;
-                    cursor: pointer;
-                    font-size: 16px;
-                    font-weight: 500;
-                    ">Отмена</button>
-                </div>
-                \`;
-                
-                dialog.innerHTML = htmlContent;
-                overlay.appendChild(dialog);
-                document.body.appendChild(overlay);
-                
-                // Обработчики кликов
-                overlay.onclick = function(e) {
-                e.stopPropagation();
-                
-                const sourceItem = e.target.closest('.source-item');
-                if (sourceItem) {
-                    const sourceId = sourceItem.dataset.sourceId;
-                    overlay.remove();
-                    callback(sourceId);
-                    return;
+                // Функция показа диалога выбора источника
+                function showSourcePicker(sources, callback) {
+                    console.log('[SourcePicker] Showing picker with', sources.length, 'sources');
+                    
+                    const existing = document.getElementById('source-picker-overlay');
+                    if (existing) existing.remove();
+                    
+                    const overlay = document.createElement('div');
+                    overlay.id = 'source-picker-overlay';
+                    overlay.style.cssText = \`
+                        position: fixed;
+                        top: 0;
+                        left: 0;
+                        right: 0;
+                        bottom: 0;
+                        background: rgba(0, 0, 0, 0.85);
+                        z-index: 10000;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        backdrop-filter: blur(5px);
+                    \`;
+                    
+                    const dialog = document.createElement('div');
+                    dialog.style.cssText = \`
+                        background: white;
+                        border-radius: 16px;
+                        padding: 32px;
+                        max-width: 90%;
+                        max-height: 80%;
+                        overflow: auto;
+                        min-width: 700px;
+                        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+                    \`;
+                    
+                    let htmlContent = \`
+                        <h2 style="margin-top: 0; color: #333; font-size: 24px;">
+                            Выберите экран или окно для демонстрации
+                        </h2>
+                        <div style="
+                            display: grid; 
+                            grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); 
+                            gap: 20px; 
+                            margin: 24px 0;
+                        ">
+                    \`;
+                    
+                    sources.forEach((source, index) => {
+                        const borderColor = '#2196F3';
+                        
+                        htmlContent += \`
+                            <div class="source-item" data-source-id="\${source.id}" style="
+                                border: 3px solid #e0e0e0;
+                                border-radius: 12px;
+                                padding: 16px;
+                                cursor: pointer;
+                                text-align: center;
+                                background: white;
+                                position: relative;
+                                transition: all 0.3s;
+                            " onmouseover="this.style.borderColor='\${borderColor}'; this.style.transform='scale(1.05)';" 
+                            onmouseout="this.style.borderColor='#e0e0e0'; this.style.transform='scale(1)';">
+                                <img src="\${source.thumbnail || ''}" style="
+                                    width: 100%; 
+                                    height: 160px; 
+                                    object-fit: contain; 
+                                    margin-bottom: 12px;
+                                    border-radius: 8px;
+                                    background: #f5f5f5;
+                                ">
+                                <div style="
+                                    font-size: 14px; 
+                                    color: #666; 
+                                    word-wrap: break-word;
+                                    font-weight: 500;
+                                ">\${source.name || 'Unknown'}</div>
+                            </div>
+                        \`;
+                    });
+                    
+                    htmlContent += \`
+                        </div>
+                        <div style="text-align: center; margin-top: 24px;">
+                            <button id="cancel-picker-btn" style="
+                                background: #f44336;
+                                color: white;
+                                border: none;
+                                padding: 12px 32px;
+                                border-radius: 8px;
+                                cursor: pointer;
+                                font-size: 16px;
+                                font-weight: 500;
+                            ">Отмена</button>
+                        </div>
+                    \`;
+                    
+                    dialog.innerHTML = htmlContent;
+                    overlay.appendChild(dialog);
+                    document.body.appendChild(overlay);
+                    
+                    // Обработчики кликов
+                    overlay.onclick = function(e) {
+                        e.stopPropagation();
+                        
+                        const sourceItem = e.target.closest('.source-item');
+                        if (sourceItem) {
+                            const sourceId = sourceItem.dataset.sourceId;
+                            overlay.remove();
+                            callback(sourceId);
+                            return;
+                        }
+                        
+                        if (e.target.id === 'cancel-picker-btn' || e.target === overlay) {
+                            overlay.remove();
+                            return;
+                        }
+                    };
+                    
+                    // Escape для закрытия
+                    const handleEscape = function(e) {
+                        if (e.key === 'Escape') {
+                            overlay.remove();
+                            document.removeEventListener('keydown', handleEscape);
+                        }
+                    };
+                    document.addEventListener('keydown', handleEscape);
                 }
                 
-                if (e.target.id === 'cancel-picker-btn' || e.target === overlay) {
-                    overlay.remove();
-                    return;
-                }
-                };
-                
-                // Escape для закрытия
-                const handleEscape = function(e) {
-                if (e.key === 'Escape') {
-                    overlay.remove();
-                    document.removeEventListener('keydown', handleEscape);
-                }
-                };
-                document.addEventListener('keydown', handleEscape);
-            }
-            
-            return { success: true };
+                return { success: true };
             })();
         `;
     }
