@@ -108,7 +108,7 @@ export class VideoQualityManager {
         
         // Выбираем подходящий пресет по битрейту
         if (availableBandwidth < 300000) {
-            return this.setPreset('ULTRA_LOW');
+            return this.setPreset('ULTRALOW');
         } else if (availableBandwidth < 700000) {
             return this.setPreset('LOW');
         } else if (availableBandwidth < 1500000) {
@@ -159,11 +159,11 @@ export class VideoQualityManager {
 
 export const VIDEO_QUALITY_PRESETS: { [key: string]: VideoQualityPreset } = {
     // Ультра низкое - для экономии трафика
-    ULTRA_LOW: {
+    ULTRALOW: {
         name: 'Ultra Low',
         description: '360p @ 10fps - минимальный трафик',
-        width: { min: 100, max: 144 },
-        height: { min: 100, max: 160 },
+        width: { min: 360, max: 400 },
+        height: { min: 240, max: 260 },
         frameRate: { min: 1, max: 3 },
         bitrate: 200000 // 200 kbps
     },
@@ -251,7 +251,7 @@ export interface JitsiManagerConfig {
 // Настройки по умолчанию
 const DEFAULT_CONFIG: JitsiManagerConfig = {
     videoQuality: 'MEDIUM',
-    audioQuality: 'ULTRALOW', // для Native (не используется в hybrid mode)
+    audioQuality: 'MEDIUM', // для Native (не используется в hybrid mode)
     useHybridMode: true,
     enableDebugUI: true,
     enablePerformanceMonitoring: false,
@@ -318,7 +318,7 @@ export class JitsiManager {
 
     // В jitsi-manager.ts, обновите метод injectDebugOverlay()
     private async injectDebugOverlay(): Promise<void> {
-        log.info("[JITSI-MANAGER] Injecting minimal debug indicator...");
+        log.info("[JITSI-MANAGER] Injecting debug indicator with quality controls...");
         
         if (!this.config.enableDebugUI) {
             return;
@@ -329,6 +329,7 @@ export class JitsiManager {
         }
         
         try {
+            // Проверяем, не инжектировано ли уже
             const alreadyInjected = await this.state.window.webContents.executeJavaScript(`
                 !!(document.getElementById('native-debug-indicator'))
             `);
@@ -337,134 +338,308 @@ export class JitsiManager {
                 return;
             }
             
-            const result = await this.state.window.webContents.executeJavaScript(`
+            // ШАГ 1: Добавляем стили
+            await this.state.window.webContents.executeJavaScript(`
                 (function() {
-                    try {
-                        console.log('[DEBUG] Injecting minimal indicator...');
-                        
-                        // Удаляем старые панели если есть
-                        const oldOverlay = document.getElementById('native-debug-overlay');
-                        if (oldOverlay) oldOverlay.remove();
-                        
-                        const oldIndicator = document.getElementById('native-debug-indicator');
-                        if (oldIndicator) oldIndicator.remove();
-                        
-                        // Создаем минималистичный индикатор
-                        const indicator = document.createElement('div');
-                        indicator.id = 'native-debug-indicator';
-                        
-                        // Стили для компактного индикатора (уменьшенные размеры и в левом углу)
-                        indicator.style.cssText = \`
-                            position: fixed;
-                            top: 15px;
-                            left: 15px;
-                            display: flex;
-                            gap: 8px;
-                            padding: 6px 10px;
-                            background: rgba(0, 0, 0, 0.6);
-                            border-radius: 15px;
-                            z-index: 999999;
-                            align-items: center;
-                            backdrop-filter: blur(8px);
-                            transition: opacity 0.3s;
-                        \`;
-                        
-                        // HTML для двух точек (уменьшенный размер)
-                        indicator.innerHTML = \`
-                            <div id="plugin-dot" style="
-                                width: 8px;
-                                height: 8px;
-                                border-radius: 50%;
-                                background: #2196F3;
-                                transition: background 0.3s;
-                                box-shadow: 0 0 3px rgba(0,0,0,0.2);
-                            " title="Plugin Status"></div>
-                            <div id="audio-dot" style="
-                                width: 8px;
-                                height: 8px;
-                                border-radius: 50%;
-                                background: #2196F3;
-                                transition: background 0.3s;
-                                box-shadow: 0 0 3px rgba(0,0,0,0.2);
-                            " title="Audio Status"></div>
-                        \`;
-                        
-                        document.body.appendChild(indicator);
-                        
-                        // Создаем глобальную функцию обновления
-                        window.updateDebugIndicator = function(data) {
-                            const pluginDot = document.getElementById('plugin-dot');
-                            const audioDot = document.getElementById('audio-dot');
-                            
-                            if (pluginDot && data.hasAddon !== undefined) {
-                                // Первая точка: зеленая если плагин подключен, синяя если нет
-                                pluginDot.style.background = data.hasAddon ? '#4CAF50' : '#2196F3';
-                                pluginDot.title = data.hasAddon ? 'Native Plugin: Connected' : 'Native Plugin: Not Connected';
-                            }
-                            
-                            if (audioDot) {
-                                // Вторая точка: зеленая если аудио активно, синяя если нет
-                                const isAudioActive = data.nativeCaptureActive && 
-                                                    data.audioFrameCount > 0 && 
-                                                    data.isStreamActive;
-                                audioDot.style.background = isAudioActive ? '#4CAF50' : '#2196F3';
-                                audioDot.title = isAudioActive ? 'Audio: Active' : 'Audio: Inactive';
-                                
-                                // Добавляем пульсацию для активного аудио
-                                if (isAudioActive) {
-                                    audioDot.style.animation = 'pulse 2s infinite';
-                                } else {
-                                    audioDot.style.animation = 'none';
-                                }
-                            }
-                        };
-                        
-                        // Добавляем CSS анимацию для пульсации
-                        const style = document.createElement('style');
-                        style.textContent = \`
-                            @keyframes pulse {
-                                0% { opacity: 1; }
-                                50% { opacity: 0.5; }
-                                100% { opacity: 1; }
-                            }
-                        \`;
-                        document.head.appendChild(style);
-                        
-                        // Опциональная возможность скрыть индикатор по двойному клику
-                        indicator.ondblclick = function() {
-                            indicator.style.opacity = '0.1';
-                            setTimeout(() => {
-                                indicator.style.opacity = '1';
-                            }, 3000);
-                        };
-                        
-                        console.log('[DEBUG] ✅ Minimal indicator injected');
-                        return { success: true };
-                        
-                    } catch (error) {
-                        console.error('[DEBUG] Injection failed:', error.message);
-                        return { success: false, error: error.message };
-                    }
+                    const style = document.createElement('style');
+                    style.id = 'debug-indicator-styles';
+                    style.textContent = \`
+                        @keyframes pulse {
+                            0% { opacity: 1; }
+                            50% { opacity: 0.5; }
+                            100% { opacity: 1; }
+                        }
+                        @keyframes slideIn {
+                            from { transform: translateX(-100%); opacity: 0; }
+                            to { transform: translateX(0); opacity: 1; }
+                        }
+                        @keyframes slideOut {
+                            from { transform: translateX(0); opacity: 1; }
+                            to { transform: translateX(-100%); opacity: 0; }
+                        }
+                        #quality-preset option {
+                            background: #222;
+                            color: white;
+                        }
+                        input[type="number"]::-webkit-inner-spin-button,
+                        input[type="number"]::-webkit-outer-spin-button {
+                            opacity: 1;
+                            height: 20px;
+                        }
+                        #apply-custom:hover {
+                            background: #45a049 !important;
+                        }
+                        #quality-toggle:hover {
+                            color: rgba(255,255,255,1) !important;
+                        }
+                    \`;
+                    document.head.appendChild(style);
+                    return true;
                 })();
             `);
             
-            if (result && result.success) {
-                log.info("✅ Minimal debug indicator injected successfully");
-                
-                // Сразу отправляем начальные данные
-                const debugInfo = await this.getDebugInfo();
-                await this.state.window.webContents.executeJavaScript(`
-                    if (window.updateDebugIndicator) {
-                        window.updateDebugIndicator(${JSON.stringify(debugInfo)});
-                    }
-                `);
-                
-                // Запускаем мониторинг
-                this.startDebugMonitoring();
-            }
+            // ШАГ 2: Создаем HTML структуру
+            await this.state.window.webContents.executeJavaScript(`
+                (function() {
+                    // Удаляем старые элементы
+                    const oldIndicator = document.getElementById('native-debug-indicator');
+                    if (oldIndicator) oldIndicator.remove();
+                    
+                    const container = document.createElement('div');
+                    container.id = 'native-debug-indicator';
+                    container.style.cssText = 'position: fixed; top: 15px; left: 15px; z-index: 999999;';
+                    
+                    // Создаем индикатор бар
+                    const indicatorBar = document.createElement('div');
+                    indicatorBar.id = 'indicator-bar';
+                    indicatorBar.style.cssText = 'display: flex; gap: 8px; padding: 6px 10px; background: rgba(0, 0, 0, 0.6); border-radius: 15px; align-items: center; backdrop-filter: blur(8px); transition: opacity 0.3s; margin-bottom: 8px;';
+                    
+                    // Точка для плагина
+                    const pluginDot = document.createElement('div');
+                    pluginDot.id = 'plugin-dot';
+                    pluginDot.style.cssText = 'width: 8px; height: 8px; border-radius: 50%; background: #2196F3; transition: background 0.3s; box-shadow: 0 0 3px rgba(0,0,0,0.2);';
+                    pluginDot.title = 'Plugin Status';
+                    
+                    // Точка для аудио
+                    const audioDot = document.createElement('div');
+                    audioDot.id = 'audio-dot';
+                    audioDot.style.cssText = 'width: 8px; height: 8px; border-radius: 50%; background: #2196F3; transition: background 0.3s; box-shadow: 0 0 3px rgba(0,0,0,0.2);';
+                    audioDot.title = 'Audio Status';
+                    
+                    // Разделитель
+                    const separator = document.createElement('div');
+                    separator.style.cssText = 'width: 1px; height: 12px; background: rgba(255,255,255,0.2); margin: 0 4px;';
+                    
+                    // Кнопка настроек
+                    const qualityToggle = document.createElement('button');
+                    qualityToggle.id = 'quality-toggle';
+                    qualityToggle.style.cssText = 'background: none; border: none; color: rgba(255,255,255,0.7); cursor: pointer; padding: 0; font-size: 12px; transition: color 0.2s;';
+                    qualityToggle.title = 'Quality Settings';
+                    qualityToggle.textContent = '⚙️';
+                    
+                    indicatorBar.appendChild(pluginDot);
+                    indicatorBar.appendChild(audioDot);
+                    indicatorBar.appendChild(separator);
+                    indicatorBar.appendChild(qualityToggle);
+                    
+                    container.appendChild(indicatorBar);
+                    document.body.appendChild(container);
+                    
+                    return true;
+                })();
+            `);
+            
+            // ШАГ 3: Создаем панель качества
+            await this.state.window.webContents.executeJavaScript(`
+                (function() {
+                    const container = document.getElementById('native-debug-indicator');
+                    if (!container) return false;
+                    
+                    const qualityPanel = document.createElement('div');
+                    qualityPanel.id = 'quality-panel';
+                    qualityPanel.style.cssText = 'display: none; background: rgba(0, 0, 0, 0.85); border-radius: 12px; padding: 12px; backdrop-filter: blur(10px); min-width: 200px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);';
+                    
+                    // Заголовок
+                    const title = document.createElement('div');
+                    title.style.cssText = 'color: #fff; font-size: 11px; margin-bottom: 10px; font-family: system-ui;';
+                    title.textContent = 'Качество трансляции';
+                    
+                    // Селектор качества
+                    const select = document.createElement('select');
+                    select.id = 'quality-preset';
+                    select.style.cssText = 'width: 100%; padding: 6px; border-radius: 6px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; font-size: 11px; margin-bottom: 8px; cursor: pointer;';
+                    
+                    const options = [
+                        ['ULTRALOW', 'Очень низкое (320x240 @ 15fps)'],
+                        ['LOW', 'Низкое (640x480 @ 15fps)'],
+                        ['MEDIUM', 'Среднее (1280x720 @ 10fps)', true],
+                        ['HIGH', 'Высокое (1920x1080 @ 30fps)'],
+                        ['ULTRAHIGH', 'Ультра (2560x1440 @ 30fps)'],
+                        ['PRESENTATION', 'Презентация (1920x1080 @ 5fps)'],
+                        ['SCREENSHARE', 'Демонстрация (1920x1080 @ 15fps)'],
+                        ['CUSTOM', '➤ Настроить...']
+                    ];
+                    
+                    options.forEach(([value, text, selected]) => {
+                        const option = document.createElement('option');
+                        option.value = value;
+                        option.textContent = text;
+                        option.style.background = '#222';
+                        if (selected) option.selected = true;
+                        select.appendChild(option);
+                    });
+                    
+                    // Кастомные настройки
+                    const customSettings = document.createElement('div');
+                    customSettings.id = 'custom-settings';
+                    customSettings.style.cssText = 'display: none;';
+                    
+                    const customInner = document.createElement('div');
+                    customInner.style.cssText = 'border-top: 1px solid rgba(255,255,255,0.1); margin: 8px 0; padding-top: 8px;';
+                    
+                    // Строка с width и height
+                    const sizeRow = document.createElement('div');
+                    sizeRow.style.cssText = 'display: flex; gap: 8px; margin-bottom: 6px;';
+                    
+                    const widthInput = document.createElement('input');
+                    widthInput.id = 'custom-width';
+                    widthInput.type = 'number';
+                    widthInput.placeholder = 'Ширина';
+                    widthInput.min = '320';
+                    widthInput.max = '3840';
+                    widthInput.style.cssText = 'flex: 1; padding: 4px 6px; border-radius: 4px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; font-size: 11px;';
+                    
+                    const heightInput = document.createElement('input');
+                    heightInput.id = 'custom-height';
+                    heightInput.type = 'number';
+                    heightInput.placeholder = 'Высота';
+                    heightInput.min = '240';
+                    heightInput.max = '2160';
+                    heightInput.style.cssText = 'flex: 1; padding: 4px 6px; border-radius: 4px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; font-size: 11px;';
+                    
+                    sizeRow.appendChild(widthInput);
+                    sizeRow.appendChild(heightInput);
+                    
+                    // Строка с FPS и кнопкой
+                    const controlRow = document.createElement('div');
+                    controlRow.style.cssText = 'display: flex; gap: 8px; margin-bottom: 8px;';
+                    
+                    const fpsInput = document.createElement('input');
+                    fpsInput.id = 'custom-fps';
+                    fpsInput.type = 'number';
+                    fpsInput.placeholder = 'FPS';
+                    fpsInput.min = '1';
+                    fpsInput.max = '60';
+                    fpsInput.style.cssText = 'flex: 1; padding: 4px 6px; border-radius: 4px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; font-size: 11px;';
+                    
+                    const applyButton = document.createElement('button');
+                    applyButton.id = 'apply-custom';
+                    applyButton.textContent = 'Установить';
+                    applyButton.style.cssText = 'flex: 1; padding: 4px 12px; border-radius: 4px; background: #4CAF50; border: none; color: white; font-size: 11px; cursor: pointer; transition: background 0.2s;';
+                    
+                    controlRow.appendChild(fpsInput);
+                    controlRow.appendChild(applyButton);
+                    
+                    customInner.appendChild(sizeRow);
+                    customInner.appendChild(controlRow);
+                    customSettings.appendChild(customInner);
+                    
+                    // Текущее качество
+                    const currentQuality = document.createElement('div');
+                    currentQuality.id = 'current-quality';
+                    currentQuality.style.cssText = 'margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.1); color: rgba(255,255,255,0.6); font-size: 10px; font-family: monospace;';
+                    currentQuality.textContent = 'Текущее: -';
+                    
+                    qualityPanel.appendChild(title);
+                    qualityPanel.appendChild(select);
+                    qualityPanel.appendChild(customSettings);
+                    qualityPanel.appendChild(currentQuality);
+                    
+                    container.appendChild(qualityPanel);
+                    
+                    return true;
+                })();
+            `);
+            
+            // ШАГ 4: Добавляем функциональность
+            await this.state.window.webContents.executeJavaScript(`
+                (function() {
+                    const qualityToggle = document.getElementById('quality-toggle');
+                    const qualityPanel = document.getElementById('quality-panel');
+                    const qualityPreset = document.getElementById('quality-preset');
+                    const customSettings = document.getElementById('custom-settings');
+                    const applyCustom = document.getElementById('apply-custom');
+                    const indicatorBar = document.getElementById('indicator-bar');
+                    
+                    if (!qualityToggle || !qualityPanel) return false;
+                    
+                    // Переключение панели
+                    qualityToggle.onclick = function(e) {
+                        e.stopPropagation();
+                        qualityPanel.style.display = qualityPanel.style.display === 'none' ? 'block' : 'none';
+                    };
+                    
+                    // Закрытие при клике вне
+                    document.addEventListener('click', function(e) {
+                        const container = document.getElementById('native-debug-indicator');
+                        if (container && !container.contains(e.target)) {
+                            qualityPanel.style.display = 'none';
+                        }
+                    });
+                    
+                    // Выбор пресета
+                    qualityPreset.onchange = async function() {
+                        const value = this.value;
+                        if (value === 'CUSTOM') {
+                            customSettings.style.display = 'block';
+                        } else {
+                            customSettings.style.display = 'none';
+                            if (window.ipcRenderer) {
+                                const result = await window.ipcRenderer.invoke('jitsi:change-video-quality', value);
+                                console.log('[Quality] Preset result:', result);
+                            }
+                        }
+                    };
+                    
+                    // Применение кастомных настроек
+                    applyCustom.onclick = async function() {
+                        const width = parseInt(document.getElementById('custom-width').value);
+                        const height = parseInt(document.getElementById('custom-height').value);
+                        const fps = parseInt(document.getElementById('custom-fps').value);
+                        
+                        if (width && height && fps && window.ipcRenderer) {
+                            const result = await window.ipcRenderer.invoke('jitsi:set-custom-quality', width, height, fps);
+                            console.log('[Quality] Custom result:', result);
+                        }
+                    };
+                    
+                    // Двойной клик для скрытия
+                    indicatorBar.ondblclick = function() {
+                        indicatorBar.style.opacity = '0.1';
+                        qualityPanel.style.display = 'none';
+                        setTimeout(() => {
+                            indicatorBar.style.opacity = '1';
+                        }, 3000);
+                    };
+                    
+                    // Функция обновления индикаторов
+                    window.updateDebugIndicator = function(data) {
+                        const pluginDot = document.getElementById('plugin-dot');
+                        const audioDot = document.getElementById('audio-dot');
+                        
+                        if (pluginDot && data.hasAddon !== undefined) {
+                            pluginDot.style.background = data.hasAddon ? '#4CAF50' : '#2196F3';
+                        }
+                        
+                        if (audioDot) {
+                            const isAudioActive = data.nativeCaptureActive && 
+                                                data.audioFrameCount > 0 && 
+                                                data.isStreamActive;
+                            audioDot.style.background = isAudioActive ? '#4CAF50' : '#2196F3';
+                            audioDot.style.animation = isAudioActive ? 'pulse 2s infinite' : 'none';
+                        }
+                    };
+                    
+                    console.log('[DEBUG] ✅ Debug indicator ready');
+                    return true;
+                })();
+            `);
+            
+            log.info("✅ Debug indicator injected successfully");
+            
+            // Отправляем начальные данные
+            const debugInfo = await this.getDebugInfo();
+            await this.state.window.webContents.executeJavaScript(`
+                if (window.updateDebugIndicator) {
+                    window.updateDebugIndicator(${JSON.stringify(debugInfo)});
+                }
+            `);
+            
+            // Запускаем мониторинг
+            this.startDebugMonitoring();
             
         } catch (error: any) {
-            log.error(`[JITSI-MANAGER] Exception during injection: ${error.message}`);
+            log.error(`[JITSI-MANAGER] Injection error: ${error.message}`);
         }
     }
 
@@ -597,6 +772,40 @@ export class JitsiManager {
 
         ipcMain.handle("jitsi:change-video-quality", async (event, quality: keyof typeof VIDEO_QUALITY_PRESETS) => {
             return this.changeVideoQuality(quality);
+        });
+
+        ipcMain.handle("jitsi:set-custom-quality", async (event, width: number, height: number, fps: number) => {
+            return this.setCustomVideoQuality(width, height, fps);
+        });
+
+        ipcMain.handle("jitsi:get-current-quality", async () => {
+            if (!this.state.window || this.state.window.isDestroyed()) {
+                return { success: false, error: "No window" };
+            }
+            
+            try {
+                const result = await this.state.window.webContents.executeJavaScript(`
+                    (function() {
+                        if (window.electronVideoStream || window.jitsiNativeMediaStream) {
+                            const stream = window.electronVideoStream || window.jitsiNativeMediaStream;
+                            const videoTrack = stream.getVideoTracks()[0];
+                            if (videoTrack) {
+                                const settings = videoTrack.getSettings();
+                                return {
+                                    success: true,
+                                    width: settings.width,
+                                    height: settings.height,
+                                    fps: settings.frameRate
+                                };
+                            }
+                        }
+                        return { success: false, error: 'No video track' };
+                    })();
+                `);
+                return result;
+            } catch (error: any) {
+                return { success: false, error: error.message };
+            }
         });
 
         // Установить режим (hybrid или native)
@@ -812,63 +1021,172 @@ export class JitsiManager {
     }
 
     // Метод для изменения качества видео
-    async changeVideoQuality(presetName: keyof typeof VIDEO_QUALITY_PRESETS): Promise<{ success: boolean; quality?: string }> {
-            log.info(`[STREAM-ELECTRON] Changing video quality to: ${presetName}`);
+    async changeVideoQuality(presetName: keyof typeof VIDEO_QUALITY_PRESETS): Promise<{ success: boolean; quality?: string; error?: string }> {
+        log.info(`[STREAM-ELECTRON] Changing video quality to: ${presetName}`);
+        
+        if (!this.state.window || this.state.window.isDestroyed()) {
+            return { success: false, error: "No window available" };
+        }
+        
+        try {
+            // Устанавливаем новый пресет
+            const preset = this.videoQualityManager.setPreset(presetName);
             
-            if (!this.state.window || this.state.window.isDestroyed()) {
-                return { success: false };
-            }
-            
-            try {
-                // Устанавливаем новый пресет
-                const preset = this.videoQualityManager.setPreset(presetName);
-                
-                // Применяем к существующему потоку
-                const result = await this.state.window.webContents.executeJavaScript(`
-                    (async function() {
-                        try {
-                            if (!window.electronVideoStream) {
-                                throw new Error('No video stream');
-                            }
-                            
-                            const videoTrack = window.electronVideoStream.getVideoTracks()[0];
-                            if (!videoTrack) {
-                                throw new Error('No video track');
-                            }
-                            
-                            // Применяем новые constraints
-                            await videoTrack.applyConstraints({
-                                width: { min: ${preset.width.min}, ideal: ${preset.width.max}, max: ${preset.width.max} },
-                                height: { min: ${preset.height.min}, ideal: ${preset.height.max}, max: ${preset.height.max} },
-                                frameRate: { min: ${preset.frameRate.min}, ideal: ${preset.frameRate.max}, max: ${preset.frameRate.max} }
-                            });
-                            
-                            const newSettings = videoTrack.getSettings();
-                            console.log('[VIDEO-QUALITY] Applied:', newSettings.width + 'x' + newSettings.height + '@' + newSettings.frameRate + 'fps');
-                            
-                            
-                            return {
-                                success: true,
-                                quality: newSettings.width + 'x' + newSettings.height + '@' + newSettings.frameRate + 'fps'
-                            };
-                            
-                        } catch (error) {
-                            console.error('[VIDEO-QUALITY] Error:', error);
-                            return { success: false, error: error.message };
+            // Применяем к существующему потоку
+            const result = await this.state.window.webContents.executeJavaScript(`
+                (async function() {
+                    try {
+                        // Проверяем наличие потока
+                        if (!window.electronVideoStream && !window.jitsiNativeMediaStream) {
+                            throw new Error('No video stream available');
                         }
-                    })();
-                `);
-                
-                if (result.success) {
-                    log.info(`[STREAM-ELECTRON] Video quality changed to: ${result.quality}`);
-                }
-                
-                return result;
-                
-            } catch (error: any) {
-                log.error(`[STREAM-ELECTRON] Failed to change quality: ${error.message}`);
-                return { success: false };
+                        
+                        const stream = window.electronVideoStream || window.jitsiNativeMediaStream;
+                        const videoTrack = stream.getVideoTracks()[0];
+                        
+                        if (!videoTrack) {
+                            throw new Error('No video track found');
+                        }
+                        
+                        console.log('[VIDEO-QUALITY] Applying constraints:', {
+                            width: { min: ${preset.width.min}, ideal: ${preset.width.max}, max: ${preset.width.max} },
+                            height: { min: ${preset.height.min}, ideal: ${preset.height.max}, max: ${preset.height.max} },
+                            frameRate: { min: ${preset.frameRate.min}, ideal: ${preset.frameRate.max}, max: ${preset.frameRate.max} }
+                        });
+                        
+                        // Применяем новые constraints
+                        await videoTrack.applyConstraints({
+                            width: { min: ${preset.width.min}, ideal: ${preset.width.max}, max: ${preset.width.max} },
+                            height: { min: ${preset.height.min}, ideal: ${preset.height.max}, max: ${preset.height.max} },
+                            frameRate: { min: ${preset.frameRate.min}, ideal: ${preset.frameRate.max}, max: ${preset.frameRate.max} }
+                        });
+                        
+                        // Получаем реальные настройки после применения
+                        const newSettings = videoTrack.getSettings();
+                        console.log('[VIDEO-QUALITY] Applied settings:', newSettings);
+                        
+                        // Обновляем отображение в панели
+                        const display = document.getElementById('current-quality');
+                        if (display) {
+                            display.textContent = \`Текущее: \${newSettings.width}x\${newSettings.height} @ \${Math.round(newSettings.frameRate)}fps\`;
+                        }
+                        
+                        // Обновляем выбранный пресет в селекторе
+                        const selector = document.getElementById('quality-preset');
+                        if (selector && selector.value !== 'CUSTOM') {
+                            selector.value = '${presetName}';
+                        }
+                        
+                        return {
+                            success: true,
+                            quality: newSettings.width + 'x' + newSettings.height + '@' + Math.round(newSettings.frameRate) + 'fps',
+                            actualSettings: newSettings
+                        };
+                        
+                    } catch (error) {
+                        console.error('[VIDEO-QUALITY] Error:', error);
+                        return { success: false, error: error.message };
+                    }
+                })();
+            `);
+            
+            if (result.success) {
+                log.info(`[STREAM-ELECTRON] Video quality changed successfully to: ${result.quality}`);
+                // Сохраняем текущий пресет в конфиге
+                this.config.videoQuality = presetName;
+            } else {
+                log.error(`[STREAM-ELECTRON] Failed to change quality: ${result.error}`);
             }
+            
+            return result;
+            
+        } catch (error: any) {
+            log.error(`[STREAM-ELECTRON] Failed to change quality: ${error.message}`);
+            return { success: false, error: error.message };
+        }
+    }
+
+    async setCustomVideoQuality(width: number, height: number, fps: number): Promise<{ success: boolean; quality?: string; error?: string }> {
+        log.info(`[STREAM-ELECTRON] Setting custom video quality: ${width}x${height}@${fps}fps`);
+        
+        if (!this.state.window || this.state.window.isDestroyed()) {
+            return { success: false, error: "No window available" };
+        }
+        
+        try {
+            // Устанавливаем кастомные настройки в менеджере
+            this.videoQualityManager.setCustomQuality({
+                width: { min: Math.floor(width * 0.8), max: width },
+                height: { min: Math.floor(height * 0.8), max: height },
+                frameRate: { min: Math.max(1, fps - 5), max: fps }
+            });
+            
+            // Применяем к потоку
+            const result = await this.state.window.webContents.executeJavaScript(`
+                (async function() {
+                    try {
+                        if (!window.electronVideoStream && !window.jitsiNativeMediaStream) {
+                            throw new Error('No video stream available');
+                        }
+                        
+                        const stream = window.electronVideoStream || window.jitsiNativeMediaStream;
+                        const videoTrack = stream.getVideoTracks()[0];
+                        
+                        if (!videoTrack) {
+                            throw new Error('No video track found');
+                        }
+                        
+                        console.log('[VIDEO-QUALITY] Applying custom constraints:', {
+                            width: ${width},
+                            height: ${height},
+                            frameRate: ${fps}
+                        });
+                        
+                        // Применяем constraints
+                        await videoTrack.applyConstraints({
+                            width: { min: ${Math.floor(width * 0.8)}, ideal: ${width}, max: ${width} },
+                            height: { min: ${Math.floor(height * 0.8)}, ideal: ${height}, max: ${height} },
+                            frameRate: { min: ${Math.max(1, fps - 5)}, ideal: ${fps}, max: ${fps} }
+                        });
+                        
+                        const newSettings = videoTrack.getSettings();
+                        console.log('[VIDEO-QUALITY] Custom settings applied:', newSettings);
+                        
+                        // Обновляем отображение
+                        const display = document.getElementById('current-quality');
+                        if (display) {
+                            display.textContent = \`Текущее: \${newSettings.width}x\${newSettings.height} @ \${Math.round(newSettings.frameRate)}fps\`;
+                        }
+                        
+                        // Устанавливаем селектор на CUSTOM
+                        const selector = document.getElementById('quality-preset');
+                        if (selector) {
+                            selector.value = 'CUSTOM';
+                        }
+                        
+                        return {
+                            success: true,
+                            quality: newSettings.width + 'x' + newSettings.height + '@' + Math.round(newSettings.frameRate) + 'fps',
+                            actualSettings: newSettings
+                        };
+                        
+                    } catch (error) {
+                        console.error('[VIDEO-QUALITY] Custom settings error:', error);
+                        return { success: false, error: error.message };
+                    }
+                })();
+            `);
+            
+            if (result.success) {
+                log.info(`[STREAM-ELECTRON] Custom quality applied: ${result.quality}`);
+            }
+            
+            return result;
+            
+        } catch (error: any) {
+            log.error(`[STREAM-ELECTRON] Failed to set custom quality: ${error.message}`);
+            return { success: false, error: error.message };
+        }
     }
 
     async createWindow(options: JitsiOptions): Promise<{ success: boolean; error?: string }> {
