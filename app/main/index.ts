@@ -374,52 +374,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
   app.disableHardwareAcceleration();
   await app.whenReady();
 
-  try {
-    const possiblePaths = [
-        path.join(__dirname, 'native-addon.node'),
-        path.join(__dirname, '..', 'dist-electron', 'native-addon.node'),
-        path.join(process.cwd(), 'dist-electron', 'native-addon.node'),
-        '/Users/sg12/zulip-desktop/dist-electron/native-addon.node'
-    ];
-    
-    let addonPath: string | null = null;
-    for (const testPath of possiblePaths) {
-        if (require('fs').existsSync(testPath)) {
-        addonPath = testPath;
-        break;
-        }
-    }
-    
-    if (!addonPath) {
-        throw new Error(`Native addon not found in any of: ${possiblePaths.join(', ')}`);
-    }
-    
-    log.info(`Loading native addon from: ${addonPath}`);
-    screenCaptureAddon = require(addonPath);
-    log.info(`✅ Native addon loaded successfully`);
-
-    if (screenCaptureAddon.testBasic) {
-        const result = screenCaptureAddon.testBasic();
-        log.info(`Basic test result: ${result}`);
-    }
-    
-    // Тест addon
-    const testResult = screenCaptureAddon.testMethod();
-    log.info(`✅ Native addon test result: ${testResult}`);
-    
-    // Проверяем наличие метода
-    if (typeof screenCaptureAddon.getAvailableSources === 'function') {
-        log.info("✅ Native addon has getAvailableSources method");
-    } else {
-        log.warn("⚠️ Native addon missing getAvailableSources method");
-    }
-    
-  } catch (error: any) {
-        log.error(`❌ Failed to load native addon: ${error.message}`);
-        screenCaptureAddon = null;
-  }
-
-  const nativeCaptureManager = new NativeCaptureManager(screenCaptureAddon);
+  const nativeCaptureManager = new NativeCaptureManager();
   const jitsiManager = new JitsiManager(
     nativeCaptureManager,
     bundlePath,

@@ -108,9 +108,9 @@ export class NativeCaptureManager {
         }
     }
 
-    constructor(addon?: any) {
+    constructor() {
         this.state = {
-          addon: addon || null, // Используем переданный addon
+          addon: null, 
           isCapturing: false,
           currentSourceId: null,
           videoFrameCount: 0,
@@ -127,6 +127,13 @@ export class NativeCaptureManager {
 
     private detectAddonType(): void {
         console.log("🪟 [detectAddonType] Start detect");
+        
+        if (!this.state.addon) {
+            this.addonType = 'unknown';
+            console.log("❌ [detectAddonType] No addon loaded - skipping detection");
+            return;
+        }
+        
         if (typeof this.state.addon.getAvailableSources === 'function') {
             // Проверяем наличие testMethod для определения Windows плагина
             console.log("🪟 [detectAddonType] Start more");
@@ -160,6 +167,10 @@ export class NativeCaptureManager {
             console.log("❓[detectAddonType] Unknown addon type - no getAvailableSources");
         }
         console.log("🪟 [detectAddonType] End detect");
+    }
+
+    public isNativeAvailable(): boolean {
+        return !!this.state.addon && this.addonType !== 'not-loaded' && this.addonType !== 'unknown';
     }
 
     async startAudioOnlyCapture(sourceId: string): Promise<{ success: boolean; error?: string }> {

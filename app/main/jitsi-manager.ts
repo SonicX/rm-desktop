@@ -272,6 +272,7 @@ export class JitsiManager {
     private videoQualityManager: VideoQualityManager;
     private performanceMonitoringInterval?: NodeJS.Timer;
 
+    private useStandardJitsi: boolean = false;
     private screenShareMonitor: JitsiScreenShareMonitor;
     private activeMediaStreams: Set<string> = new Set(); 
     private debugMonitoringStarted: boolean = false;
@@ -312,6 +313,29 @@ export class JitsiManager {
         log.info("[JITSI-MANAGER] Debug UI enabled:", this.config.enableDebugUI);
     }
 
+
+    private async shouldUseNativeCapture(): Promise<boolean> {
+        // Проверяем доступность плагина
+        if (!this.nativeCapture.isAvailable) {
+            log.warn("[JITSI-MANAGER] Native plugin not available, using standard Jitsi");
+            return false;
+        }
+        
+        // Проверяем здоровье плагина
+        const health = await this.nativeCapture.testAddonHealth();
+        if (!health.healthy) {
+            log.warn("[JITSI-MANAGER] Native plugin unhealthy, using standard Jitsi");
+            return false;
+        }
+        
+        // Проверяем настройки пользователя
+        if (this.config.forceStandardJitsi) {
+            return false;
+        }
+        
+        return true;
+    }
+
     private isWindowsPlatform(): boolean {
         return process.platform === 'win32';
     }
@@ -328,8 +352,14 @@ export class JitsiManager {
             return;
         }
         
+        // Проверяем доступность нативного плагина
+        const nativeAvailable = this.nativeCapture && this.nativeCapture.isNativeAvailable();
+        const showQualityControls = nativeAvailable && !this.useStandardJitsi;
+        
+        log.info(`[JITSI-MANAGER] Native available: ${nativeAvailable}, Show quality controls: ${showQualityControls}`);
+        
         try {
-            // Проверяем, не инжектировано ли уже
+            // Проверяем, не инъектировано ли уже
             const alreadyInjected = await this.state.window.webContents.executeJavaScript(`
                 !!(document.getElementById('native-debug-indicator'))
             `);
@@ -372,15 +402,32 @@ export class JitsiManager {
                         #quality-toggle:hover {
                             color: rgba(255,255,255,1) !important;
                         }
+                        .status-badge {
+                            padding: 2px 6px;
+                            border-radius: 4px;
+                            font-size: 10px;
+                            font-weight: bold;
+                            color: white;
+                            margin-left: 8px;
+                        }
+                        .native-mode { background: #4CAF50; }
+                        .standard-mode { background: #FF9800; }
+                        .error-mode { background: #f44336; }
                     \`;
                     document.head.appendChild(style);
                     return true;
                 })();
             `);
             
-            // ШАГ 2: Создаем HTML структуру
+            // ШАГ 2: Создаем HTML структуру - передаем параметры через переменные
             await this.state.window.webContents.executeJavaScript(`
                 (function() {
+                    // Получаем параметры
+                    const showQualityControls = ${showQualityControls};
+                    const nativeAvailable = ${nativeAvailable};
+                    
+                    console.log('[DEBUG] Creating indicator - showQualityControls:', showQualityControls, 'nativeAvailable:', nativeAvailable);
+                    
                     // Удаляем старые элементы
                     const oldIndicator = document.getElementById('native-debug-indicator');
                     if (oldIndicator) oldIndicator.remove();
@@ -397,8 +444,8 @@ export class JitsiManager {
                     // Точка для плагина
                     const pluginDot = document.createElement('div');
                     pluginDot.id = 'plugin-dot';
-                    pluginDot.style.cssText = 'width: 8px; height: 8px; border-radius: 50%; background: #2196F3; transition: background 0.3s; box-shadow: 0 0 3px rgba(0,0,0,0.2);';
-                    pluginDot.title = 'Plugin Status';
+                    pluginDot.style.cssText = 'width: 8px; height: 8px; border-radius: 50%; background: ' + (nativeAvailable ? '#4CAF50' : '#f44336') + '; transition: background 0.3s; box-shadow: 0 0 3px rgba(0,0,0,0.2);';
+                    pluginDot.title = 'Plugin Status: ' + (nativeAvailable ? 'Available' : 'Not Available');
                     
                     // Точка для аудио
                     const audioDot = document.createElement('div');
@@ -406,144 +453,164 @@ export class JitsiManager {
                     audioDot.style.cssText = 'width: 8px; height: 8px; border-radius: 50%; background: #2196F3; transition: background 0.3s; box-shadow: 0 0 3px rgba(0,0,0,0.2);';
                     audioDot.title = 'Audio Status';
                     
-                    // Разделитель
-                    const separator = document.createElement('div');
-                    separator.style.cssText = 'width: 1px; height: 12px; background: rgba(255,255,255,0.2); margin: 0 4px;';
-                    
-                    // Кнопка настроек
-                    const qualityToggle = document.createElement('button');
-                    qualityToggle.id = 'quality-toggle';
-                    qualityToggle.style.cssText = 'background: none; border: none; color: rgba(255,255,255,0.7); cursor: pointer; padding: 0; font-size: 12px; transition: color 0.2s;';
-                    qualityToggle.title = 'Quality Settings';
-                    qualityToggle.textContent = '⚙️';
-                    
                     indicatorBar.appendChild(pluginDot);
                     indicatorBar.appendChild(audioDot);
-                    indicatorBar.appendChild(separator);
-                    indicatorBar.appendChild(qualityToggle);
+                    
+                    // Добавляем элементы управления качеством только если плагин доступен
+                    if (showQualityControls) {
+                        // Разделитель
+                        const separator = document.createElement('div');
+                        separator.style.cssText = 'width: 1px; height: 12px; background: rgba(255,255,255,0.2); margin: 0 4px;';
+                        
+                        // Кнопка настроек
+                        const qualityToggle = document.createElement('button');
+                        qualityToggle.id = 'quality-toggle';
+                        qualityToggle.style.cssText = 'background: none; border: none; color: rgba(255,255,255,0.7); cursor: pointer; padding: 0; font-size: 12px; transition: color 0.2s;';
+                        qualityToggle.title = 'Quality Settings';
+                        qualityToggle.textContent = '⚙️';
+                        
+                        indicatorBar.appendChild(separator);
+                        indicatorBar.appendChild(qualityToggle);
+                    } else {
+                        // Добавляем индикатор режима для standard mode
+                        const modeIndicator = document.createElement('span');
+                        modeIndicator.className = 'status-badge standard-mode';
+                        modeIndicator.textContent = 'STANDARD';
+                        modeIndicator.title = 'Using standard Jitsi (no quality controls)';
+                        indicatorBar.appendChild(modeIndicator);
+                    }
                     
                     container.appendChild(indicatorBar);
                     document.body.appendChild(container);
                     
+                    console.log('[DEBUG] Indicator bar created');
                     return true;
                 })();
             `);
             
-            // ШАГ 3: Создаем панель качества
-            await this.state.window.webContents.executeJavaScript(`
-                (function() {
-                    const container = document.getElementById('native-debug-indicator');
-                    if (!container) return false;
-                    
-                    const qualityPanel = document.createElement('div');
-                    qualityPanel.id = 'quality-panel';
-                    qualityPanel.style.cssText = 'display: none; background: rgba(0, 0, 0, 0.85); border-radius: 12px; padding: 12px; backdrop-filter: blur(10px); min-width: 200px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);';
-                    
-                    // Заголовок
-                    const title = document.createElement('div');
-                    title.style.cssText = 'color: #fff; font-size: 11px; margin-bottom: 10px; font-family: system-ui;';
-                    title.textContent = 'Качество трансляции';
-                    
-                    // Селектор качества
-                    const select = document.createElement('select');
-                    select.id = 'quality-preset';
-                    select.style.cssText = 'width: 100%; padding: 6px; border-radius: 6px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; font-size: 11px; margin-bottom: 8px; cursor: pointer;';
-                    
-                    const options = [
-                        ['ULTRALOW', 'Очень низкое (320x240 @ 15fps)'],
-                        ['LOW', 'Низкое (640x480 @ 15fps)'],
-                        ['MEDIUM', 'Среднее (1280x720 @ 10fps)', true],
-                        ['HIGH', 'Высокое (1920x1080 @ 30fps)'],
-                        ['ULTRAHIGH', 'Ультра (2560x1440 @ 30fps)'],
-                        ['PRESENTATION', 'Презентация (1920x1080 @ 5fps)'],
-                        ['SCREENSHARE', 'Демонстрация (1920x1080 @ 15fps)'],
-                        ['CUSTOM', '➤ Настроить...']
-                    ];
-                    
-                    options.forEach(([value, text, selected]) => {
-                        const option = document.createElement('option');
-                        option.value = value;
-                        option.textContent = text;
-                        option.style.background = '#222';
-                        if (selected) option.selected = true;
-                        select.appendChild(option);
-                    });
-                    
-                    // Кастомные настройки
-                    const customSettings = document.createElement('div');
-                    customSettings.id = 'custom-settings';
-                    customSettings.style.cssText = 'display: none;';
-                    
-                    const customInner = document.createElement('div');
-                    customInner.style.cssText = 'border-top: 1px solid rgba(255,255,255,0.1); margin: 8px 0; padding-top: 8px;';
-                    
-                    // Строка с width и height
-                    const sizeRow = document.createElement('div');
-                    sizeRow.style.cssText = 'display: flex; gap: 8px; margin-bottom: 6px;';
-                    
-                    const widthInput = document.createElement('input');
-                    widthInput.id = 'custom-width';
-                    widthInput.type = 'number';
-                    widthInput.placeholder = 'Ширина';
-                    widthInput.min = '320';
-                    widthInput.max = '3840';
-                    widthInput.style.cssText = 'flex: 1; padding: 4px 6px; border-radius: 4px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; font-size: 11px;';
-                    
-                    const heightInput = document.createElement('input');
-                    heightInput.id = 'custom-height';
-                    heightInput.type = 'number';
-                    heightInput.placeholder = 'Высота';
-                    heightInput.min = '240';
-                    heightInput.max = '2160';
-                    heightInput.style.cssText = 'flex: 1; padding: 4px 6px; border-radius: 4px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; font-size: 11px;';
-                    
-                    sizeRow.appendChild(widthInput);
-                    sizeRow.appendChild(heightInput);
-                    
-                    // Строка с FPS и кнопкой
-                    const controlRow = document.createElement('div');
-                    controlRow.style.cssText = 'display: flex; gap: 8px; margin-bottom: 8px;';
-                    
-                    const fpsInput = document.createElement('input');
-                    fpsInput.id = 'custom-fps';
-                    fpsInput.type = 'number';
-                    fpsInput.placeholder = 'FPS';
-                    fpsInput.min = '1';
-                    fpsInput.max = '60';
-                    fpsInput.style.cssText = 'flex: 1; padding: 4px 6px; border-radius: 4px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; font-size: 11px;';
-                    
-                    const applyButton = document.createElement('button');
-                    applyButton.id = 'apply-custom';
-                    applyButton.textContent = 'Установить';
-                    applyButton.style.cssText = 'flex: 1; padding: 4px 12px; border-radius: 4px; background: #4CAF50; border: none; color: white; font-size: 11px; cursor: pointer; transition: background 0.2s;';
-                    
-                    controlRow.appendChild(fpsInput);
-                    controlRow.appendChild(applyButton);
-                    
-                    customInner.appendChild(sizeRow);
-                    customInner.appendChild(controlRow);
-                    customSettings.appendChild(customInner);
-                    
-                    // Текущее качество
-                    const currentQuality = document.createElement('div');
-                    currentQuality.id = 'current-quality';
-                    currentQuality.style.cssText = 'margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.1); color: rgba(255,255,255,0.6); font-size: 10px; font-family: monospace;';
-                    currentQuality.textContent = 'Текущее: -';
-                    
-                    qualityPanel.appendChild(title);
-                    qualityPanel.appendChild(select);
-                    qualityPanel.appendChild(customSettings);
-                    qualityPanel.appendChild(currentQuality);
-                    
-                    container.appendChild(qualityPanel);
-                    
-                    return true;
-                })();
-            `);
+            // ШАГ 3: Создаем панель качества ТОЛЬКО если нативный плагин доступен
+            if (showQualityControls) {
+                await this.state.window.webContents.executeJavaScript(`
+                    (function() {
+                        const container = document.getElementById('native-debug-indicator');
+                        if (!container) {
+                            console.error('[DEBUG] Container not found for quality panel');
+                            return false;
+                        }
+                        
+                        const qualityPanel = document.createElement('div');
+                        qualityPanel.id = 'quality-panel';
+                        qualityPanel.style.cssText = 'display: none; background: rgba(0, 0, 0, 0.85); border-radius: 12px; padding: 12px; backdrop-filter: blur(10px); min-width: 200px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);';
+                        
+                        // Заголовок
+                        const title = document.createElement('div');
+                        title.style.cssText = 'color: #fff; font-size: 11px; margin-bottom: 10px; font-family: system-ui;';
+                        title.textContent = 'Качество трансляции';
+                        
+                        // Селектор качества
+                        const select = document.createElement('select');
+                        select.id = 'quality-preset';
+                        select.style.cssText = 'width: 100%; padding: 6px; border-radius: 6px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; font-size: 11px; margin-bottom: 8px; cursor: pointer;';
+                        
+                        const options = [
+                            ['ULTRALOW', 'Очень низкое (320x240 @ 15fps)'],
+                            ['LOW', 'Низкое (640x480 @ 15fps)'],
+                            ['MEDIUM', 'Среднее (1280x720 @ 10fps)', true],
+                            ['HIGH', 'Высокое (1920x1080 @ 30fps)'],
+                            ['ULTRAHIGH', 'Ультра (2560x1440 @ 30fps)'],
+                            ['PRESENTATION', 'Презентация (1920x1080 @ 5fps)'],
+                            ['SCREENSHARE', 'Демонстрация (1920x1080 @ 15fps)'],
+                            ['CUSTOM', '➤ Настроить...']
+                        ];
+                        
+                        options.forEach(([value, text, selected]) => {
+                            const option = document.createElement('option');
+                            option.value = value;
+                            option.textContent = text;
+                            option.style.background = '#222';
+                            if (selected) option.selected = true;
+                            select.appendChild(option);
+                        });
+                        
+                        // Кастомные настройки
+                        const customSettings = document.createElement('div');
+                        customSettings.id = 'custom-settings';
+                        customSettings.style.cssText = 'display: none;';
+                        
+                        const customInner = document.createElement('div');
+                        customInner.style.cssText = 'border-top: 1px solid rgba(255,255,255,0.1); margin: 8px 0; padding-top: 8px;';
+                        
+                        // Строка с width и height
+                        const sizeRow = document.createElement('div');
+                        sizeRow.style.cssText = 'display: flex; gap: 8px; margin-bottom: 6px;';
+                        
+                        const widthInput = document.createElement('input');
+                        widthInput.id = 'custom-width';
+                        widthInput.type = 'number';
+                        widthInput.placeholder = 'Ширина';
+                        widthInput.min = '320';
+                        widthInput.max = '3840';
+                        widthInput.style.cssText = 'flex: 1; padding: 4px 6px; border-radius: 4px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; font-size: 11px;';
+                        
+                        const heightInput = document.createElement('input');
+                        heightInput.id = 'custom-height';
+                        heightInput.type = 'number';
+                        heightInput.placeholder = 'Высота';
+                        heightInput.min = '240';
+                        heightInput.max = '2160';
+                        heightInput.style.cssText = 'flex: 1; padding: 4px 6px; border-radius: 4px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; font-size: 11px;';
+                        
+                        sizeRow.appendChild(widthInput);
+                        sizeRow.appendChild(heightInput);
+                        
+                        // Строка с FPS и кнопкой
+                        const controlRow = document.createElement('div');
+                        controlRow.style.cssText = 'display: flex; gap: 8px; margin-bottom: 8px;';
+                        
+                        const fpsInput = document.createElement('input');
+                        fpsInput.id = 'custom-fps';
+                        fpsInput.type = 'number';
+                        fpsInput.placeholder = 'FPS';
+                        fpsInput.min = '1';
+                        fpsInput.max = '60';
+                        fpsInput.style.cssText = 'flex: 1; padding: 4px 6px; border-radius: 4px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; font-size: 11px;';
+                        
+                        const applyButton = document.createElement('button');
+                        applyButton.id = 'apply-custom';
+                        applyButton.textContent = 'Установить';
+                        applyButton.style.cssText = 'flex: 1; padding: 4px 12px; border-radius: 4px; background: #4CAF50; border: none; color: white; font-size: 11px; cursor: pointer; transition: background 0.2s;';
+                        
+                        controlRow.appendChild(fpsInput);
+                        controlRow.appendChild(applyButton);
+                        
+                        customInner.appendChild(sizeRow);
+                        customInner.appendChild(controlRow);
+                        customSettings.appendChild(customInner);
+                        
+                        // Текущее качество
+                        const currentQuality = document.createElement('div');
+                        currentQuality.id = 'current-quality';
+                        currentQuality.style.cssText = 'margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.1); color: rgba(255,255,255,0.6); font-size: 10px; font-family: monospace;';
+                        currentQuality.textContent = 'Текущее: -';
+                        
+                        qualityPanel.appendChild(title);
+                        qualityPanel.appendChild(select);
+                        qualityPanel.appendChild(customSettings);
+                        qualityPanel.appendChild(currentQuality);
+                        
+                        container.appendChild(qualityPanel);
+                        
+                        console.log('[DEBUG] Quality panel created');
+                        return true;
+                    })();
+                `);
+            }
             
-            // ШАГ 4: Добавляем функциональность
+            // ШАГ 4: Добавляем функциональность - передаем showQualityControls как переменную
             await this.state.window.webContents.executeJavaScript(`
                 (function() {
+                    const showQualityControls = ${showQualityControls};
+                    
                     const qualityToggle = document.getElementById('quality-toggle');
                     const qualityPanel = document.getElementById('quality-panel');
                     const qualityPreset = document.getElementById('quality-preset');
@@ -551,56 +618,63 @@ export class JitsiManager {
                     const applyCustom = document.getElementById('apply-custom');
                     const indicatorBar = document.getElementById('indicator-bar');
                     
-                    if (!qualityToggle || !qualityPanel) return false;
-                    
-                    // Переключение панели
-                    qualityToggle.onclick = function(e) {
-                        e.stopPropagation();
-                        qualityPanel.style.display = qualityPanel.style.display === 'none' ? 'block' : 'none';
-                    };
-                    
-                    // Закрытие при клике вне
-                    document.addEventListener('click', function(e) {
-                        const container = document.getElementById('native-debug-indicator');
-                        if (container && !container.contains(e.target)) {
-                            qualityPanel.style.display = 'none';
-                        }
-                    });
-                    
-                    // Выбор пресета
-                    qualityPreset.onchange = async function() {
-                        const value = this.value;
-                        if (value === 'CUSTOM') {
-                            customSettings.style.display = 'block';
-                        } else {
-                            customSettings.style.display = 'none';
-                            if (window.ipcRenderer) {
-                                const result = await window.ipcRenderer.invoke('jitsi:change-video-quality', value);
-                                console.log('[Quality] Preset result:', result);
-                            }
-                        }
-                    };
-                    
-                    // Применение кастомных настроек
-                    applyCustom.onclick = async function() {
-                        const width = parseInt(document.getElementById('custom-width').value);
-                        const height = parseInt(document.getElementById('custom-height').value);
-                        const fps = parseInt(document.getElementById('custom-fps').value);
+                    // Только если есть элементы управления качеством
+                    if (qualityToggle && qualityPanel) {
+                        // Переключение панели
+                        qualityToggle.onclick = function(e) {
+                            e.stopPropagation();
+                            qualityPanel.style.display = qualityPanel.style.display === 'none' ? 'block' : 'none';
+                        };
                         
-                        if (width && height && fps && window.ipcRenderer) {
-                            const result = await window.ipcRenderer.invoke('jitsi:set-custom-quality', width, height, fps);
-                            console.log('[Quality] Custom result:', result);
+                        // Закрытие при клике вне
+                        document.addEventListener('click', function(e) {
+                            const container = document.getElementById('native-debug-indicator');
+                            if (container && !container.contains(e.target)) {
+                                if (qualityPanel) qualityPanel.style.display = 'none';
+                            }
+                        });
+                        
+                        // Выбор пресета
+                        if (qualityPreset) {
+                            qualityPreset.onchange = async function() {
+                                const value = this.value;
+                                if (value === 'CUSTOM') {
+                                    if (customSettings) customSettings.style.display = 'block';
+                                } else {
+                                    if (customSettings) customSettings.style.display = 'none';
+                                    if (window.ipcRenderer) {
+                                        const result = await window.ipcRenderer.invoke('jitsi:change-video-quality', value);
+                                        console.log('[Quality] Preset result:', result);
+                                    }
+                                }
+                            };
                         }
-                    };
+                        
+                        // Применение кастомных настроек
+                        if (applyCustom) {
+                            applyCustom.onclick = async function() {
+                                const width = parseInt(document.getElementById('custom-width').value);
+                                const height = parseInt(document.getElementById('custom-height').value);
+                                const fps = parseInt(document.getElementById('custom-fps').value);
+                                
+                                if (width && height && fps && window.ipcRenderer) {
+                                    const result = await window.ipcRenderer.invoke('jitsi:set-custom-quality', width, height, fps);
+                                    console.log('[Quality] Custom result:', result);
+                                }
+                            };
+                        }
+                    }
                     
-                    // Двойной клик для скрытия
-                    indicatorBar.ondblclick = function() {
-                        indicatorBar.style.opacity = '0.1';
-                        qualityPanel.style.display = 'none';
-                        setTimeout(() => {
-                            indicatorBar.style.opacity = '1';
-                        }, 3000);
-                    };
+                    // Двойной клик для скрытия (работает всегда)
+                    if (indicatorBar) {
+                        indicatorBar.ondblclick = function() {
+                            indicatorBar.style.opacity = '0.1';
+                            if (qualityPanel) qualityPanel.style.display = 'none';
+                            setTimeout(() => {
+                                indicatorBar.style.opacity = '1';
+                            }, 3000);
+                        };
+                    }
                     
                     // Функция обновления индикаторов
                     window.updateDebugIndicator = function(data) {
@@ -608,7 +682,7 @@ export class JitsiManager {
                         const audioDot = document.getElementById('audio-dot');
                         
                         if (pluginDot && data.hasAddon !== undefined) {
-                            pluginDot.style.background = data.hasAddon ? '#4CAF50' : '#2196F3';
+                            pluginDot.style.background = data.hasAddon ? '#4CAF50' : '#f44336';
                         }
                         
                         if (audioDot) {
@@ -620,12 +694,12 @@ export class JitsiManager {
                         }
                     };
                     
-                    console.log('[DEBUG] ✅ Debug indicator ready');
+                    console.log('[DEBUG] ✅ Debug indicator ready (quality controls:', showQualityControls, ')');
                     return true;
                 })();
             `);
             
-            log.info("✅ Debug indicator injected successfully");
+            log.info(`✅ Debug indicator injected successfully (quality controls: ${showQualityControls})`);
             
             // Отправляем начальные данные
             const debugInfo = await this.getDebugInfo();
@@ -705,6 +779,19 @@ export class JitsiManager {
     // Геттер для получения текущих настроек
     getConfig(): JitsiManagerConfig {
         return { ...this.config };
+    }
+
+    private checkNativeAvailability(): void {
+        if (!this.nativeCapture || !this.nativeCapture.isAvailable) {
+            log.warn("[JITSI-MANAGER] Native capture not available, will use standard Jitsi");
+            this.useStandardJitsi = true;
+            
+            // Обновляем конфиг
+            this.config.useHybridMode = false;
+        } else {
+            log.info("[JITSI-MANAGER] Native capture is available");
+            this.useStandardJitsi = false;
+        }
     }
 
     private registerHandlers(): void {
@@ -1931,6 +2018,14 @@ export class JitsiManager {
 
     // ===== ГЛАВНАЯ ФУНКЦИЯ =====
     async injectNativeStream(): Promise<{ success: boolean; error?: string; streamId?: string }> {
+        
+        const useNative = await this.shouldUseNativeCapture();
+
+        if (!useNative) {
+            // Fallback на стандартный Jitsi SDK
+            return this.useStandardJitsiScreenShare();
+        }
+        
         log.info("[STREAM-ELECTRON] === START injectNativeStream ===");
         
         // Проверяем, не активен ли уже stream
@@ -2031,6 +2126,44 @@ export class JitsiManager {
         } catch (error: any) {
             log.error(`[STREAM-ELECTRON] === ERROR injectNativeStream: ${error.message} ===`);
             await this.nativeCapture.stopCapture();
+            return { success: false, error: error.message };
+        }
+    }
+
+    private async useStandardJitsiScreenShare(): Promise<{ success: boolean; error?: string; streamId?: string }> {
+        log.info("[JITSI-MANAGER] Using standard Jitsi screen sharing");
+        
+        if (!this.state.window || this.state.window.isDestroyed()) {
+            return { success: false, error: "No window" };
+        }
+        
+        try {
+            // Удаляем все инъекции и перехваты
+            await this.state.window.webContents.executeJavaScript(`
+                (async function() {
+                    // Восстанавливаем оригинальные методы
+                    if (window.originalGetDisplayMedia) {
+                        navigator.mediaDevices.getDisplayMedia = window.originalGetDisplayMedia;
+                    }
+                    if (window.originalGetUserMedia) {
+                        navigator.mediaDevices.getUserMedia = window.originalGetUserMedia;
+                    }
+                    
+                    // Используем стандартный Jitsi API
+                    if (window.APP && window.APP.conference) {
+                        await window.APP.conference.toggleScreenSharing();
+                        return { 
+                            success: true, 
+                            streamId: 'standard-jitsi',
+                            mode: 'standard'
+                        };
+                    }
+                    
+                    return { success: false, error: 'Jitsi API not ready' };
+                })();
+            `);
+        } catch (error: any) {
+            log.error(`[JITSI-MANAGER] Standard screen share failed: ${error.message}`);
             return { success: false, error: error.message };
         }
     }
