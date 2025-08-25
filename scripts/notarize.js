@@ -1,4 +1,3 @@
-const { notarize } = require('electron-notarize');
 const { spawnSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
@@ -7,8 +6,8 @@ exports.default = async function notarizeMac(context) {
   console.log('Запуск скрипта notarize.js');
   console.log('electronPlatformName:', context.electronPlatformName);
   const { electronPlatformName, appOutDir } = context;
-  if (electronPlatformName !== 'mas') {
-    console.log('Пропуск нотаризации: платформа не macOS или MAS');
+  if (electronPlatformName !== 'darwin' && electronPlatformName !== 'mas') {
+    console.log('Пропуск подписи: платформа не macOS или MAS');
     return;
   }
 
@@ -16,16 +15,16 @@ exports.default = async function notarizeMac(context) {
   const appPath = path.join(appOutDir, `${appName}.app`);
   const teamId = 'U95EM6ZJRW';
   const certName = '3rd Party Mac Developer Application: Yuriy Tereshchenko (U95EM6ZJRW)';
-  const inheritPlist = 'build/macEntitlements.plist';
+  const inheritPlist = 'build/macEntitlements.plist'; // Изменено: используем inherit для helpers
   const entitlementsPlist = 'build/entitlements.mac.plist';
 
-  // Подпись MacKeyServer
+  // Подпись MacKeyServer (используем inherit, т.к. это child process)
   const macKeyServerPath = path.join(appPath, 'Contents', 'Resources', 'bin', 'MacKeyServer');
   if (fs.existsSync(macKeyServerPath)) {
     console.log(`🔁 Подписываю: MacKeyServer`);
     const result = spawnSync('codesign', [
       '--sign', certName,
-      '--entitlements', inheritPlist,
+      '--entitlements', inheritPlist, // Изменено: inherit для child
       '--options', 'runtime',
       '--timestamp',
       '--force',
@@ -33,14 +32,35 @@ exports.default = async function notarizeMac(context) {
     ], { stdio: 'inherit' });
 
     if (result.status !== 0) {
-      throw new Error(`❌ Не удалось подписать MacKeyServer`);
+      throw new Error(`❌ Не удалось подписать MacKeyServer: ${result.stderr.toString()}`);
     }
     console.log(`✅ Успешно подписан: MacKeyServer`);
   } else {
     console.log(`⚠️ Не найден: ${macKeyServerPath}`);
   }
 
-  // Подпись Helper-приложений и Login Helper
+  // Подпись MacKeyServer в node-global-key-listener (inherit)
+  const nodeKeyServerPath = path.join(appPath, 'Contents', 'Resources', 'app.asar.unpacked', 'node_modules', 'node-global-key-listener', 'bin', 'MacKeyServer');
+  if (fs.existsSync(nodeKeyServerPath)) {
+    console.log(`🔁 Подписываю: node-global-key-listener MacKeyServer`);
+    const result = spawnSync('codesign', [
+      '--sign', certName,
+      '--entitlements', inheritPlist, // Изменено: inherit для child
+      '--options', 'runtime',
+      '--timestamp',
+      '--force',
+      nodeKeyServerPath
+    ], { stdio: 'inherit' });
+
+    if (result.status !== 0) {
+      throw new Error(`❌ Не удалось подписать node-global-key-listener MacKeyServer: ${result.stderr.toString()}`);
+    }
+    console.log(`✅ Успешно подписан: node-global-key-listener MacKeyServer`);
+  } else {
+    console.log(`⚠️ Не найден: ${nodeKeyServerPath}`);
+  }
+
+  // Подпись Helper-приложений (используем inherit)
   const helpers = [
     `${appName} Helper`,
     `${appName} Helper (GPU)`,
@@ -49,21 +69,21 @@ exports.default = async function notarizeMac(context) {
   ];
 
   helpers.forEach(helperName => {
-    const helperApp = path.join(appPath, 'Contents', 'Frameworks', `${helperName}.app`) ||
-                      path.join(appPath, 'Contents', 'Library', 'LoginItems', `${helperName}.app`);
+    const helperApp = path.join(appPath, 'Contents', 'Frameworks', `${helperName}.app`);
     if (fs.existsSync(helperApp)) {
       console.log(`🔁 Подписываю: ${helperName}`);
       const result = spawnSync('codesign', [
         '--sign', certName,
-        '--entitlements', inheritPlist,
+        '--entitlements', inheritPlist, // Изменено: inherit для helpers
         '--options', 'runtime',
         '--timestamp',
         '--force',
+        '--deep',
         helperApp
       ], { stdio: 'inherit' });
 
       if (result.status !== 0) {
-        throw new Error(`❌ Не удалось подписать ${helperName}`);
+        throw new Error(`❌ Не удалось подписать ${helperName}: ${result.stderr.toString()}`);
       }
       console.log(`✅ Успешно подписан: ${helperName}`);
     } else {
@@ -71,27 +91,29 @@ exports.default = async function notarizeMac(context) {
     }
   });
 
+  // Подпись Login Helper (inherit)
   const loginHelperPath = path.join(appPath, 'Contents', 'Library', 'LoginItems', `${appName} Login Helper.app`);
   if (fs.existsSync(loginHelperPath)) {
     console.log(`🔁 Подписываю: Связь РМ Login Helper`);
     const result = spawnSync('codesign', [
       '--sign', certName,
-      '--entitlements', inheritPlist,
+      '--entitlements', inheritPlist, // Изменено: inherit для helpers
       '--options', 'runtime',
       '--timestamp',
       '--force',
-      '--deep', // Добавьте --deep для рекурсивной подписи
+      '--deep',
       loginHelperPath
     ], { stdio: 'inherit' });
 
     if (result.status !== 0) {
-      throw new Error(`❌ Не удалось подписать Связь РМ Login Helper`);
+      throw new Error(`❌ Не удалось подписать Связь РМ Login Helper: ${result.stderr.toString()}`);
     }
     console.log(`✅ Успешно подписан: Связь РМ Login Helper`);
   } else {
     console.log(`⚠️ Не найден: ${loginHelperPath}`);
   }
-// Подпись библиотек в Electron Framework
+
+  // Подпись библиотек Electron Framework (используем основной entitlementsPlist)
   const libraries = [
     'libEGL.dylib',
     'libvk_swiftshader.dylib',
@@ -105,7 +127,7 @@ exports.default = async function notarizeMac(context) {
       console.log(`🔁 Подписываю библиотеку: ${lib}`);
       const result = spawnSync('codesign', [
         '--sign', certName,
-        '--entitlements', inheritPlist,
+        '--entitlements', entitlementsPlist, // Основной для dylibs
         '--options', 'runtime',
         '--timestamp',
         '--force',
@@ -113,7 +135,7 @@ exports.default = async function notarizeMac(context) {
       ], { stdio: 'inherit' });
 
       if (result.status !== 0) {
-        throw new Error(`❌ Не удалось подписать библиотеку ${lib}`);
+        throw new Error(`❌ Не удалось подписать библиотеку ${lib}: ${result.stderr.toString()}`);
       }
       console.log(`✅ Успешно подписана библиотека: ${lib}`);
     } else {
@@ -121,13 +143,13 @@ exports.default = async function notarizeMac(context) {
     }
   });
 
-  // Подпись Electron Framework
+  // Подпись Electron Framework (основной)
   const electronFrameworkPath = path.join(appPath, 'Contents', 'Frameworks', 'Electron Framework.framework');
   if (fs.existsSync(electronFrameworkPath)) {
     console.log(`🔁 Подписываю: Electron Framework`);
     const result = spawnSync('codesign', [
       '--sign', certName,
-      '--entitlements', inheritPlist,
+      '--entitlements', entitlementsPlist, // Основной
       '--options', 'runtime',
       '--timestamp',
       '--force',
@@ -136,18 +158,18 @@ exports.default = async function notarizeMac(context) {
     ], { stdio: 'inherit' });
 
     if (result.status !== 0) {
-      throw new Error(`❌ Не удалось подписать Electron Framework`);
+      throw new Error(`❌ Не удалось подписать Electron Framework: ${result.stderr.toString()}`);
     }
     console.log(`✅ Успешно подписан: Electron Framework`);
   } else {
     console.log(`⚠️ Не найден: ${electronFrameworkPath}`);
   }
 
-  // Подпись основного приложения
+  // Подпись основного приложения (основной)
   console.log(`🔁 Подписываю основное приложение: ${appName}`);
   const mainAppSign = spawnSync('codesign', [
     '--sign', certName,
-    '--entitlements', entitlementsPlist,
+    '--entitlements', entitlementsPlist, // Основной
     '--options', 'runtime',
     '--timestamp',
     '--force',
@@ -156,24 +178,10 @@ exports.default = async function notarizeMac(context) {
   ], { stdio: 'inherit' });
 
   if (mainAppSign.status !== 0) {
-    throw new Error(`❌ Не удалось подписать основное приложение`);
+    throw new Error(`❌ Не удалось подписать основное приложение: ${mainAppSign.stderr.toString()}`);
   }
   console.log(`✅ Успешно подписано основное приложение: ${appName}`);
 
-  // // Нотаризация
-  // console.log('📤 Отправка на нотаризацию...');
-  // try {
-  //   await notarize({
-  //     appBundleId: 'org.rm.rm-electron',
-  //     appPath: appPath,
-  //     appleId: 'suchoi34@ngs.ru',
-  //     appleIdPassword: 'aqfh-ojme-wgqy-gsnk',
-  //     teamId: teamId,
-  //     tool: 'notarytool',
-  //   });
-  //   console.log('✅ Нотаризация успешна!');
-  // } catch (error) {
-  //   console.error('❌ Ошибка нотаризации:', error);
-  //   throw error;
-  // }
+  // Пропуск нотаризации для Mac App Store
+  console.log('Пропуск нотаризации: сборка для Mac App Store');
 };
