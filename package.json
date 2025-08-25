@@ -1,7 +1,7 @@
 {
   "name": "RMConnect",
-  "productName": "Связь РМ",
   "version": "5.26.2",
+  "productName": "Связь РМ",
   "main": "./dist-electron",
   "description": "Приложение Связь РМ",
   "license": "Apache-2.0",
@@ -28,6 +28,7 @@
     "build-for-win": "vite build && npm run copy-addon-for-win",
     "dist-win": "npm run build-for-win && electron-builder --windows --config.win.target=nsis",
     "watch-ts": "tsc -w",
+    "sign-mac-key-server": "node scripts/sign-mac-key-server.js",
     "reinstall": "rimraf node_modules && npm install",
     "postinstall": "electron-builder install-app-deps",
     "lint-css": "stylelint \"app/**/*.css\"",
@@ -37,19 +38,24 @@
     "prettier-non-js": "prettier --check --log-level=warn . \"!**/*.{js,ts}\"",
     "test": "tsc && npm run lint-html && npm run lint-css && npm run lint-js && npm run prettier-non-js",
     "test-e2e": "vite build && tape \"tests/**/*.js\"",
-    "pack": "vite build && electron-builder --mac --config.mac.target=default",
+    "pack": "vite build && electron-builder --mac pkg",
     "dist": "vite build && electron-builder --windows --config.win.target=nsis",
     "publish": "vite build && electron-builder --publish always",
-    "mas": "vite build && electron-builder --mac"
+    "mas": "vite build && electron-builder --windows --config.win.target=nsis",
+    "pre-store": "npm run build-only && npm run sign-mac-key-server",
+    "post-store": "productsign --sign \"3rd Party Mac Developer Installer: Yuriy Tereshchenko (U95EM6ZJRW)\" \"dist/mas/Связь РМ-5.26.2.pkg\" \"dist/mas/Связь РМ-5.26.2-signed.pkg\"",
+    "store": "npm run pre-store && vite build && electron-builder  --mac --universal"
   },
   "pre-commit": [
     "test"
   ],
   "build": {
+    "buildVersion": 15,
     "appId": "org.rm.rm-electron",
     "copyright": "©Цифровые технологии РМ",
     "npmRebuild": false,
     "buildDependenciesFromSource": false,
+    "afterSign": "scripts/notarize.js",
     "publish": [
       {
         "provider": "generic",
@@ -82,27 +88,19 @@
       }
     ],
     "mac": {
+      "target": "mas",
+      "minimumSystemVersion": "12.0",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/macEntitlements.plist",
+      "provisioningProfile": "build/Storermelectron.provisionprofile",
       "category": "public.app-category.productivity",
-      "target": [
-        {
-          "target": "default",
-          "arch": [
-            "x64",
-            "arm64"
-          ]
-        },
-        {
-          "target": "dmg",
-          "arch": [
-            "x64",
-            "arm64"
-          ]
-        }
-      ],
-      "darkModeSupport": true,
-      "artifactName": "${productName}-${version}-${arch}.${ext}",
       "icon": "build/icon.icns",
-      "notarize": true
+      "notarize": true,
+      "identity": "Yuriy Tereshchenko (U95EM6ZJRW)",
+      "x64ArchFiles": "**/bin/MacKeyServer",
+      "type": "distribution"
     },
     "linux": {
       "category": "Chat;GNOME;GTK;Network;InstantMessaging",
@@ -187,9 +185,10 @@
     "adm-zip": "^0.5.5",
     "auto-launch": "^5.0.5",
     "backoff": "^2.5.0",
-    "electron": "^32.3.0",
+    "electron": "^37.3.1",
     "electron-builder": "^24.6.4",
     "electron-log": "^5.3.3",
+    "electron-notarize": "^1.2.2",
     "electron-updater": "^6.3.4",
     "electron-window-state": "^5.0.3",
     "escape-goat": "^4.0.0",
