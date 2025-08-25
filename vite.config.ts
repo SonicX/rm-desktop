@@ -16,7 +16,7 @@ export default defineConfig({
           build: {
             sourcemap: true,
             rollupOptions: {
-              external: ["electron", /^electron\//],
+              external: ["electron", /^electron\//, /^node:/, "path", "fs", "crypto", "os", "util"],
             },
             ssr: true,
           },
@@ -38,8 +38,16 @@ export default defineConfig({
           build: {
             sourcemap: "inline",
             rollupOptions: {
-              external: ["electron", /^electron\//],
+              external: ["electron", /^electron\//, /\.node$/, /^node:/, "path", "fs", "crypto", "os", "util"],
             },
+          },
+          resolve: {
+            conditions: ['node'],
+            browserField: false,
+          },
+          ssr: {
+            noExternal: /^(?!.*\.node$).*/,
+            external: [/\.node$/, /^node:/, "path", "fs", "crypto", "os", "util"],
           },
         },
       },

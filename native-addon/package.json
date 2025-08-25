@@ -1,0 +1,46 @@
+{
+  "name": "screen-capture-webrtc-native",
+  "version": "1.0.0",
+  "description": "Native macOS screen capture with WebRTC for Electron",
+  "main": "index.js",
+  "scripts": {
+    "build": "./build-direct.sh",
+    "build:universal": "./build-universal.sh",
+    "build:native": "./build-native.sh",
+    "build:intel": "FORCE_ARCH=x86_64 ./build-direct.sh",
+    "build:arm": "FORCE_ARCH=arm64 ./build-direct.sh",
+    "rebuild": "npm run build",
+    "test": "node examples/test_addon_only.js",
+    "clean": "rm -rf build/ addon.node *.o",
+    "install": "./build-direct.sh || ./build-native.sh",
+    "postinstall": "node scripts/check-arch.js 2>/dev/null || true"
+  },
+  "dependencies": {
+    "node-addon-api": "^7.0.0"
+  },
+  "devDependencies": {
+    "electron": "^32.3.3",
+    "electron-rebuild": "^3.2.9",
+    "node-gyp": "^10.0.0",
+    "node-gyp-build": "^4.8.4"
+  },
+  "files": [
+    "src/",
+    "scripts/",
+    "examples/",
+    "binding.gyp",
+    "index.js",
+    "addon.node",
+    "build-*.sh"
+  ],
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ]
+}

@@ -37,6 +37,53 @@ import { _getServerSettings, _isOnline, _saveServerIcon } from "./request.js";
 import { sentryInit } from "./sentry.js";
 import { setAutoLaunch } from "./startup.js";
 import { ipcMain, send } from "./typed-ipc-main.js";
+const { setupScreenSharingMain } = require('@jitsi/electron-sdk');
+
+import { NativeCaptureManager } from './native-capture';
+import { JitsiManager } from './jitsi-manager';
+
+
+
+// const { JitsiMeetElectron } = require('@jitsi/electron-sdk');
+
+// Глобальная переменная для Jitsi окна
+
+let JitsiMeetElectron: any;
+try {
+    const jitsiModule = require('@jitsi/electron-sdk');
+    JitsiMeetElectron = jitsiModule.default || jitsiModule.JitsiMeetElectron || jitsiModule;
+    log.info(`🎯[Jitsi SDK] Module loaded:`, typeof JitsiMeetElectron);
+} catch (error: any) {
+    log.error(`🎯[Jitsi SDK] Failed to load module:`, error.message);
+}
+
+const JWT_SECRET = "HguV/8QBrJdCih2Ycpoz0g5q5m85apT3Nu6E+lDvufg=";
+
+let screenCaptureAddon: any = null;
+        
+// В index.ts добавьте в начало файла:
+import * as fs from 'fs';
+
+// Создаем поток для записи логов
+const preloadLogStream = fs.createWriteStream(
+  path.join(process.cwd(), 'preload-debug.log'),
+  { flags: 'a' } // append mode
+);
+
+// Затем обновите обработчик:
+ipcMain.on("preload-log", (event, message: string) => {
+  const timestamp = new Date().toISOString();
+  const logMessage = `[${timestamp}] ${message}\n`;
+  
+  // Пишем в файл напрямую
+  preloadLogStream.write(logMessage);
+  
+  // Также выводим в консоль
+  console.log(`Preload Log: ${message}`);
+  
+  // И в electron-log
+  log.info(`Preload Log: ${message}`);
+});
 
 // Настройка логирования
 if (process.env.NODE_ENV === "development") {
@@ -173,58 +220,96 @@ function setFeaturesApp() {
 }
 
 async function createMainWindow(): Promise<BrowserWindow> {
-  setFeaturesApp();
-  mainWindowState = windowStateKeeper({
-    defaultWidth: 1100,
-    defaultHeight: 720,
-    path: `${app.getPath("userData")}/config`,
+    setFeaturesApp();
+    mainWindowState = windowStateKeeper({
+        defaultWidth: 1100,
+        defaultHeight: 720,
+        path: `${app.getPath("userData")}/config`,
+    });
+
+    let icon = iconPath();
+
+    const win = new BrowserWindow({
+        title: "RM",
+        icon: icon,
+        x: mainWindowState.x,
+        y: mainWindowState.y,
+        width: mainWindowState.width,
+        height: mainWindowState.height,
+        minWidth: 500,
+        minHeight: 400,
+        webPreferences: {
+            preload: path.join(bundlePath, "renderer.js"),
+            sandbox: false,
+            webviewTag: true,
+            nodeIntegration: false,
+            contextIsolation: true
+        },
+        show: false,
+        backgroundColor: '#333',
+    });
+
+    remoteMain.enable(win.webContents);
+
+    // КРИТИЧНО: Устанавливаем preload для ВСЕХ webContents включая Zulip
+    win.webContents.on('will-attach-webview', (event: Electron.Event, webPreferences: Electron.WebPreferences, params: any) => {
+        log.info(`Main: WebView создается с URL: ${params.src}`);
+        
+        // ИСПРАВЛЕНИЕ: Устанавливаем preload для всех webview
+        const preloadPath = path.join(bundlePath, "preload.js");
+        webPreferences.preload = preloadPath;
+        webPreferences.nodeIntegration = false;
+        webPreferences.contextIsolation = true;
+        
+        // КРИТИЧНО: Добавляем для Zulip
+        if (params.src && params.src.includes('joinrm-svz')) {
+            log.info(`Main: Устанавливаем preload для Zulip: ${preloadPath}`);
+            webPreferences.preload = preloadPath;
+        }
+        
+        log.info(`Main: Webview preload установлен: ${preloadPath}`);
+    });
+
+    // НОВОЕ: Слушаем создание новых webContents
+    app.on('web-contents-created', (event, contents) => {
+      contents.on('console-message', (event, level, message, line, sourceId) => {
+          if (message.includes('[NativeCapture]') || message.includes('[electron_bridge]')) {
+              log.info(`Jitsi Console: ${message}`);
+          }
+      });
+      
+      // Слушаем IPC сообщения через executeJavaScript bridge
+      contents.on('did-finish-load', () => {
+          const url = contents.getURL();
+          
+          // Если это Jitsi окно
+          if (url && url.includes('jitsi')) {
+              contents.executeJavaScript(`
+                  window.addEventListener('message', (event) => {
+                      if (event.data.type === 'ELECTRON_BRIDGE_EVENT') {
+                          // Пересылаем в main process через console.log с маркером
+                          console.log('[ELECTRON_BRIDGE_FORWARD]' + JSON.stringify(event.data));
+                      }
+                  });
+              `);
+          }
+      });
   });
 
-  let icon = iconPath();
+    await win.loadFile(path.join(__dirname, '..', 'app', 'renderer', 'main.html'));
 
-  const win = new BrowserWindow({
-    title: "RM",
-    icon: icon,
-    x: mainWindowState.x,
-    y: mainWindowState.y,
-    width: mainWindowState.width,
-    height: mainWindowState.height,
-    minWidth: 500,
-    minHeight: 400,
-    webPreferences: {
-      preload: path.join(bundlePath, "renderer.js"),
-      sandbox: false,
-      webviewTag: true
-    },
-    show: false,
-    backgroundColor: '#333',
-  });
+    await win.loadURL(mainUrl).then(() => {
+        console.log('✅ Окно создано!');
+        if (ConfigUtil.getConfigItem('startMinimized', false)) {
+            win.hide();
+        } else {
+            win.show();
+        }
+    });
 
-  Menu.setApplicationMenu(null);
-  remoteMain.enable(win.webContents);
-
-  win.webContents.on('preload-error', (event, preloadPath, error) => {
-    console.error('Ошибка загрузки preload:', preloadPath, error);
-    log.error('Ошибка загрузки preload:', preloadPath, error);
-  });
-
-  const mainHtmlPath = path.join(__dirname, 'app/renderer/main.html');
-  const mainUrl = `file://${mainHtmlPath}`;
-
-  console.log('mainUrl:', mainUrl);
-
-  await win.loadURL(mainUrl).then(() => {
-    console.log('✅ Окно создано!');
-    if (ConfigUtil.getConfigItem('startMinimized', false)) {
-      win.hide();
-    } else {
-      win.show();
-    }
-  });
-
-  win.on("close", (event) => {
-    if (ConfigUtil.getConfigItem("quitOnClose", false)) {
-      app.quit();
+    win.on("close", (event) => {
+      if (ConfigUtil.getConfigItem("quitOnClose", false)) {
+        app.quit();
     }
 
     if (!isQuitting) {
@@ -249,10 +334,6 @@ async function createMainWindow(): Promise<BrowserWindow> {
     send(win.webContents, "enter-fullscreen");
   });
 
-  win.webContents.on('will-attach-webview', (event: Electron.Event, webPreferences: Electron.WebPreferences, params: any) => {
-    log.info(`Main: WebView будет создан с preload: ${webPreferences.preload}, URL: ${params.src}`);
-  });
-
   win.on("leave-full-screen", () => {
     send(win.webContents, "leave-fullscreen");
   });
@@ -261,6 +342,19 @@ async function createMainWindow(): Promise<BrowserWindow> {
     if (event) {
       send(win.webContents, "destroytray");
     }
+  });
+
+  win.webContents.on('will-attach-webview', (event: Electron.Event, webPreferences: Electron.WebPreferences, params: any) => {
+    log.info(`Main: WebView создается с URL: ${params.src}`);
+    
+    // ВАЖНО: Устанавливаем правильный preload для webview
+    const preloadPath = path.join(bundlePath, "preload.js");
+    webPreferences.preload = preloadPath;
+    webPreferences.nodeIntegration = false;
+    webPreferences.contextIsolation = true;
+    
+    log.info(`Main: Webview preload установлен: ${preloadPath}`);
+    log.info(`Main: Preload файл существует: ${require('fs').existsSync(preloadPath)}`);
   });
 
   win.setTitle("Цифровые технологии РМ");
@@ -276,16 +370,32 @@ async function createMainWindow(): Promise<BrowserWindow> {
   }
 
   setFeaturesApp();
-
   app.disableHardwareAcceleration();
-
   await app.whenReady();
 
+  const nativeCaptureManager = new NativeCaptureManager();
+  const jitsiManager = new JitsiManager(
+    nativeCaptureManager,
+    bundlePath,
+    iconPath(),
+    {
+        videoQuality: 'MEDIUM',  // 720p для экономии ресурсов
+        useHybridMode: true,
+        enableDebugUI: true,
+        enablePerformanceMonitoring: true
+    }
+  );
+
+  
+
+  // 2. ЗАТЕМ создаем сессию
   const ses = session.fromPartition("persist:webviewsession");
   ses.setUserAgent(`ZulipElectron/${app.getVersion()} ${ses.getUserAgent()}`);
-  await ses.clearCache().catch((err) => {
-    console.error("Failed to clear cache:", err);
-  });
+
+  // 3. РЕГИСТРИРУЕМ ВСЕ IPC ОБРАБОТЧИКИ ДО СОЗДАНИЯ ОКНА
+
+  let isNativeCapturing: boolean = false;
+  let frameCollectionInterval: NodeJS.Timeout | null = null;
 
   ipcMain.handle("get-server-settings", async (event, domain: string) =>
     _getServerSettings(domain, ses),
@@ -298,6 +408,380 @@ async function createMainWindow(): Promise<BrowserWindow> {
   ipcMain.handle("is-online", async (event, url: string) =>
     _isOnline(url, ses),
   );
+
+  function sendEventToZulip(eventName: string, data: any): void {
+      const allContents = webContents.getAllWebContents();
+      for (const content of allContents) {
+          const url = content.getURL();
+          if (url && url.includes('joinrm-svz')) {
+              content.executeJavaScript(`
+                  if (window.electron_bridge && window.electron_bridge.emit_event) {
+                      window.electron_bridge.emit_event('${eventName}', ${JSON.stringify(data)});
+                      console.log('[Electron->Zulip] Sent event: ${eventName}');
+                  }
+              `).catch(err => {
+                  log.error(`Failed to send event to Zulip: ${err.message}`);
+              });
+              break;
+          }
+      }
+  }
+
+  function createSourceThumbnail(source: any): string {
+    const colors: { [key: string]: string } = {
+        screen: '#4CAF50',
+        display: '#4CAF50', 
+        window: '#2196F3',
+        application: '#FF9800'
+    };
+    
+    const color = colors[source.type] || '#9E9E9E';
+    const icon = source.type === 'screen' || source.type === 'display' ? '🖥️' : '🪟';
+    
+    const svg = `<svg width="300" height="200" xmlns="http://www.w3.org/2000/svg">
+        <rect width="300" height="200" fill="${color}"/>
+        <text x="150" y="80" font-size="50" text-anchor="middle" fill="white">${icon}</text>
+        <text x="150" y="130" font-size="16" text-anchor="middle" fill="white" font-weight="bold">
+        ${(source.name || 'Unknown').replace(/[<>&"']/g, '')}
+        </text>
+        ${source.appName ? `
+        <text x="150" y="155" font-size="14" text-anchor="middle" fill="white" opacity="0.9">
+            ${source.appName.replace(/[<>&"']/g, '')}
+        </text>
+        ` : ''}
+        <rect x="20" y="180" width="260" height="3" rx="1.5" fill="white" opacity="0.2"/>
+        <rect x="20" y="180" width="130" height="3" rx="1.5" fill="white" opacity="0.6"/>
+    </svg>`;
+    
+    return `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
+  }
+
+
+  ipcMain.handle("get-desktop-sources", async () => {
+    try {
+        log.info("🎯[NativeCapture] Getting desktop sources...");
+        
+        let formattedSources = [];
+        let sourceType = 'unknown';
+        
+        // Создаем маппинг для сохранения оригинальных ID
+        const sourceIdMapping = new Map();
+        
+        // Получаем источники из native addon
+        if (screenCaptureAddon && typeof screenCaptureAddon.getAvailableSources === 'function') {
+        try {
+            const nativeSources = await screenCaptureAddon.getAvailableSources();
+            log.info(`🎯[NativeCapture] Got ${nativeSources.length} native sources`);
+            
+            if (nativeSources.length > 0) {
+            sourceType = 'native';
+            
+            // Логируем первые несколько источников для отладки
+            nativeSources.slice(0, 3).forEach((source, i) => {
+                log.info(`  Native source ${i}: id=${source.id}, name=${source.name}, type=${source.type}`);
+            });
+            
+            formattedSources = nativeSources.map((source, index) => {
+                const type = source.type === 'window' ? 'window' : 'screen';
+                
+                // ВАЖНО: Сохраняем оригинальный ID от native addon
+                const originalId = source.id;
+                
+                // Создаем ID в формате Electron, но сохраняем оригинальный ID
+                let formattedId;
+                if (originalId && !isNaN(Number(originalId))) {
+                // Если ID - число, используем его напрямую
+                formattedId = `${type}:${originalId}:0`;
+                } else if (originalId) {
+                // Если ID - строка (например, com.microsoft.VSCode)
+                // Генерируем числовой ID для Electron формата
+                const numericId = Math.abs(originalId.toString().split('').reduce((a, b) => {
+                    a = ((a << 5) - a) + b.charCodeAt(0);
+                    return a & a;
+                }, 0));
+                formattedId = `${type}:${numericId}:0`;
+                
+                // Сохраняем маппинг
+                sourceIdMapping.set(formattedId, originalId);
+                } else {
+                // Fallback - генерируем случайный ID
+                const randomId = Math.floor(100000 + Math.random() * 900000);
+                formattedId = `${type}:${randomId}:0`;
+                }
+                
+                log.info(`  Formatted: ${formattedId} -> original: ${originalId}`);
+                
+                return {
+                id: formattedId,
+                name: `🎯 ${source.name || 'Source ' + index}`,
+                thumbnail: { 
+                    dataUrl: createSourceThumbnail(source) 
+                },
+                isNative: true,
+                sourceType: 'native',
+                originalId: originalId, // Сохраняем оригинальный ID
+                originalType: source.type
+                };
+            });
+            
+            // Сохраняем маппинг глобально для последующего использования
+            global.nativeSourceMapping = sourceIdMapping;
+            
+            log.info(`🎯[NativeCapture] Created source mapping with ${sourceIdMapping.size} entries`);
+            }
+            
+        } catch (error: any) {
+            log.error(`🎯[NativeCapture] Error getting native sources: ${error.message}`);
+        }
+        }
+        
+        // Если нет native источников, используем Electron
+        if (formattedSources.length === 0) {
+        log.info("No native sources, using Electron fallback");
+        const electronSources = await desktopCapturer.getSources({
+            types: ['screen', 'window'],
+            thumbnailSize: { width: 300, height: 200 }
+        });
+        
+        formattedSources = electronSources.map(source => ({
+            id: source.id,
+            name: source.name,
+            thumbnail: {
+            dataUrl: source.thumbnail.toDataURL()
+            },
+            isNative: false
+        }));
+        }
+        
+        return formattedSources;
+        
+    } catch (error: any) {
+        log.error(`🎯[NativeCapture] Error: ${error.message}`);
+        return [];
+    }
+    });
+
+
+  ipcMain.handle("jitsi-connect-with-zulip-config", async (event, options) => {
+    log.info("🎯[Jitsi] Connecting with Zulip config...");
+    log.info(`🎯[Jitsi] Options received: ${JSON.stringify(options)}`);
+
+    try {
+        // Используем JitsiManager вместо createJitsiWindow
+        const result = await jitsiManager.createWindow({
+            roomName: options.roomName || '',
+            serverUrl: options.serverUrl || 'https://jitsi-connectrm.ru',
+            displayName: options.userInfo?.displayName || 'Guest',
+            email: options.userInfo?.email || '',
+            avatarUrl: options.userInfo?.avatarUrl || '',
+            jwt: options.jwt || '',
+            topic: options.topic || '',
+            stream: options.stream || ''
+        });
+        
+        if (result.success) {
+            log.info(`🎯[Jitsi] Conference window created successfully`);
+            
+            // Отправляем подтверждение обратно в Zulip
+            setTimeout(() => {
+                sendEventToZulip('jitsi-conference-ready', {
+                    success: true,
+                    roomName: options.roomName
+                });
+            }, 1000);
+        }
+        
+        return result;
+        
+    } catch (error: any) {
+        log.error(`🎯[Jitsi] Error: ${error.message}`);
+        return { 
+            success: false, 
+            error: error.message,
+            fallbackToBrowser: true
+        };
+    }
+  });
+
+  // Обработчики событий от Jitsi окна
+  ipcMain.on('jitsi-api-ready', (event, data) => {
+      log.info(`🎯[Jitsi] API ready in window: ${JSON.stringify(data)}`);
+      sendEventToZulip('jitsi-api-ready', data);
+  });
+
+  ipcMain.on('jitsi-conference-joined', () => {
+      log.info(`🎯[Jitsi] User joined conference`);
+      sendEventToZulip('jitsi-conference-joined', {});
+  });
+
+  ipcMain.on('jitsi-conference-left', () => {
+      log.info(`🎯[Jitsi] User left conference`);
+      sendEventToZulip('jitsi-conference-left', {});
+  });
+
+  ipcMain.on('electron-bridge-event', async (event, data) => {
+    log.info(`Main: electron_bridge event: ${data.event}`);
+    
+    if (data.event === 'requestDesktopSources') {
+        try {
+            // Используем NativeCaptureManager
+            const sources = await nativeCaptureManager.getSources();
+            
+            log.info(`🔍 Got ${sources.length} sources`);
+            
+            // Отправляем в Jitsi окно если оно есть
+            const jitsiStatus = await jitsiManager.getStatus();
+            if (jitsiStatus.hasWindow) {
+                await jitsiManager.sendSourcesToWindow(sources);
+            }
+            
+        } catch (error: any) {
+            log.error(`🔍 Error: ${error.message}`);
+        }
+    }
+  });
+
+  ipcMain.on('ipc-invoke', async (event, data) => {
+      log.info(`Main: Synthetic IPC invoke: ${data.channel}`);
+      
+      try {
+          let result;
+          
+          // Роутинг к существующим обработчикам
+          if (data.channel === 'jitsi-connect-with-zulip-config') {
+              result = await ipcMain.handle(data.channel, event, ...data.args);
+          } else if (data.channel === 'test-zulip-bridge') {
+              result = await ipcMain.handle(data.channel, event, ...data.args);
+          } else {
+              throw new Error(`Unknown channel: ${data.channel}`);
+          }
+          
+          // Отправляем ответ обратно
+          event.sender.executeJavaScript(`
+              window.dispatchEvent(new CustomEvent('ipc-response', {
+                  detail: {
+                      requestId: ${data.requestId},
+                      data: ${JSON.stringify(result)},
+                      error: null
+                  }
+              }));
+          `);
+          
+      } catch (error) {
+          log.error(`Main: IPC invoke error: ${error.message}`);
+          
+          event.sender.executeJavaScript(`
+              window.dispatchEvent(new CustomEvent('ipc-response', {
+                  detail: {
+                      requestId: ${data.requestId},
+                      data: null,
+                      error: "${error.message}"
+                  }
+              }));
+          `);
+      }
+  });
+
+
+  // Тестовый обработчик для проверки связи с Zulip
+  ipcMain.handle("test-zulip-bridge", async () => {
+      log.info("🧪[Test] Testing Zulip bridge...");
+      
+      const result = {
+          zulipFound: false,
+          currentUserName: 'Unknown',
+          currentUserEmail: 'Unknown', 
+          hasElectronBridge: false,
+          hasIpcRenderer: false,
+          totalWebContents: 0,
+          zulipUrl: '',
+          error: null
+      };
+      
+      try {
+          const allContents = webContents.getAllWebContents();
+          result.totalWebContents = allContents.length;
+          
+          for (const content of allContents) {
+              const url = content.getURL();
+              
+              if (url && url.includes('joinrm-svz')) {
+                  result.zulipFound = true;
+                  result.zulipUrl = url;
+                  log.info(`🧪[Test] Found Zulip at: ${url}`);
+                  
+                  try {
+                      const testResult = await content.executeJavaScript(`
+                          (function() {
+                              const hasElectronBridge = typeof window.electron_bridge !== 'undefined';
+                              const hasIpcRenderer = typeof window.ipcRenderer !== 'undefined';
+                              
+                              let userName = 'Unknown';
+                              let userEmail = 'Unknown';
+                              
+                              if (typeof current_user !== 'undefined' && current_user) {
+                                  userName = String(current_user.full_name || 'Unknown');
+                                  userEmail = String(current_user.email || 'Unknown');
+                              }
+                              
+                              return {
+                                  hasElectronBridge: hasElectronBridge,
+                                  hasIpcRenderer: hasIpcRenderer,
+                                  userName: userName,
+                                  userEmail: userEmail,
+                                  location: window.location.href,
+                                  
+                                  // Детали API
+                                  electronBridgeOk: hasElectronBridge && 
+                                      typeof window.electron_bridge.on_event === 'function' &&
+                                      typeof window.electron_bridge.send_event === 'function',
+                                      
+                                  ipcRendererOk: hasIpcRenderer &&
+                                      typeof window.ipcRenderer.invoke === 'function' &&
+                                      typeof window.ipcRenderer.send === 'function'
+                              };
+                          })();
+                      `);
+                      
+                      result.currentUserName = testResult.userName;
+                      result.currentUserEmail = testResult.userEmail;
+                      result.hasElectronBridge = testResult.electronBridgeOk;
+                      result.hasIpcRenderer = testResult.ipcRendererOk;
+                      
+                      log.info(`🧪[Test] User: ${testResult.userName}, Bridge: ${testResult.electronBridgeOk}, IPC: ${testResult.ipcRendererOk}`);
+                      
+                  } catch (execError: any) {
+                      log.error(`🧪[Test] Error executing in Zulip: ${execError.message}`);
+                      result.error = execError.message;
+                  }
+                  break;
+              }
+          }
+          
+          log.info(`🧪[Test] Final result: ${JSON.stringify(result)}`);
+          return result;
+          
+      } catch (error: any) {
+          log.error(`🧪[Test] Error: ${error.message}`);
+          result.error = error.message;
+          return result;
+      }
+  });
+
+  // Обработчик запуска нативного захвата
+  ipcMain.handle("start-native-capture", async (event, sourceId: string) => {
+    return nativeCaptureManager.startCapture(sourceId);
+  });
+
+  // Обработчик остановки захвата
+  ipcMain.handle("stop-native-capture", async () => {
+    return nativeCaptureManager.stopCapture();
+  });
+
+  // Обработчик получения статуса захвата
+  ipcMain.handle("get-capture-status", async () => {
+    return nativeCaptureManager.getStatus();
+  });
 
   ipcMain.on("focus-app", () => {
     mainWindow.show();
@@ -313,6 +797,20 @@ async function createMainWindow(): Promise<BrowserWindow> {
     mainWindow.reload();
     send(page, "destroytray");
   });
+
+  ipcMain.on("forward-message", (event, channel, ...args) => {
+    log.info(`Main: Получено forward-message с каналом: ${channel}`);
+    webContents.getAllWebContents().forEach(content => {
+      content.send("forward-message", channel, ...args);
+    });
+  });
+
+  // Обработчик jitsi-log-event
+  ipcMain.on('jitsi-log-event', (event, logData) => {
+    log.info(`Jitsi Log [${logData.level}]: ${logData.message}`);
+    console.log(`Jitsi Log [${logData.level}]: ${logData.message}`);
+  });
+
 
   ipcMain.on("preload-log", (event, message: string) => {
     log.info(`Preload Log: ${message}`);
@@ -442,80 +940,9 @@ async function createMainWindow(): Promise<BrowserWindow> {
       mainWindow.show();
     }
   });
+
   mainWindow = await createMainWindow();
-
-  ipcMain.on("forward-message", (event, channel, ...args) => {
-  log.info(`Main: Получено forward-message с каналом: ${channel}`);
-    webContents.getAllWebContents().forEach(content => {
-      content.send(channel, ...args);  // Измените здесь: channel вместо "forward-message"
-    });
-  });
-
-  // Кэш для thumbnails
-  let thumbnailCache: { [key: string]: { dataUrl: string; timestamp: number } } = {};
-  const CACHE_TIMEOUT = 0.1 * 1000; // 1 секунд
-  const DEFAULT_THUMBNAIL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYGD4AQAA/QGOrDGjAAAAAElFTkSuQmCC";
-
-  ipcMain.handle("get-desktop-sources", async () => {
-    try {
-      log.info("Main: Запрос источников экрана");
-      const sources = await desktopCapturer.getSources({
-        types: ['screen', 'window'],
-        thumbnailSize: { width: 300, height: 300 }
-      });
-      if (!sources || sources.length === 0) {
-        log.warn("Main: Источники экрана пусты");
-        throw new Error("Источники экрана не найдены");
-      }
-      log.info("Main: Источники экрана и окон:", sources.map(s => `${s.name} (${s.id})`));
-      const currentTime = Date.now();
-      const formattedSources = sources.map((source, index) => {
-        let thumbnailData = thumbnailCache[source.id]?.dataUrl;
-        if (!thumbnailData || (currentTime - thumbnailCache[source.id].timestamp > CACHE_TIMEOUT)) {
-          const startTime = Date.now();
-          thumbnailData = source.thumbnail.toDataURL();
-          if (!thumbnailData || thumbnailData === "data:image/png;base64,") {
-            log.warn(`Main: Пустой thumbnail для ${source.name} (index: ${index}, id: ${source.id})`);
-            thumbnailData = DEFAULT_THUMBNAIL;
-          } else {
-            thumbnailCache[source.id] = { dataUrl: thumbnailData, timestamp: currentTime };
-            log.info(`Main: Сгенерирован thumbnail для ${source.name} (index: ${index}, id: ${source.id}), длина: ${thumbnailData.length}, время: ${Date.now() - startTime}ms`);
-          }
-        } else {
-          log.info(`Main: Использован кэшированный thumbnail для ${source.name} (index: ${index}, id: ${source.id}), длина: ${thumbnailData.length}`);
-        }
-        return {
-          id: source.id,
-          name: source.name,
-          thumbnail: { dataUrl: thumbnailData }
-        };
-      });
-      webContents.getAllWebContents().forEach(content => {
-        log.info(`Main: Отправлен desktop-sources-response to WebContents #${content.id}`);
-        content.send("desktop-sources-response", {
-          sources: formattedSources,
-          error: null
-        });
-      });
-      return formattedSources;
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      log.error("Main: Ошибка получения источников экрана:", errorMessage);
-      webContents.getAllWebContents().forEach(content => {
-        content.send("desktop-sources-response", {
-          sources: null,
-          error: errorMessage
-        });
-      });
-      throw error;
-    }
-  });
-
-  // Обработчик jitsi-log-event
-  ipcMain.on('jitsi-log-event', (event, logData) => {
-    log.info(`Jitsi Log [${logData.level}]: ${logData.message}`);
-    console.log(`Jitsi Log [${logData.level}]: ${logData.message}`);
-  });
+  console.log("✅ Окно создано!");
 
   const page = mainWindow.webContents;
 
@@ -529,6 +956,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
 
   page.once("did-frame-finish-load", () => { });
 })();
+
 
 app.on("before-quit", () => {
   isQuitting = true;

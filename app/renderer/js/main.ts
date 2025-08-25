@@ -269,7 +269,7 @@ export class ServerManagerView {
 
   async initTabs(): Promise<void> {
     const server = {
-      url: "https://connectrm-svz.ru",
+      url: "https://connectrm-svz.ru/",
       alias: "Цифровые технологии РМ",
       icon: "https://disk.yandex.ru/i/m2aj56OOhsJfyw",
       zulipVersion: app.getVersion()
@@ -394,16 +394,16 @@ export class ServerManagerView {
     });
 
     // Добавляем обработчик для кнопки обновления
-    this.$updateButton.addEventListener("click", () => {
-      ipcRenderer.send("restart_app");
-    });
+    // this.$updateButton.addEventListener("click", () => {
+    //   ipcRenderer.send("restart_app");
+    // });
 
     this.sidebarHoverEvent(this.$loadingIndicator, this.$loadingTooltip);
     this.sidebarHoverEvent(this.$settingsButton, this.$settingsTooltip);
     this.sidebarHoverEvent(this.$reloadButton, this.$reloadTooltip);
     this.sidebarHoverEvent(this.$backButton, this.$backTooltip);
     this.sidebarHoverEvent(this.$dndButton, this.$dndTooltip);
-    this.sidebarHoverEvent(this.$updateButton, this.$updateTooltip);
+    // this.sidebarHoverEvent(this.$updateButton, this.$updateTooltip);
   }
 
   initDndButton(): void {
@@ -884,6 +884,9 @@ export class ServerManagerView {
   }
 }
 
+// Replace your entire window.addEventListener("load", ...) section with this clean version
+// This removes all the problematic window checks and focuses on the working remote API
+
 window.addEventListener("load", async () => {
   const appVersion = app.getVersion();
   document.body.innerHTML = html`
@@ -938,4 +941,5 @@ window.addEventListener("load", async () => {
 
   const serverManagerView = new ServerManagerView();
   await serverManagerView.init();
+
 });

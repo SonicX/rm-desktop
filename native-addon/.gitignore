@@ -1,0 +1,26 @@
+# Build artifacts
+build/
+*.o
+*.node
+!addon.node
+
+# Temporary files
+*-x86_64.*
+*-arm64.*
+*.swiftmodule
+*.swiftdoc
+*.swiftsourceinfo
+
+# Node modules
+node_modules/
+
+# OS files
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
+npm-debug.log*

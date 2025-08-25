@@ -19,7 +19,14 @@
   },
   "scripts": {
     "start": "vite > log.txt 2>&1",
-    "build-only": "vite build",
+    "start-debug": "ELECTRON_ENABLE_LOGGING=1 vite 2>&1 | tee log.txt",
+    "start-win": "set ELECTRON_ENABLE_LOGGING=1 && vite 2>&1 | tee log.txt",
+    "build-only": "vite build && npm run copy-addon",
+    "copy-addon": "cp native-addon/addon.node dist-electron/native-addon.node",
+    "copy-addon-for-win": "cp native-addon/win/capture.node dist-electron/native-addon.node",
+    "build-and-run": "rimraf dist dist-electron && vite build && tsc -p tsconfig.json --skipLibCheck || echo 'TypeScript compilation errors ignored' && copy \"C:\\Users\\Admin\\Documents\\GitHub\\zulip-desktop\\native-addon\\capture.node\" \"dist-electron\\native-addon.node\" && electron dist-electron/index.js",
+    "build-for-win": "vite build && npm run copy-addon-for-win",
+    "dist-win": "npm run build-for-win && electron-builder --windows --config.win.target=nsis",
     "watch-ts": "tsc -w",
     "reinstall": "rimraf node_modules && npm install",
     "postinstall": "electron-builder install-app-deps",
@@ -33,7 +40,7 @@
     "pack": "vite build && electron-builder --mac --config.mac.target=default",
     "dist": "vite build && electron-builder --windows --config.win.target=nsis",
     "publish": "vite build && electron-builder --publish always",
-    "mas": "vite build && electron-builder --windows --config.win.target=nsis"
+    "mas": "vite build && electron-builder --mac"
   },
   "pre-commit": [
     "test"
@@ -41,6 +48,8 @@
   "build": {
     "appId": "org.rm.rm-electron",
     "copyright": "©Цифровые технологии РМ",
+    "npmRebuild": false,
+    "buildDependenciesFromSource": false,
     "publish": [
       {
         "provider": "generic",
@@ -58,7 +67,19 @@
       }
     ],
     "asarUnpack": [
-      "resources/bin/**"
+      "resources/bin/**",
+      "dist-electron/native-addon.node",
+      "**/*.node"
+    ],
+    "files": [
+      "dist-electron/**/*",
+      "native-addon/win/capture.node"
+    ],
+    "extraResources": [
+      {
+        "from": "native-addon/win/capture.node",
+        "to": "native-addon.node"
+      }
     ],
     "mac": {
       "category": "public.app-category.productivity",
@@ -118,8 +139,7 @@
         {
           "target": "nsis",
           "arch": [
-            "x64",
-            "ia32"
+            "x64"
           ]
         }
       ],
@@ -145,6 +165,8 @@
     "InstantMessaging"
   ],
   "dependencies": {
+    "@jitsi/electron-sdk": "^7.0.9",
+    "@jitsi/js-utils": "^2.4.6",
     "node-global-key-listener": "^0.3.0",
     "uuid": "^10.0.0"
   },
