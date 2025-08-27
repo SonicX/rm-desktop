@@ -2,7 +2,7 @@
   "name": "RMConnect",
   "productName": "Связь РМ",
   "version": "5.26.2",
-  "main": "./dist-electron",
+  "main": "./dist-electron/index.js",
   "description": "Приложение Связь РМ",
   "license": "Apache-2.0",
   "copyright": "Цифровые технологии РМ",
@@ -25,8 +25,13 @@
     "copy-addon": "cp native-addon/addon.node dist-electron/native-addon.node",
     "copy-addon-for-win": "cp native-addon/win/capture.node dist-electron/native-addon.node",
     "build-and-run": "rimraf dist dist-electron && vite build && tsc -p tsconfig.json --skipLibCheck || echo 'TypeScript compilation errors ignored' && copy \"C:\\Users\\Admin\\Documents\\GitHub\\zulip-desktop\\native-addon\\capture.node\" \"dist-electron\\native-addon.node\" && electron dist-electron/index.js",
-    "build-for-win": "vite build && npm run copy-addon-for-win",
-    "dist-win": "npm run build-for-win && electron-builder --windows --config.win.target=nsis",
+    "build-for-win": "vite build && cp native-addon/win/capture.node dist-electron/native-addon.node",
+    "electron-build-win": "electron-builder --win --x64 --dir",
+    "dist-win": "npm run build-for-win && npm run electron-build-win && npm run post-build-win",
+    "post-build-win": "mkdir -p dist/win-unpacked/resources/app/app/renderer && cp app/renderer/*.html dist/win-unpacked/resources/app/app/renderer/ && mv dist/win-unpacked/resources/native-addon.node dist/win-unpacked/resources/app/dist-electron/native-addon.node 2>/dev/null || true",
+    "post-build-win-node": "node -e \"const fs=require('fs'),path=require('path');const mkdirp=(dir)=>{if(!fs.existsSync(dir))fs.mkdirSync(dir,{recursive:true})};const copyFiles=(src,dest)=>{mkdirp(path.dirname(dest));fs.readdirSync(src).forEach(f=>{if(f.endsWith('.html'))fs.copyFileSync(path.join(src,f),path.join(dest,f))})};copyFiles('app/renderer','dist/win-unpacked/resources/app/app/renderer');try{fs.renameSync('dist/win-unpacked/resources/native-addon.node','dist/win-unpacked/resources/app/dist-electron/native-addon.node')}catch(e){}\"",
+    "build-win-complete": "vite build && cp native-addon/win/capture.node dist-electron/native-addon.node && electron-builder --win --x64 --dir && npm run post-build-win-node",
+    "build-win-nosign": "npm run build-for-win && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --win --x64 --dir && npm run post-build-win",
     "watch-ts": "tsc -w",
     "reinstall": "rimraf node_modules && npm install",
     "postinstall": "electron-builder install-app-deps",
@@ -57,25 +62,28 @@
         "releaseType": "release"
       }
     ],
-    "extraFiles": [
-      {
-        "from": "node_modules/node-global-key-listener/bin/WinKeyServer.exe",
-        "to": "resources/bin/WinKeyServer.exe"
-      }
-    ],
-    "asarUnpack": [
-      "resources/bin/**",
-      "dist-electron/native-addon.node",
-      "**/*.node"
-    ],
+    "asar": false,
+    "afterPack": "./afterpack.js",
     "files": [
       "dist-electron/**/*",
-      "native-addon/win/capture.node"
+      "app/renderer/**/*.html",
+      "dist-electron/**/*.node", 
+      "!dist-electron/**/*.map"
+    ],
+    "extraFiles": [
+      {
+        "from": "dist-electron/native-addon.node",
+        "to": "app/dist-electron/native-addon.node"
+      }
     ],
     "extraResources": [
       {
-        "from": "native-addon/win/capture.node",
+        "from": "dist-electron/native-addon.node",
         "to": "native-addon.node"
+      },
+      {
+        "from": "bin/WinKeyServer.exe",
+        "to": "bin/WinKeyServer.exe"
       }
     ],
     "mac": {
@@ -152,7 +160,7 @@
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "shortcutName": "Связь РМ",
+      "shortcutName": "RM connect",
       "installerIcon": "build/installer-icon.ico"
     }
   },

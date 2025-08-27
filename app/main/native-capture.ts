@@ -474,13 +474,15 @@ export class NativeCaptureManager {
                 if (process.platform === 'win32') {
                     // Windows production пути
                     possiblePaths.push(
+                        // 1. В resources (из extraResources) - ОСНОВНОЙ ПУТЬ
                         path.join(process.resourcesPath, 'native-addon.node'),
+                        
+                        // 2. В распакованном app.asar (из asarUnpack)
                         path.join(process.resourcesPath, 'app.asar.unpacked', 'dist-electron', 'native-addon.node'),
+                        
+                        // 3. Остальные пути оставляем для совместимости
                         path.join(__dirname, 'native-addon.node'),
-                        path.join(__dirname, '..', 'native-addon.node'),
-                        // Если используете extraFiles
-                        path.join(process.resourcesPath, '..', 'native-addon.node'),
-                        path.join(process.resourcesPath, '..', 'resources', 'native-addon.node')
+                        path.join(__dirname, '..', 'native-addon.node')
                     );
                 } else {
                     // Mac production пути
