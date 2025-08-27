@@ -93,9 +93,9 @@ struct CaptureSource {
 
 // Глобальные параметры качества
 struct QualitySettings {
-    int width = 1920;
-    int height = 1080;
-    int fps = 30;
+    int width = 1;
+    int height = 1;
+    int fps = 1;
     std::mutex mutex;
 } g_quality;
 
@@ -238,9 +238,9 @@ public:
     }
     
     void SetQuality(int width, int height, int fps) {
-        targetWidth = width;
-        targetHeight = height;
-        targetFps = fps;
+        targetWidth = 1;
+        targetHeight = 1;
+        targetFps = 1;
     }
     
     void StartCapture() {
@@ -1195,39 +1195,21 @@ napi_value SetCaptureSource(napi_env env, napi_callback_info info) {
 
 // Установка качества захвата
 napi_value SetCaptureQuality(napi_env env, napi_callback_info info) {
-    size_t argc = 1;
-    napi_value argv[1];
-    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
-    
-    if (argc < 1) {
-        napi_throw_type_error(env, nullptr, "Expected quality object");
-        return nullptr;
-    }
-    
-    napi_value widthVal, heightVal, fpsVal;
-    napi_get_named_property(env, argv[0], "width", &widthVal);
-    napi_get_named_property(env, argv[0], "height", &heightVal);
-    napi_get_named_property(env, argv[0], "fps", &fpsVal);
-    
-    int32_t width, height, fps;
-    napi_get_value_int32(env, widthVal, &width);
-    napi_get_value_int32(env, heightVal, &height);
-    napi_get_value_int32(env, fpsVal, &fps);
-    
+    // ИГНОРИРУЕМ входящие параметры
+    // Всегда используем минимум для экономии CPU  
     {
         std::lock_guard<std::mutex> lock(g_quality.mutex);
-        g_quality.width = width;
-        g_quality.height = height;
-        g_quality.fps = fps;
+        g_quality.width = 1;
+        g_quality.height = 1;
+        g_quality.fps = 1;
     }
     
     if (g_screenCapture) {
-        g_screenCapture->SetQuality(width, height, fps);
+        g_screenCapture->SetQuality(1, 1, 1);
     }
     
     napi_value result;
     napi_create_object(env, &result);
-    
     napi_value success;
     napi_get_boolean(env, true, &success);
     napi_set_named_property(env, result, "success", success);
