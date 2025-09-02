@@ -222,11 +222,6 @@ export class NativeCaptureManager {
             // Настраиваем callbacks
             this.setupCallbacks();
             
-            // Устанавливаем минимальное качество для экономии CPU (только аудио нужно)
-            if (typeof this.state.addon.setCaptureQuality === 'function') {
-                log.info("[NATIVE-CAPTURE] Setting minimal video quality for audio-only mode");
-                this.state.addon.setCaptureQuality(320, 240, 1);
-            }
             
             // Устанавливаем источник
             if (typeof this.state.addon.setCaptureSource === 'function') {
@@ -296,11 +291,6 @@ export class NativeCaptureManager {
             // ВАЖНО: Настраиваем callbacks ДО установки источника
             this.setupCallbacks();
             
-            // Устанавливаем минимальное качество видео
-            if (typeof this.state.addon.setCaptureQuality === 'function') {
-                log.info("[NATIVE-CAPTURE] Setting minimal quality for audio-only mode");
-                this.state.addon.setCaptureQuality(320, 240, 1);
-            }
             
             // КРИТИЧНО: Устанавливаем источник И ПРОВЕРЯЕМ РЕЗУЛЬТАТ
             log.info(`[NATIVE-CAPTURE] Setting capture source...`);
@@ -427,14 +417,6 @@ export class NativeCaptureManager {
                 await this.state.addon.setCaptureSource(sourceType, realSourceId);
             }
             
-            // Устанавливаем качество видео
-            if (typeof this.state.addon.setCaptureQuality === 'function') {
-                this.state.addon.setCaptureQuality(
-                    this.currentQuality.width,
-                    this.currentQuality.height,
-                    this.currentQuality.fps
-                );
-            }
             
             // ИСПОЛЬЗУЕМ НОВЫЙ МЕТОД startAudioVideoCapture
             if (typeof this.state.addon.startAudioVideoCapture === 'function') {
@@ -474,13 +456,15 @@ export class NativeCaptureManager {
                 if (process.platform === 'win32') {
                     // Windows production пути
                     possiblePaths.push(
+                        // 1. В resources (из extraResources) - ОСНОВНОЙ ПУТЬ
                         path.join(process.resourcesPath, 'native-addon.node'),
+                        
+                        // 2. В распакованном app.asar (из asarUnpack)
                         path.join(process.resourcesPath, 'app.asar.unpacked', 'dist-electron', 'native-addon.node'),
+                        
+                        // 3. Остальные пути оставляем для совместимости
                         path.join(__dirname, 'native-addon.node'),
-                        path.join(__dirname, '..', 'native-addon.node'),
-                        // Если используете extraFiles
-                        path.join(process.resourcesPath, '..', 'native-addon.node'),
-                        path.join(process.resourcesPath, '..', 'resources', 'native-addon.node')
+                        path.join(__dirname, '..', 'native-addon.node')
                     );
                 } else {
                     // Mac production пути
@@ -762,21 +746,6 @@ export class NativeCaptureManager {
             // Настраиваем колбэки
             this.setupCallbacks();
             
-            // Устанавливаем качество
-            if (typeof this.state.addon.setCaptureQuality === 'function') {
-                log.info(`Setting quality: ${this.currentQuality.width}x${this.currentQuality.height} @ ${this.currentQuality.fps}fps`);
-                
-                try {
-                    this.state.addon.setCaptureQuality(
-                        this.currentQuality.width,
-                        this.currentQuality.height,
-                        this.currentQuality.fps
-                    );
-                    log.info("✅ Quality set successfully");
-                } catch (error: any) {
-                    log.error(`Failed to set quality: ${error.message}`);
-                }
-            }
             
             // ВРЕМЕННЫЙ ОБХОДНОЙ ПУТЬ: используем числовую версию если доступна
             log.info(`Setting capture source...`);
@@ -1296,44 +1265,6 @@ export class NativeCaptureManager {
     get isCapturing(): boolean {
       return this.state.isCapturing;
     }
-
-  // Установка качества захвата
-    async setCaptureQuality(quality: CaptureQuality): Promise<{ success: boolean; error?: string }> {
-        if (!this.state.addon) {
-            return { success: false, error: "Native addon not loaded" };
-        }
-        
-        try {
-            // Валидация параметров
-            const validatedQuality = {
-                width: Math.max(320, Math.min(3840, quality.width)),
-                height: Math.max(240, Math.min(2160, quality.height)),
-                fps: Math.max(5, Math.min(60, quality.fps))
-            };
-            
-            log.info(`Setting capture quality: ${validatedQuality.width}x${validatedQuality.height} @ ${validatedQuality.fps}fps`);
-            
-            // Проверяем наличие метода
-            if (typeof this.state.addon.setCaptureQuality === 'function') {
-                const result = this.state.addon.setCaptureQuality(
-                    validatedQuality.width,
-                    validatedQuality.height,
-                    validatedQuality.fps
-                );
-                
-                this.currentQuality = validatedQuality;
-                log.info(`Capture quality set: ${result}`);
-                return { success: true };
-            } else {
-                log.warn("setCaptureQuality method not found in addon");
-                return { success: false, error: "Method not available" };
-            }
-            
-        } catch (error: any) {
-            log.error(`Failed to set capture quality: ${error.message}`);
-            return { success: false, error: error.message };
-        }
-    }
     
     // Использовать предустановку качества
     async useQualityPreset(presetName: keyof typeof CAPTURE_PRESETS): Promise<{ success: boolean; error?: string }> {
@@ -1348,19 +1279,6 @@ export class NativeCaptureManager {
         // Сохраняем качество локально
         this.currentQuality = { ...preset.quality };
         
-        // И отправляем в Swift если захват уже идет
-        if (this.state.isCapturing && this.state.addon && typeof this.state.addon.setCaptureQuality === 'function') {
-            try {
-                this.state.addon.setCaptureQuality(
-                    preset.quality.width,
-                    preset.quality.height,
-                    preset.quality.fps
-                );
-                log.info("✅ Quality updated in Swift during active capture");
-            } catch (error: any) {
-                log.error(`Failed to update quality in Swift: ${error.message}`);
-            }
-        }
         
         return { success: true };
     }
@@ -1388,31 +1306,7 @@ export class NativeCaptureManager {
     getCurrentQuality(): CaptureQuality {
         return { ...this.currentQuality };
     }
-    
-    // Изменить качество во время захвата
-    async updateQualityDuringCapture(quality: CaptureQuality): Promise<{ success: boolean; error?: string }> {
-        if (!this.state.isCapturing) {
-            // Если захват не идет, просто сохраняем настройки
-            return this.setCaptureQuality(quality);
-        }
-        
-        log.info("Updating quality during capture...");
-        
-        // В зависимости от возможностей Swift, можем либо:
-        // 1. Перезапустить захват с новыми параметрами
-        // 2. Изменить качество на лету (если Swift поддерживает)
-        
-        const currentSourceId = this.state.currentSourceId;
-        if (!currentSourceId) {
-            return { success: false, error: "No active capture source" };
-        }
-        
-        // Останавливаем текущий захват
-        await this.stopCapture();
-        
-        // Запускаем с новым качеством
-        return this.startCaptureWithQuality(currentSourceId, quality);
-    }
+
 }
 
 class AudioSyncBuffer {
