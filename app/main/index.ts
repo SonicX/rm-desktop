@@ -43,6 +43,11 @@ const { setupScreenSharingMain } = require('@jitsi/electron-sdk');
 import { NativeCaptureManager } from './native-capture';
 import { JitsiManager } from './jitsi-manager';
 
+import * as fs from 'fs';
+import * as https from 'https';
+import * as child_process from 'child_process';
+import AdmZip from 'adm-zip';
+
 
 
 // const { JitsiMeetElectron } = require('@jitsi/electron-sdk');
@@ -62,8 +67,6 @@ const JWT_SECRET = "HguV/8QBrJdCih2Ycpoz0g5q5m85apT3Nu6E+lDvufg=";
 
 let screenCaptureAddon: any = null;
         
-// В index.ts добавьте в начало файла:
-import * as fs from 'fs';
 
 // Создаем поток для записи логов
 const preloadLogStream = fs.createWriteStream(
@@ -919,6 +922,130 @@ async function createMainWindow(): Promise<BrowserWindow> {
     });
   });
 
+  ipcMain.on("restart-app-test", () => {
+    log.info("Test restart requested");
+    // Метод 1: Простой перезапуск (работает на всех платформах)
+    app.relaunch();
+    app.exit(0);
+    // Альтернативный метод 2: С аргументами (если нужно)
+    // app.relaunch({ args: process.argv.slice(1).concat(['--relaunch']) });
+    // app.exit(0);
+  });
+
+  async function downloadUpdate(url: string, destinationPath: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const file = fs.createWriteStream(destinationPath);
+      
+      https.get(url, (response) => {
+        const totalSize = parseInt(response.headers['content-length'] || '0', 10);
+        let downloadedSize = 0;
+        
+        response.pipe(file);
+        
+        response.on('data', (chunk) => {
+          downloadedSize += chunk.length;
+          const progress = totalSize > 0 ? (downloadedSize / totalSize) * 100 : 0;
+          mainWindow?.webContents.send("update-download-progress", progress);
+          log.info(`Download progress: ${progress.toFixed(2)}%`);
+        });
+        
+        file.on('finish', () => {
+          file.close();
+          log.info('Download completed');
+          resolve();
+        });
+        
+        response.on('error', (err) => {
+          fs.unlink(destinationPath, () => {});
+          reject(err);
+        });
+      }).on('error', (err) => {
+        fs.unlink(destinationPath, () => {});
+        reject(err);
+      });
+    });
+  }
+
+  // Затем функция распаковки, которая использует downloadUpdate
+  async function downloadAndExtractUpdate(url: string, updateDir: string): Promise<string> {
+    const zipPath = path.join(updateDir, 'update.zip');
+    
+    // Используем функцию downloadUpdate определенную выше
+    await downloadUpdate(url, zipPath);
+    
+    log.info('Extracting update...');
+    const zip = new AdmZip(zipPath);
+    zip.extractAllTo(updateDir, true);
+    
+    const files = fs.readdirSync(updateDir);
+    const exeFile = files.find(file => file.endsWith('.exe'));
+    
+    if (!exeFile) {
+      throw new Error('No .exe file found in archive');
+    }
+    
+    fs.unlinkSync(zipPath);
+    
+    return path.join(updateDir, exeFile);
+  }
+
+  ipcMain.handle("handle-zulip-update", async (event, updateInfo: {
+    version: string;
+    downloadUrl: string;
+    releaseNotes?: string;
+  }) => {
+    const result = await dialog.showMessageBox(mainWindow, {
+      type: 'info',
+      title: 'Доступно обновление',
+      message: `Доступна новая версия ${updateInfo.version}`,
+      detail: updateInfo.releaseNotes || 'Рекомендуется установить обновление',
+      buttons: ['Обновить сейчас', 'Позже'],
+      defaultId: 0,
+      cancelId: 1
+    });
+    
+    if (result.response === 0) {
+      try {
+        const updateDir = path.join(app.getPath('userData'), 'updates');
+        
+        // Очищаем старые обновления
+        if (fs.existsSync(updateDir)) {
+          fs.rmSync(updateDir, { recursive: true, force: true });
+        }
+        fs.mkdirSync(updateDir, { recursive: true });
+        
+        mainWindow?.webContents.send("update-status", "Загрузка обновления...");
+        
+        // Скачиваем и распаковываем
+        const exePath = await downloadAndExtractUpdate(updateInfo.downloadUrl, updateDir);
+        
+        log.info(`Launching installer: ${exePath}`);
+        mainWindow?.webContents.send("update-status", "Запуск установщика...");
+        
+        if (process.platform === 'win32') {
+          // Запускаем найденный exe
+          child_process.spawn(exePath, [], {
+            detached: true,
+            stdio: 'ignore'
+          }).unref();
+          
+          // Ждем немного и закрываем приложение
+          setTimeout(() => {
+            app.quit();
+          }, 1000);
+        }
+        
+        return { success: true, action: 'updated' };
+      } catch (error: any) {
+        log.error('Update failed:', error);
+        dialog.showErrorBox('Ошибка обновления', error.message);
+        return { success: false, error: error.message };
+      }
+    }
+    
+    return { success: true, action: 'postponed' };
+  });
+
   if (process.env.GDK_BACKEND !== GDK_BACKEND) {
     console.warn(
       "Возвращаем GDK_BACKEND для обхода проблемы https://github.com/electron/electron/issues/28436",
@@ -931,6 +1058,10 @@ async function createMainWindow(): Promise<BrowserWindow> {
   }
 
   app.setAppUserModelId("org.rm.rm-electron");
+  if (process.platform === 'win32') {
+    app.setPath('userData', app.getPath('userData'));
+  }
+
   remoteMain.initialize();
 
   app.on("second-instance", () => {

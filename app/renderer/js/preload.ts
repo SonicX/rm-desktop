@@ -587,3 +587,29 @@ electron_bridge.on_event("jitsi-conference-started", async (data: {
 
     ipcRenderer.send("preload-log", `🎯 Conference window created: ${result.success}`);
 });
+
+electron_bridge.on_event("zulip-update-available", async (data: {
+  version: string;
+  downloadUrl: string;
+  releaseNotes?: string;
+}) => {
+  ipcRenderer.send("preload-log", `📦 Update available: v${data.version}`);
+  
+  const result = await ipcRenderer.invoke("handle-zulip-update", {
+    version: data.version,
+    downloadUrl: data.downloadUrl,
+    releaseNotes: data.releaseNotes
+  });
+  
+  electron_bridge.send_event("update-response", result);
+});
+
+contextBridge.exposeInMainWorld("testUpdate", {
+  triggerUpdate: () => {
+    electron_bridge.emit_event("zulip-update-available", {
+      version: "5.27.0",
+      downloadUrl: "https://storage.yandexcloud.net/rm-electron-desktop-win/Rm-Connectte.zip",
+      releaseNotes: "Тестовое обновление"
+    });
+  }
+});

@@ -354,6 +354,64 @@ export class ServerManagerView {
     this.initDndButton();
     this.initServerActions();
     this.initLeftSidebarEvents();
+    this.initUpdateButton();
+  }
+
+  // main.ts - обновленный метод initUpdateButton
+  initUpdateButton(): void {
+    if (this.$updateButton) {
+      this.$updateButton.classList.remove("hidden");
+      this.$updateTooltip.innerText = "Тест обновления";
+      
+      this.$updateButton.addEventListener("click", async () => {
+        console.log("Update button clicked");
+        
+        // Меню выбора действия
+        const choice = confirm("OK - Тест скачивания с Yandex\nCancel - Простой перезапуск");
+        
+        if (choice) {
+          // Тест скачивания архива
+          const testUrl = "https://storage.yandexcloud.net/rm-electron-desktop-win/Rm-Connectte.zip";
+          
+          const shouldProceed = confirm(`Будет загружен файл:\n${testUrl}\n\nПродолжить?`);
+          
+          if (shouldProceed) {
+            // Показываем индикатор загрузки
+            this.$updateTooltip.innerText = "Загрузка...";
+            
+            // Запускаем загрузку через main process
+            const result = await ipcRenderer.invoke("handle-zulip-update", {
+              version: "test",
+              downloadUrl: testUrl,
+              releaseNotes: "Тестовое обновление из архива"
+            });
+            
+            if (result.success) {
+              this.$updateTooltip.innerText = "Готово!";
+            } else {
+              this.$updateTooltip.innerText = "Ошибка";
+              alert(`Ошибка: ${result.error}`);
+            }
+          }
+        } else {
+          // Простой перезапуск
+          if (confirm("Приложение будет перезапущено. Продолжить?")) {
+            ipcRenderer.send("restart-app-test");
+          }
+        }
+      });
+      
+      // Слушаем прогресс загрузки
+      ipcRenderer.on("update-download-progress", (event, progress) => {
+        this.$updateTooltip.innerText = `Загрузка: ${Math.round(progress)}%`;
+      });
+      
+      ipcRenderer.on("update-status", (event, status) => {
+        this.$updateTooltip.innerText = status;
+      });
+      
+      this.sidebarHoverEvent(this.$updateButton, this.$updateTooltip);
+    }
   }
 
   initServerActions(): void {
@@ -925,6 +983,10 @@ window.addEventListener("load", async () => {
           <div class="action-button" id="settings-action">
             <i class="material-icons md-48">settings</i>
             <span id="setting-tooltip" style="display: none">${t.__("Настройки")}</span>
+          </div>
+          <div class="action-button" id="update-action">
+            <i class="material-icons md-48">system_update_alt</i>
+            <span id="update-tooltip" style="display: none">Тест: Перезапуск</span>
           </div>
           <div class="version-label">${appVersion}</div>
         </div>
