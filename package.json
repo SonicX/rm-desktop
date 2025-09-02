@@ -62,7 +62,7 @@
       }
     ],
     "mac": {
-      "asar": true,
+      "asar": false,
       "asarUnpack": [
         "dist-electron/native-addon.node"
       ],
