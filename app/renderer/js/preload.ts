@@ -88,7 +88,7 @@ contextBridge.exposeInMainWorld('screenCapture', {
         frameRate: number;
     }) => {
         try {
-            const response = await ipcRenderer.invoke("screen-capture-start", options);
+            const response = await ipcRenderer.invoke('screen-capture-start', options);
             if (response.success) {
                 return response.result;
             } else {
@@ -101,7 +101,7 @@ contextBridge.exposeInMainWorld('screenCapture', {
     
     stopCapture: async () => {
         try {
-            const response = await ipcRenderer.invoke("screen-capture-stop");
+            const response = await ipcRenderer.invoke('screen-capture-stop');
             if (!response.success) {
                 throw new Error(response.error);
             }
@@ -112,7 +112,7 @@ contextBridge.exposeInMainWorld('screenCapture', {
     
     testMethod: async () => {
         try {
-            const response = await ipcRenderer.invoke("screen-capture-test");
+            const response = await ipcRenderer.invoke('screen-capture-test');
             if (response.success) {
                 return response.result;
             } else {
@@ -318,7 +318,7 @@ contextBridge.exposeInMainWorld('nativeStream', {
 });
 
 // Слушаем команду от main процесса
-ipcRenderer.on("create-native-stream-for-jitsi", () => {
+ipcRenderer.on('create-native-stream-for-jitsi', () => {
     ipcRenderer.send("preload-log", "🎯 Preload: Received create-native-stream-for-jitsi");
     
     // Создаем MediaStream в контексте webview
@@ -337,13 +337,12 @@ ipcRenderer.on("create-native-stream-for-jitsi", () => {
         
         function animate() {
             if (!animationActive) return;
-            
+            if (!ctx) throw new Error('Failed to get canvas context');
             frame++;
-            
             // Градиентный фон
             const gradient = ctx.createRadialGradient(960, 540, 0, 960, 540, 600);
-            gradient.addColorStop(0, `hsl(${frame % 360}, 70%, 50%)`);
-            gradient.addColorStop(1, `hsl(${(frame + 180) % 360}, 60%, 30%)`);
+            gradient?.addColorStop(0, `hsl(${frame % 360}, 70%, 50%)`);
+            gradient?.addColorStop(1, `hsl(${(frame + 180) % 360}, 60%, 30%)`);
             ctx.fillStyle = gradient;
             ctx.fillRect(0, 0, canvas.width, canvas.height);
             
@@ -424,7 +423,7 @@ electron_bridge.on_event("create-and-share-native-stream", async () => {
         
         // Анимированный контент
         let frame = 0;
-        let animationId = null;
+        let animationId: number | null = null;
         
         const animate = () => {
             frame++;
@@ -476,7 +475,7 @@ electron_bridge.on_event("create-and-share-native-stream", async () => {
         
         return { success: true, streamId: stream.id };
         
-    } catch (error) {
+    } catch (error: any) {
         ipcRenderer.send("preload-log", `❌ Preload: Error creating stream: ${error.message}`);
         electron_bridge.send_event("native-stream-error", { error: error.message });
         return { success: false, error: error.message };
@@ -519,6 +518,8 @@ function createNativeStreamForJitsi() {
         let frame = 0;
         function animate() {
             frame++;
+            if (ctx == null) throw new Error('Failed to get canvas context');
+
             const gradient = ctx.createRadialGradient(960, 540, 0, 960, 540, 600);
             gradient.addColorStop(0, `hsl(${frame % 360}, 70%, 50%)`);
             gradient.addColorStop(1, `hsl(${(frame + 180) % 360}, 60%, 30%)`);
@@ -542,7 +543,7 @@ function createNativeStreamForJitsi() {
         
         // Пробуем найти и нажать кнопку
         setTimeout(() => {
-            const btn = document.querySelector('button[onclick*="shareNativeStream"]');
+            const btn = document.querySelector('button[onclick*="shareNativeStream"]') as HTMLButtonElement | null;
             if (btn) {
                 ipcRenderer.send("preload-log", "✅ Found shareNativeStream button, clicking...");
                 btn.click();
@@ -560,17 +561,17 @@ function createNativeStreamForJitsi() {
             ipcRenderer.send("preload-log", "✅ Sent use-native-stream-in-jitsi event");
         }
         
-    } catch (error) {
+    } catch (error: any) {
         ipcRenderer.send("preload-log", `❌ Error: ${error.message}`);
     }
 }
 
-electron_bridge.on_event("jitsi-conference-started", async (data: {
+electron_bridge.on_event('jitsi-conference-started', async (data: {
     roomName: string;
     jwt?: string;
     userInfo?: {
-        displayName: string;
-        email: string;
+        displayName?: string;
+        email?: string;
         avatarUrl: string;
     }
 }) => {
@@ -578,7 +579,7 @@ electron_bridge.on_event("jitsi-conference-started", async (data: {
 
     const fullRoomUrl = `https://jitsi-connectrm.ru/${data.roomName}`;
     
-    const result = await ipcRenderer.invoke("create-jitsi-sdk-from-zulip", {
+    const result = await ipcRenderer.invoke('create-jitsi-sdk-from-zulip', {
         roomUrl: fullRoomUrl,
         roomName: data.roomName,      // передаём всегда
         jwt: data.jwt || "",

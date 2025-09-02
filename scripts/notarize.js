@@ -18,27 +18,6 @@ exports.default = async function notarizeMac(context) {
   const inheritPlist = 'build/macEntitlements.plist'; // Изменено: используем inherit для helpers
   const entitlementsPlist = 'build/entitlements.mac.plist';
 
-  // Подпись MacKeyServer (используем inherit, т.к. это child process)
-  const macKeyServerPath = path.join(appPath, 'Contents', 'Resources', 'bin', 'MacKeyServer');
-  if (fs.existsSync(macKeyServerPath)) {
-    console.log(`🔁 Подписываю: MacKeyServer`);
-    const result = spawnSync('codesign', [
-      '--sign', certName,
-      '--entitlements', inheritPlist, // Изменено: inherit для child
-      '--options', 'runtime',
-      '--timestamp',
-      '--force',
-      macKeyServerPath
-    ], { stdio: 'inherit' });
-
-    if (result.status !== 0) {
-      throw new Error(`❌ Не удалось подписать MacKeyServer: ${result.stderr.toString()}`);
-    }
-    console.log(`✅ Успешно подписан: MacKeyServer`);
-  } else {
-    console.log(`⚠️ Не найден: ${macKeyServerPath}`);
-  }
-
   // Подпись MacKeyServer в node-global-key-listener (inherit)
   const nodeKeyServerPath = path.join(appPath, 'Contents', 'Resources', 'app.asar.unpacked', 'node_modules', 'node-global-key-listener', 'bin', 'MacKeyServer');
   if (fs.existsSync(nodeKeyServerPath)) {
@@ -58,6 +37,27 @@ exports.default = async function notarizeMac(context) {
     console.log(`✅ Успешно подписан: node-global-key-listener MacKeyServer`);
   } else {
     console.log(`⚠️ Не найден: ${nodeKeyServerPath}`);
+  }
+
+  // Подпись native-addon (inherit)
+  const nodeNodePath = path.join(appPath, 'Contents', 'Resources', 'app.asar.unpacked', 'dist-electron', 'native-addon.node');
+  if (fs.existsSync(nodeNodePath)) {
+    console.log(`🔁 Подписываю: native-addon.node`);
+    const result = spawnSync('codesign', [
+      '--sign', certName,
+      '--entitlements', inheritPlist,
+      '--timestamp',
+      '--force',
+      '--deep',
+      nodeNodePath
+    ], { stdio: 'inherit' });
+
+    if (result.status !== 0) {
+      throw new Error(`❌ Не удалось подписать native-addon.node: ${result.stderr.toString()}`);
+    }
+    console.log(`✅ Успешно подписан: native-addon.node`);
+  } else {
+    console.log(`⚠️ Не найден: ${nodeNodePath}`);
   }
 
   // Подпись Helper-приложений (используем inherit)

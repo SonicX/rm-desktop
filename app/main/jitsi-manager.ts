@@ -2,10 +2,10 @@
 import { BrowserWindow, ipcMain, webContents } from "electron";
 import * as path from "path";
 import log from "electron-log";
-import { NativeCaptureManager } from "./native-capture";
+import { CAPTURE_PRESETS, NativeCaptureManager } from "./native-capture";
 import { JitsiScreenShareMonitor } from "./jitsi-screen-share-monitor";
 
-interface JitsiOptions {
+export interface JitsiOptions {
   roomName: string;
   serverUrl?: string;
   displayName?: string;
@@ -14,9 +14,14 @@ interface JitsiOptions {
   jwt?: string;
   topic?: string;
   stream?: string;
+  userInfo?: {
+    displayName?: string;
+    email?: string;
+    avatarUrl: string;
+};
 }
 
-interface JitsiState {
+export interface JitsiState {
   window: BrowserWindow | null;
   isStreamActive: boolean;
   streamId: string | null;
@@ -24,6 +29,12 @@ interface JitsiState {
   videoFrameCount?: number; 
   audioFrameCount?: number;
   qualityPreset?: string;
+}
+
+export interface JitsiResult {
+  success: boolean;
+  error?: string;
+  fallbackToBrowser?: boolean;
 }
 
 // ===== ОПРЕДЕЛЕНИЕ ПРЕСЕТОВ КАЧЕСТВА ВИДЕО =====
@@ -52,7 +63,7 @@ export class VideoQualityManager {
             return VIDEO_QUALITY_PRESETS.HIGH;
         }
         
-        this.currentPreset = presetName;
+        this.currentPreset = presetName as string;
         this.customSettings = null;
         
         const preset = VIDEO_QUALITY_PRESETS[presetName];
@@ -276,7 +287,7 @@ export class JitsiManager {
     private screenShareMonitor: JitsiScreenShareMonitor;
     private activeMediaStreams: Set<string> = new Set(); 
     private debugMonitoringStarted: boolean = false;
-    private debugMonitoringInterval?: NodeJS.Timer;
+    private debugMonitoringInterval?: NodeJS.Timeout;
 
     constructor(
         nativeCapture: NativeCaptureManager,
@@ -1326,7 +1337,7 @@ export class JitsiManager {
 
             // Перед загрузкой URL инжектируем CSS
             this.state.window.webContents.on('did-start-loading', () => {
-                this.state.window.webContents.insertCSS(`
+                this.state.window?.webContents.insertCSS(`
                     html, body {
                         background: #1a1a2e !important;
                         transition: opacity 0.3s ease-in-out;
@@ -2348,7 +2359,7 @@ export class JitsiManager {
     }
 
     // ===== ГЛАВНАЯ ФУНКЦИЯ =====
-    async injectNativeStream(): Promise<{ success: boolean; error?: string; streamId?: string }> {
+    async injectNativeStream(): Promise<{ success: boolean; error?: string; streamId?: string; } | null> {
         
         const useNative = await this.shouldUseNativeCapture();
 
@@ -2461,7 +2472,7 @@ export class JitsiManager {
         }
     }
 
-    private async useStandardJitsiScreenShare(): Promise<{ success: boolean; error?: string; streamId?: string }> {
+    private async useStandardJitsiScreenShare(): Promise<{ success: boolean; error?: string; streamId?: string; } | null> {
         log.info("[JITSI-MANAGER] Using standard Jitsi screen sharing");
         
         if (!this.state.window || this.state.window.isDestroyed()) {
@@ -2493,6 +2504,7 @@ export class JitsiManager {
                     return { success: false, error: 'Jitsi API not ready' };
                 })();
             `);
+            return null
         } catch (error: any) {
             log.error(`[JITSI-MANAGER] Standard screen share failed: ${error.message}`);
             return { success: false, error: error.message };
@@ -2858,7 +2870,8 @@ export class JitsiManager {
         this.nativeCapture.setFrameCallbacks(
             // Video callback - игнорируем
             (videoData: any) => {
-                this.state.videoFrameCount++;
+                if (this.state.videoFrameCount != null) this.state.videoFrameCount++;
+                 
                 if (this.state.videoFrameCount === 1) {
                     log.info("[STREAM-ELECTRON] Ignoring native video (using Electron)");
                 }
@@ -2875,9 +2888,9 @@ export class JitsiManager {
 
     // ===== 6. ОБРАБОТКА NATIVE АУДИО =====
     private processNativeAudio(audioData: any): void {
-        if (!this.state.window || this.state.window.isDestroyed()) return;
+        if (!this.state.window || this.state.window.isDestroyed() || this.state.videoFrameCount == null || this.state.audioFrameCount == null) return;
         
-        this.state.audioFrameCount++;
+        this.state.videoFrameCount++;
         
         try {
             const arrayBuffer = audioData.data;
@@ -3078,6 +3091,7 @@ export class JitsiManager {
             maxAmp = Math.max(maxAmp, Math.abs(leftData[i]), Math.abs(rightData[i]));
         }
         
+        if (this.state.audioFrameCount == null) return;
         if (this.state.audioFrameCount === 1 || this.state.audioFrameCount % 100 === 0) {
             log.info(`[SEND-TO-JITSI] Frame ${this.state.audioFrameCount}: maxAmp=${maxAmp.toFixed(4)}, samples=${samples}`);
         }
@@ -3136,7 +3150,7 @@ export class JitsiManager {
         });
     }
 
-    async handleSourceSelection(sourceId: string): void {
+    async handleSourceSelection(sourceId: string): Promise<void> {
         this.state.lastSelectedSourceId = sourceId;
         log.info(`Saved selected source: ${sourceId}`);
     }

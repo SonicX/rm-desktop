@@ -1,22 +1,17 @@
 import { clipboard } from "electron/common";
 import {
   BrowserWindow,
-  type IpcMainEvent,
-  type WebContents,
   app,
-  Menu,
-  dialog,
-  powerMonitor,
   session,
   webContents,
   desktopCapturer,
 } from "electron/main";
 import { Buffer } from "node:buffer";
-import crypto from "node:crypto";
 import path from "node:path";
 import process from "node:process";
 import { autoUpdater } from "electron-updater";
 import log from "electron-log";
+import { initializeTrayManager } from './trayManager.js';
 
 
 import { GlobalKeyboardListener, IGlobalKeyDownMap, IGlobalKeyEvent } from 'node-global-key-listener';
@@ -26,16 +21,10 @@ import windowStateKeeper from "electron-window-state";
 
 import * as ConfigUtil from "../common/config-util.js";
 import { bundlePath, bundleUrl, publicPath } from "../common/paths.js";
-import * as t from "../common/translation-util.js";
-import type { MenuProperties } from "../common/types.js";
-import type { RendererMessage, DesktopSource, JitsiLogData, WalkieTalkieStatus } from "../common/typed-ipc.js";
+import type { RendererMessage, DesktopSource, NativeSource, JitsiLogData, WalkieTalkieStatus, InvokeData } from "../common/typed-ipc.js";
 
-import * as BadgeSettings from "./badge-settings.js";
-import handleExternalLink from "./handle-external-link.js";
-import * as AppMenu from "./menu.js";
 import { _getServerSettings, _isOnline, _saveServerIcon } from "./request.js";
 import { sentryInit } from "./sentry.js";
-import { setAutoLaunch } from "./startup.js";
 import { ipcMain, send } from "./typed-ipc-main.js";
 const { setupScreenSharingMain } = require('@jitsi/electron-sdk');
 
@@ -59,28 +48,18 @@ try {
 
 const JWT_SECRET = "HguV/8QBrJdCih2Ycpoz0g5q5m85apT3Nu6E+lDvufg=";
 
-let screenCaptureAddon: any = null;
-        
-// В index.ts добавьте в начало файла:
-import * as fs from 'fs';
+declare global {
+  var nativeSourceMapping: Map<string, string | number>;
+}
 
-// Создаем поток для записи логов
-const preloadLogStream = fs.createWriteStream(
-  path.join(process.cwd(), 'preload-debug.log'),
-  { flags: 'a' } // append mode
-);
+let screenCaptureAddon: any = null;
 
 // Затем обновите обработчик:
 ipcMain.on("preload-log", (event, message: string) => {
   const timestamp = new Date().toISOString();
-  const logMessage = `[${timestamp}] ${message}\n`;
-  
-  // Пишем в файл напрямую
-  preloadLogStream.write(logMessage);
   
   // Также выводим в консоль
   console.log(`Preload Log: ${message}`);
-  
   // И в electron-log
   log.info(`Preload Log: ${message}`);
 });
@@ -461,7 +440,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
     try {
         log.info("🎯[NativeCapture] Getting desktop sources...");
         
-        let formattedSources = [];
+        let formattedSources: any[] = [];
         let sourceType = 'unknown';
         
         // Создаем маппинг для сохранения оригинальных ID
@@ -470,7 +449,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
         // Получаем источники из native addon
         if (screenCaptureAddon && typeof screenCaptureAddon.getAvailableSources === 'function') {
         try {
-            const nativeSources = await screenCaptureAddon.getAvailableSources();
+            const nativeSources: NativeSource[] = await screenCaptureAddon.getAvailableSources();
             log.info(`🎯[NativeCapture] Got ${nativeSources.length} native sources`);
             
             if (nativeSources.length > 0) {
@@ -559,7 +538,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
         log.error(`🎯[NativeCapture] Error: ${error.message}`);
         return [];
     }
-    });
+  });
 
 
   ipcMain.handle("jitsi-connect-with-zulip-config", async (event, options) => {
@@ -646,12 +625,12 @@ async function createMainWindow(): Promise<BrowserWindow> {
       
       try {
           let result;
-          
+
           // Роутинг к существующим обработчикам
           if (data.channel === 'jitsi-connect-with-zulip-config') {
-              result = await ipcMain.handle(data.channel, event, ...data.args);
+              result = ipcMain.handle(data.channel, event, ...data.args);
           } else if (data.channel === 'test-zulip-bridge') {
-              result = await ipcMain.handle(data.channel, event, ...data.args);
+              result = ipcMain.handle(data.channel, event, ...data.args);
           } else {
               throw new Error(`Unknown channel: ${data.channel}`);
           }
@@ -667,7 +646,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
               }));
           `);
           
-      } catch (error) {
+      } catch (error: any) {
           log.error(`Main: IPC invoke error: ${error.message}`);
           
           event.sender.executeJavaScript(`
@@ -684,7 +663,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
 
 
   // Тестовый обработчик для проверки связи с Zulip
-  ipcMain.handle("test-zulip-bridge", async () => {
+  ipcMain.handle('test-zulip-bridge', async () => {
       log.info("🧪[Test] Testing Zulip bridge...");
       
       const result = {
@@ -769,36 +748,36 @@ async function createMainWindow(): Promise<BrowserWindow> {
   });
 
   // Обработчик запуска нативного захвата
-  ipcMain.handle("start-native-capture", async (event, sourceId: string) => {
+  ipcMain.handle('start-native-capture', async (event, sourceId: string) => {
     return nativeCaptureManager.startCapture(sourceId);
   });
 
   // Обработчик остановки захвата
-  ipcMain.handle("stop-native-capture", async () => {
+  ipcMain.handle('stop-native-capture', async () => {
     return nativeCaptureManager.stopCapture();
   });
 
   // Обработчик получения статуса захвата
-  ipcMain.handle("get-capture-status", async () => {
+  ipcMain.handle('get-capture-status', async () => {
     return nativeCaptureManager.getStatus();
   });
 
-  ipcMain.on("focus-app", () => {
+  ipcMain.on('focus-app', () => {
     mainWindow.show();
   });
 
-  ipcMain.on("quit-app", () => {
+  ipcMain.on('quit-app', () => {
     log.info("Main: Получено событие quit-app, закрытие приложения...");
     isQuitting = true;
     app.quit();
   });
 
-  ipcMain.on("reload-full-app", () => {
+  ipcMain.on('reload-full-app', () => {
     mainWindow.reload();
     send(page, "destroytray");
   });
 
-  ipcMain.on("forward-message", (event, channel, ...args) => {
+  ipcMain.on('forward-message', (event, channel, ...args) => {
     log.info(`Main: Получено forward-message с каналом: ${channel}`);
     webContents.getAllWebContents().forEach(content => {
       content.send("forward-message", channel, ...args);
@@ -812,13 +791,13 @@ async function createMainWindow(): Promise<BrowserWindow> {
   });
 
 
-  ipcMain.on("preload-log", (event, message: string) => {
+  ipcMain.on('preload-log', (event, message: string) => {
     log.info(`Preload Log: ${message}`);
     console.log(`Preload Log: ${message}`);
   });
 
   // Обработчик для установки горячей клавиши микрофона
-  ipcMain.on("walkie-talkie-status", (event, status: unknown) => {
+  ipcMain.on('walkie-talkie-status', (event, status: unknown) => {
     log.info(`Main: Получено событие walkie-talkie-status: ${JSON.stringify(status)}`);
     if (typeof status !== "object" || status === null || !("enabled" in status) || !("key" in status)) {
       log.error(`Main: Некорректный формат данных для walkie-talkie-status: ${JSON.stringify(status)}`);
@@ -942,6 +921,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
   });
 
   mainWindow = await createMainWindow();
+  initializeTrayManager(mainWindow);
   console.log("✅ Окно создано!");
 
   const page = mainWindow.webContents;

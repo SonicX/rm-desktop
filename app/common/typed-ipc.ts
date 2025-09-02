@@ -1,5 +1,13 @@
 import type {DndSettings} from "./dnd-util.js";
 import type {MenuProperties, ServerConfig} from "./types.js";
+import type {JitsiOptions,  JitsiResult} from "../main/jitsi-manager";
+
+export interface NativeSource {
+    id: string | number;
+    name?: string;
+    type: string;
+    appName?: string;
+}
 
 export interface DesktopSource {
   id: string;
@@ -18,6 +26,23 @@ export interface DesktopSourcesResponse {
 export interface WalkieTalkieStatus {
   enabled: boolean;
   key: string;
+}
+
+export interface InvokeData {
+  channel: string;
+  args: unknown[];  // Tuple с rest для произвольных аргументов
+  requestId: string;
+}
+
+export interface ZulipConnect {
+  zulipFound: boolean;
+  currentUserName: string;
+  currentUserEmail: string;
+  hasElectronBridge: boolean;
+  hasIpcRenderer: boolean;
+  totalWebContents: number;
+  zulipUrl: string;
+  error: string | null;
 }
 
 export type MainMessage = {
@@ -46,6 +71,11 @@ export type MainMessage = {
   "update-menu": (properties: MenuProperties) => void;
   "update-taskbar-icon": (data: string, text: string) => void;
   "restart_app": () => void; // Для автообновления
+  "jitsi-api-ready": (data: any) => void;
+  "jitsi-conference-joined": () => void;
+  "jitsi-conference-left": () => void;
+  "electron-bridge-event": (data: any) => void;
+  "ipc-invoke": (data: InvokeData) => void;
 };
 
 export type MainCall = {
@@ -55,6 +85,15 @@ export type MainCall = {
   "save-server-icon": (iconURL: string) => string | null;
   'fetch-user-agent': () => Promise<string>;
   "get-desktop-sources": () => Promise<DesktopSource[]>;
+  "jitsi-connect-with-zulip-config": (options: JitsiOptions) => Promise<JitsiResult>;
+  "test-zulip-bridge": () => Promise<ZulipConnect>;
+  "start-native-capture": (sourceId: string) => Promise<{ success: boolean; error?: string }>;
+  "stop-native-capture": () => Promise<{ success: boolean; error?: string }>;
+  "get-capture-status": () => void;
+  "screen-capture-start": (options: { sourceId: string; width: number; height: number; frameRate: number; }) => Promise<{ success: boolean; error?: string; result: string }>;
+  "screen-capture-stop": () => Promise<{ success: boolean; error?: string; }>;
+  "screen-capture-test": () => Promise<{ success: boolean; error?: string; result: string }>;
+  "create-jitsi-sdk-from-zulip": (data: JitsiOptions | {}) => Promise<{ success: boolean; error?: string; result: string }>;
 };
 
 export type RendererMessage = {
@@ -104,7 +143,7 @@ export type RendererMessage = {
   "toggle-sidebar": (show: boolean) => void;
   "toggle-silent": (state: boolean) => void;
   "toggle-tray": (state: boolean) => void;
-  toggletray: () => void;
+  "toggletray": () => void;
   tray: (argument: number) => void;
   "update-realm-icon": (serverURL: string, iconURL: string) => void;
   "update-realm-name": (serverURL: string, realmName: string) => void;
@@ -117,4 +156,5 @@ export type RendererMessage = {
   "update_downloaded": () => void;
   "update_error": (message: string) => void;
   "quit-app": () => void; // Добавляем quit-app в RendererMessage
+  "create-native-stream-for-jitsi": () => void;
 };
