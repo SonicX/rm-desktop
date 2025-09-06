@@ -1,3 +1,4 @@
+#define NOMINMAX  // Предотвращаем конфликт с макросами min/max из Windows
 #include <node_api.h>
 #include <windows.h>
 #include <d3d11.h>
@@ -1187,9 +1188,11 @@ static CaptureSource g_currentSource;
 // Тестовый метод
 napi_value TestMethod(napi_env env, napi_callback_info info) {
     napi_value result;
-    napi_create_string_utf8(env, "Windows Native Module v1.0 - Application Audio Support", NAPI_AUTO_LENGTH, &result);
+    napi_create_string_utf8(env, "Windows Native Module v1.0 - Application Audio Support with Volume Control", NAPI_AUTO_LENGTH, &result);
     return result;
-}napi_value SetParticipantsVolume(napi_env env, napi_callback_info info) {
+}
+
+napi_value SetParticipantsVolume(napi_env env, napi_callback_info info) {
     size_t argc = 1;
     napi_value argv[1];
     napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
