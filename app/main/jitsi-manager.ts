@@ -24,6 +24,7 @@ interface JitsiState {
   videoFrameCount?: number; 
   audioFrameCount?: number;
   qualityPreset?: string;
+  useNativeAudio: boolean;
 }
 
 // ===== ОПРЕДЕЛЕНИЕ ПРЕСЕТОВ КАЧЕСТВА ВИДЕО =====
@@ -262,7 +263,8 @@ export class JitsiManager {
     private state: JitsiState = {
         window: null,
         isStreamActive: false,
-        streamId: null
+        streamId: null,
+        useNativeAudio: true
     };
 
     private nativeCapture: NativeCaptureManager;
@@ -413,6 +415,39 @@ export class JitsiManager {
                         .native-mode { background: #4CAF50; }
                         .standard-mode { background: #FF9800; }
                         .error-mode { background: #f44336; }
+                        #native-audio-toggle {
+                            width: 16px;
+                            height: 16px;
+                            position: relative;
+                            -webkit-appearance: none;
+                            appearance: none;
+                            background: rgba(255,255,255,0.2);
+                            border-radius: 3px;
+                            outline: none;
+                            cursor: pointer;
+                            transition: background 0.3s;
+                        }
+                        
+                        #native-audio-toggle:checked {
+                            background: #4CAF50;
+                        }
+                        
+                        #native-audio-toggle:checked::after {
+                            content: '✓';
+                            position: absolute;
+                            color: white;
+                            font-size: 12px;
+                            top: -2px;
+                            left: 2px;
+                        }
+                        
+                        #native-audio-toggle:hover {
+                            background: rgba(255,255,255,0.3);
+                        }
+                        
+                        #native-audio-toggle:checked:hover {
+                            background: #45a049;
+                        }
                     \`;
                     document.head.appendChild(style);
                     return true;
@@ -479,6 +514,25 @@ export class JitsiManager {
                         modeIndicator.title = 'Using standard Jitsi (no quality controls)';
                         indicatorBar.appendChild(modeIndicator);
                     }
+
+                    // Добавляем индикатор текущего режима (только для чтения)
+                    const audioModeIndicator = document.createElement('div');
+                    audioModeIndicator.id = 'audio-mode-indicator';
+                    audioModeIndicator.style.cssText = 'display: flex; align-items: center; gap: 4px; margin-left: 8px;';
+                    
+                    const audioModeIcon = document.createElement('span');
+                    audioModeIcon.style.cssText = 'font-size: 10px;';
+                    audioModeIcon.textContent = '🔊';
+                    
+                    const audioModeText = document.createElement('span');
+                    audioModeText.id = 'audio-mode-text';
+                    audioModeText.style.cssText = 'font-size: 10px; color: rgba(255,255,255,0.7);';
+                    audioModeText.textContent = ${this.state.useNativeAudio} ? 'Native' : 'Standard';
+                    
+                    audioModeIndicator.appendChild(audioModeIcon);
+                    audioModeIndicator.appendChild(audioModeText);
+                    
+                    indicatorBar.appendChild(audioModeIndicator);
                     
                     container.appendChild(indicatorBar);
                     document.body.appendChild(container);
@@ -1010,6 +1064,106 @@ export class JitsiManager {
             }));
         });
 
+        ipcMain.handle("jitsi:toggle-audio-mode", async (event, useNative: boolean) => {
+            log.info(`[JITSI-MANAGER] Toggling audio mode to: ${useNative ? 'Native' : 'Standard'}`);
+            
+            const wasActive = this.state.isStreamActive;
+            
+            // Обновляем состояние
+            this.state.useNativeAudio = useNative;
+            
+            // Если поток активен, нужно его пересоздать
+            if (wasActive) {
+                log.info("[JITSI-MANAGER] Recreating stream with new audio mode...");
+                
+                // Останавливаем текущий поток
+                await this.cleanup();
+                await new Promise(resolve => setTimeout(resolve, 500));
+                
+                // Создаем новый поток с новыми настройками
+                const result = await this.injectNativeStream();
+                
+                return {
+                    success: result.success,
+                    mode: useNative ? 'native' : 'standard',
+                    error: result.error
+                };
+            }
+            
+            return {
+                success: true,
+                mode: useNative ? 'native' : 'standard'
+            };
+        });
+
+        ipcMain.handle("jitsi:stop-screen-share-only", async () => {
+            log.info("[STREAM-ELECTRON] Stopping screen share only (keeping conference audio)");
+            
+            try {
+                // Останавливаем только native capture для демонстрации
+                if (this.nativeCapture && this.nativeCapture.isCapturing) {
+                    await this.nativeCapture.stopCapture();
+                }
+                
+                // НЕ очищаем всё состояние, только демонстрацию
+                this.state.isStreamActive = false;
+                this.state.streamId = null;
+                this.state.videoFrameCount = 0;
+                this.state.audioFrameCount = 0;
+                
+                // НЕ вызываем nukeClearAllStreams()
+                // НЕ вызываем forceReleaseAllMediaResources()
+                
+                return { success: true };
+                
+            } catch (error: any) {
+                log.error(`[STREAM-ELECTRON] Error stopping screen share: ${error.message}`);
+                return { success: false, error: error.message };
+            }
+        });
+
+        ipcMain.handle("jitsi:set-audio-mode", async (event, useNative: boolean) => {
+            log.info(`[JITSI-MANAGER] Setting audio mode to: ${useNative ? 'Native' : 'Standard'}`);
+            
+            // Просто устанавливаем режим, без пересоздания потока
+            this.state.useNativeAudio = useNative;
+            
+            // Обновляем визуальные индикаторы в UI
+            if (this.state.window && !this.state.window.isDestroyed()) {
+                await this.state.window.webContents.executeJavaScript(`
+                    (function() {
+                        // Обновляем чекбокс если он есть
+                        const checkbox = document.getElementById('native-audio-toggle');
+                        if (checkbox) {
+                            checkbox.checked = ${useNative};
+                        }
+                        
+                        // Обновляем индикатор
+                        const audioDot = document.getElementById('audio-dot');
+                        if (audioDot) {
+                            audioDot.style.background = ${useNative} ? '#4CAF50' : '#FF9800';
+                            audioDot.title = ${useNative} ? 
+                                'Native Audio (со звуком системы)' : 
+                                'Standard Audio (без звука системы)';
+                        }
+                        
+                        // Обновляем текстовую метку
+                        const modeLabel = document.getElementById('audio-mode-label');
+                        if (modeLabel) {
+                            modeLabel.textContent = ${useNative} ? 'Native' : 'Standard';
+                        }
+                        
+                        console.log('[AudioMode] UI updated to:', ${useNative} ? 'Native' : 'Standard');
+                    })();
+                `);
+            }
+            
+            return { 
+                success: true, 
+                mode: useNative ? 'native' : 'standard' 
+            };
+        });
+
     }
 
     async getDebugInfo(): Promise<any> {
@@ -1019,7 +1173,9 @@ export class JitsiManager {
             hasAddon: this.nativeCapture.isAvailable && addonHealth.healthy,
             nativeCaptureActive: this.nativeCapture.isCapturing,
             audioFrameCount: this.state.audioFrameCount || 0,
-            isStreamActive: this.state.isStreamActive
+            isStreamActive: this.state.isStreamActive,
+            useNativeAudio: this.state.useNativeAudio, // ДОБАВЛЯЕМ
+            audioMode: this.state.useNativeAudio ? 'native' : 'standard' // ДОБАВЛЯЕМ
         };
     }
 
@@ -1029,81 +1185,36 @@ export class JitsiManager {
         try {
             await this.state.window.webContents.executeJavaScript(`
                 (function() {
-                    console.log('[NUKE] === NUCLEAR CLEANUP STARTING ===');
+                    console.log('[NUKE] === SELECTIVE CLEANUP STARTING ===');
                     
-                    // Временно блокируем getUserMedia
-                    const originalGetUserMedia = navigator.mediaDevices.getUserMedia;
-                    navigator.mediaDevices.getUserMedia = function() {
-                        throw new Error('getUserMedia blocked during cleanup');
-                    };
-                    
-                    try {
-                        // Находим ВСЕ MediaStream объекты
-                        const allStreams = [];
-                        
-                        // Через глобальный трекер
-                        if (window.__allMediaStreams) {
-                            window.__allMediaStreams.forEach(stream => {
-                                allStreams.push(stream);
-                            });
-                            window.__allMediaStreams.clear();
-                        }
-                        
-                        // Через глобальные переменные
-                        for (let key in window) {
-                            try {
-                                if (window[key] instanceof MediaStream) {
-                                    allStreams.push(window[key]);
-                                    window[key] = null;
-                                }
-                            } catch(e) {}
-                        }
-                        
-                        // Через video/audio элементы
-                        [...document.querySelectorAll('video'), ...document.querySelectorAll('audio')].forEach(el => {
-                            if (el.srcObject instanceof MediaStream) {
-                                allStreams.push(el.srcObject);
-                                el.srcObject = null;
+                    // Очищаем только streams демонстрации, НЕ трогая основной conference audio
+                    if (window.jitsiNativeMediaStream) {
+                        window.jitsiNativeMediaStream.getTracks().forEach(track => {
+                            if (track.readyState === 'live') {
+                                track.stop();
+                                console.log('[NUKE] Stopped native track:', track.id, track.kind);
                             }
                         });
-                        
-                        // Останавливаем ВСЕ треки
-                        allStreams.forEach(stream => {
-                            stream.getTracks().forEach(track => {
-                                if (track.readyState === 'live') {
-                                    track.stop();
-                                    console.log('[NUKE] Stopped track:', track.id, track.kind);
-                                }
-                            });
-                        });
-                        
-                        // Очищаем Jitsi треки
-                        if (window.APP?.conference) {
-                            const tracks = window.APP.conference.getLocalTracks?.() || [];
-                            tracks.forEach(t => {
-                                if (t.dispose) t.dispose();
-                            });
-                            
-                            if (window.APP.conference._localTracks) {
-                                window.APP.conference._localTracks = [];
-                            }
-                            if (window.APP.conference.localDesktop) {
-                                window.APP.conference.localDesktop = null;
-                            }
-                        }
-                        
-                    } finally {
-                        // Восстанавливаем getUserMedia
-                        setTimeout(() => {
-                            navigator.mediaDevices.getUserMedia = originalGetUserMedia;
-                        }, 100);
+                        window.jitsiNativeMediaStream = null;
                     }
                     
-                    console.log('[NUKE] === NUCLEAR CLEANUP COMPLETED ===');
+                    // НЕ трогаем основные аудио треки конференции
+                    if (window.APP?.conference) {
+                        const tracks = window.APP.conference.getLocalTracks?.() || [];
+                        tracks.forEach(t => {
+                            // Останавливаем только desktop треки
+                            if (t.videoType === 'desktop' || t.type === 'desktop') {
+                                if (t.dispose) t.dispose();
+                                console.log('[NUKE] Disposed desktop track');
+                            }
+                        });
+                    }
+                    
+                    console.log('[NUKE] === SELECTIVE CLEANUP COMPLETED ===');
                 })();
             `);
         } catch (error: any) {
-            log.error(`[STREAM-ELECTRON] Nuke clear error: ${error.message}`);
+            log.error(`[STREAM-ELECTRON] Selective clear error: ${error.message}`);
         }
     }
 
@@ -2304,20 +2415,47 @@ export class JitsiManager {
                             
                             // Добавляем задержку для проверки, что это действительно остановка
                             setTimeout(async () => {
-                                // Проверяем еще раз через некоторое время
                                 const stillSharing = window.APP?.conference?.isSharingScreen?.() || false;
                                 
                                 if (!stillSharing) {
                                     console.log('[Monitor] Confirmed: screen share stopped, cleaning up...');
                                     
-                                    // Останавливаем только если действительно остановлена демонстрация
-                                    if (window.ipcRenderer) {
-                                        await window.ipcRenderer.invoke('jitsi:stop-native-capture');
+                                    // ВАЖНО: Очищаем ТОЛЬКО ресурсы демонстрации
+                                    if (window.screenShareAudioContext) {
+                                        await window.screenShareAudioContext.close();
+                                        window.screenShareAudioContext = null;
                                     }
-                                } else {
-                                    console.log('[Monitor] False alarm: still sharing');
+                                    
+                                    // Очищаем только stream демонстрации
+                                    if (window.jitsiNativeMediaStream) {
+                                        window.jitsiNativeMediaStream.getTracks().forEach(track => {
+                                            track.stop();
+                                            console.log('[Monitor] Stopped track:', track.kind);
+                                        });
+                                        window.jitsiNativeMediaStream = null;
+                                    }
+                                    
+                                    // Очищаем буферы
+                                    window.leftRingBuffer = null;
+                                    window.rightRingBuffer = null;
+                                    window.isNativeActive = false;
+                                    window.isScreenShareActive = false;
+                                    
+                                    // НЕ вызываем полную остановку native capture
+                                    if (window.ipcRenderer) {
+                                        await window.ipcRenderer.invoke('jitsi:stop-screen-share-only');
+                                    }
+                                    
+                                    // Восстанавливаем основной аудио контекст Jitsi
+                                    if (window.APP && window.APP.conference) {
+                                        console.log('[Monitor] Restoring conference audio...');
+                                        // Jitsi должен автоматически восстановить аудио
+                                        // Но можем явно переинициализировать если нужно
+                                        window.APP.conference._setupAudioLevels && 
+                                            window.APP.conference._setupAudioLevels();
+                                    }
                                 }
-                            }, 1000); // Ждем 1 секунду перед очисткой
+                            }, 1000);
                         });
                     }
                 })();
@@ -2356,6 +2494,15 @@ export class JitsiManager {
             // Fallback на стандартный Jitsi SDK
             return this.useStandardJitsiScreenShare();
         }
+
+        log.info(`[STREAM-ELECTRON] === START injectNativeStream (mode: ${this.state.useNativeAudio ? 'NATIVE' : 'STANDARD'}) ===`);
+    
+        // Если выключен нативный звук, используем стандартный Jitsi
+        if (!this.state.useNativeAudio) {
+            log.info("[STREAM-ELECTRON] Using STANDARD audio mode");
+            return this.createStandardStream();
+        }
+
         
         log.info("[STREAM-ELECTRON] === START injectNativeStream ===");
         
@@ -2495,6 +2642,83 @@ export class JitsiManager {
             `);
         } catch (error: any) {
             log.error(`[JITSI-MANAGER] Standard screen share failed: ${error.message}`);
+            return { success: false, error: error.message };
+        }
+    }
+
+    private async createStandardStream(): Promise<{ success: boolean; error?: string; streamId?: string }> {
+        log.info("[STREAM-ELECTRON] Creating standard Jitsi stream (no native audio)");
+        
+        if (!this.state.window || this.state.window.isDestroyed()) {
+            return { success: false, error: "No window" };
+        }
+        
+        const electronSourceId = this.state.lastSelectedSourceId;
+        if (!electronSourceId) {
+            return { success: false, error: "No source selected" };
+        }
+        
+        const qualitySettings = this.videoQualityManager.getCurrentSettings();
+        
+        try {
+            const result = await this.state.window.webContents.executeJavaScript(`
+                (async function() {
+                    console.log('[STANDARD] Creating standard stream with Electron audio...');
+                    
+                    try {
+                        // Получаем видео И аудио от Electron Desktop Capture
+                        const stream = await navigator.mediaDevices.getUserMedia({
+                            audio: {
+                                mandatory: {
+                                    chromeMediaSource: 'desktop',
+                                    chromeMediaSourceId: '${electronSourceId}'
+                                }
+                            },
+                            video: {
+                                mandatory: {
+                                    chromeMediaSource: 'desktop',
+                                    chromeMediaSourceId: '${electronSourceId}',
+                                    minWidth: ${qualitySettings.width.min},
+                                    maxWidth: ${qualitySettings.width.max},
+                                    minHeight: ${qualitySettings.height.min},
+                                    maxHeight: ${qualitySettings.height.max},
+                                    minFrameRate: ${qualitySettings.frameRate.min},
+                                    maxFrameRate: ${qualitySettings.frameRate.max}
+                                }
+                            }
+                        });
+                        
+                        // Сохраняем поток для Jitsi
+                        window.jitsiNativeMediaStream = stream;
+                        window.isNativeActive = true;
+                        window.isStandardMode = true; // Флаг стандартного режима
+                        window.isHybridMode = false;
+                        
+                        return {
+                            success: true,
+                            streamId: stream.id,
+                            hasVideo: stream.getVideoTracks().length > 0,
+                            hasAudio: stream.getAudioTracks().length > 0,
+                            mode: 'standard'
+                        };
+                        
+                    } catch (error) {
+                        console.error('[STANDARD] Error:', error);
+                        return { success: false, error: error.message };
+                    }
+                })();
+            `);
+            
+            if (result.success) {
+                this.state.isStreamActive = true;
+                this.state.streamId = result.streamId;
+                log.info(`[STREAM-ELECTRON] Standard stream created: ${result.streamId}`);
+            }
+            
+            return result;
+            
+        } catch (error: any) {
+            log.error(`[STREAM-ELECTRON] createStandardStream ERROR: ${error.message}`);
             return { success: false, error: error.message };
         }
     }
@@ -2664,12 +2888,22 @@ export class JitsiManager {
                     console.log('[HYBRID] Creating hybrid stream, platform:', isWindows ? 'Windows' : 'macOS');
                     
                     try {
-                        // ОЧИЩАЕМ СТАРЫЕ БУФЕРЫ
-                        if (window.leftRingBuffer || window.rightRingBuffer || window.windowsRingBuffer) {
-                            console.log('[HYBRID] Cleaning old buffers...');
-                            window.leftRingBuffer = null;
-                            window.rightRingBuffer = null;
-                            window.windowsRingBuffer = null;
+                        // ОЧИЩАЕМ СТАРЫЕ БУФЕРЫ ДЕМОНСТРАЦИИ
+                        if (window.screenShareLeftBuffer || window.screenShareRightBuffer) {
+                            console.log('[HYBRID] Cleaning old screen share buffers...');
+                            window.screenShareLeftBuffer = null;
+                            window.screenShareRightBuffer = null;
+                        }
+                        
+                        // Закрываем старый контекст демонстрации если есть
+                        if (window.screenShareAudioContext) {
+                            console.log('[HYBRID] Closing old screen share audio context...');
+                            try {
+                                await window.screenShareAudioContext.close();
+                            } catch (e) {
+                                console.warn('[HYBRID] Error closing old context:', e);
+                            }
+                            window.screenShareAudioContext = null;
                         }
                         
                         // 1. Получаем VIDEO от Electron
@@ -2696,19 +2930,21 @@ export class JitsiManager {
                         }
                         console.log('[HYBRID] Got video track');
                         
-                        // 2. Создаем AUDIO контекст
-                        console.log('[HYBRID] Creating audio context...');
-                        const audioContext = new AudioContext({ 
+                        // 2. Создаем ОТДЕЛЬНЫЙ AUDIO контекст для демонстрации
+                        console.log('[HYBRID] Creating screen share audio context...');
+                        const screenShareAudioContext = new AudioContext({ 
                             sampleRate: 48000, 
                             latencyHint: 'interactive' 
                         });
                         
-                        const scriptProcessor = audioContext.createScriptProcessor(2048, 0, 2);
+                        // ВАЖНО: Сохраняем контекст отдельно
+                        window.screenShareAudioContext = screenShareAudioContext;
                         
-                        // 3. КРИТИЧНО: Создаем буферы
-                        console.log('[HYBRID] Creating ring buffers...');
+                        const scriptProcessor = screenShareAudioContext.createScriptProcessor(2048, 0, 2);
                         
-                        // Простая реализация RingBuffer
+                        // 3. Создаем буферы для демонстрации
+                        console.log('[HYBRID] Creating screen share ring buffers...');
+                        
                         class RingBuffer {
                             constructor(size) {
                                 this.buffer = new Float32Array(size);
@@ -2742,72 +2978,134 @@ export class JitsiManager {
                                 this.availableSamples = Math.max(0, this.availableSamples - samplesToRead);
                                 return samplesToRead;
                             }
+                            
+                            clear() {
+                                this.buffer.fill(0);
+                                this.writeIndex = 0;
+                                this.readIndex = 0;
+                                this.availableSamples = 0;
+                            }
                         }
                         
-                        // СОЗДАЕМ БУФЕРЫ
-                        window.leftRingBuffer = new RingBuffer(48000);
-                        window.rightRingBuffer = new RingBuffer(48000);
+                        // СОЗДАЕМ БУФЕРЫ С УНИКАЛЬНЫМИ ИМЕНАМИ ДЛЯ ДЕМОНСТРАЦИИ
+                        window.screenShareLeftBuffer = new RingBuffer(48000);
+                        window.screenShareRightBuffer = new RingBuffer(48000);
                         
-                        console.log('[HYBRID] Buffers created:', {
-                            left: !!window.leftRingBuffer,
-                            right: !!window.rightRingBuffer
+                        // Для совместимости сохраняем также под старыми именами
+                        window.leftRingBuffer = window.screenShareLeftBuffer;
+                        window.rightRingBuffer = window.screenShareRightBuffer;
+                        
+                        console.log('[HYBRID] Screen share buffers created:', {
+                            left: !!window.screenShareLeftBuffer,
+                            right: !!window.screenShareRightBuffer
                         });
                         
                         // 4. Настраиваем обработку аудио
                         scriptProcessor.onaudioprocess = (event) => {
-                            if (!window.isNativeActive) {
+                            // Используем флаг именно для демонстрации
+                            if (!window.isScreenShareActive) {
                                 event.outputBuffer.getChannelData(0).fill(0);
                                 event.outputBuffer.getChannelData(1).fill(0);
                                 return;
                             }
                             
-                            if (window.leftRingBuffer && window.rightRingBuffer) {
-                                window.leftRingBuffer.read(event.outputBuffer.getChannelData(0));
-                                window.rightRingBuffer.read(event.outputBuffer.getChannelData(1));
+                            if (window.screenShareLeftBuffer && window.screenShareRightBuffer) {
+                                window.screenShareLeftBuffer.read(event.outputBuffer.getChannelData(0));
+                                window.screenShareRightBuffer.read(event.outputBuffer.getChannelData(1));
                             }
                         };
                         
-                        const destination = audioContext.createMediaStreamDestination();
+                        const destination = screenShareAudioContext.createMediaStreamDestination();
                         scriptProcessor.connect(destination);
                         
-                        // 5. Создаем гибридный поток
-                        const hybridStream = new MediaStream();
-                        hybridStream.addTrack(videoTrack);
+                        // 5. Создаем поток для демонстрации
+                        const screenShareStream = new MediaStream();
+                        screenShareStream.addTrack(videoTrack);
                         
                         if (destination.stream.getAudioTracks().length > 0) {
-                            hybridStream.addTrack(destination.stream.getAudioTracks()[0]);
-                            console.log('[HYBRID] Added audio track');
+                            const audioTrack = destination.stream.getAudioTracks()[0];
+                            // Помечаем трек как трек демонстрации
+                            audioTrack.contentHint = 'screenshare';
+                            screenShareStream.addTrack(audioTrack);
+                            console.log('[HYBRID] Added screen share audio track');
                         }
                         
-                        // 6. Сохраняем все в window
-                        window.jitsiNativeMediaStream = hybridStream;
-                        window.nativeAudioContext = audioContext;
+                        // 6. Сохраняем с пометками о демонстрации
+                        window.jitsiNativeMediaStream = screenShareStream;
+                        window.screenShareStream = screenShareStream; // Дополнительная ссылка
+                        window.nativeAudioContext = screenShareAudioContext; // Для совместимости
                         window.isNativeActive = true;
+                        window.isScreenShareActive = true; // ВАЖНЫЙ ФЛАГ
                         window.isHybridMode = true;
                         window.audioCounter = 0;
                         
+                        // Сохраняем ID видео трека для последующей проверки
+                        window.screenShareVideoTrackId = videoTrack.id;
+                        
                         // 7. Запускаем audio context
-                        if (audioContext.state === 'suspended') {
-                            await audioContext.resume();
-                            console.log('[HYBRID] Audio context resumed');
+                        if (screenShareAudioContext.state === 'suspended') {
+                            await screenShareAudioContext.resume();
+                            console.log('[HYBRID] Screen share audio context resumed');
                         }
+                        
+                        // ДОБАВЛЯЕМ ОБРАБОТЧИК ОСТАНОВКИ ТРЕКА
+                        videoTrack.addEventListener('ended', async () => {
+                            console.log('[HYBRID] Video track ended, cleaning up screen share...');
+                            
+                            // Очищаем только ресурсы демонстрации
+                            if (window.screenShareAudioContext) {
+                                try {
+                                    await window.screenShareAudioContext.close();
+                                } catch (e) {
+                                    console.warn('[HYBRID] Error closing audio context:', e);
+                                }
+                                window.screenShareAudioContext = null;
+                            }
+                            
+                            // Очищаем буферы демонстрации
+                            if (window.screenShareLeftBuffer) {
+                                window.screenShareLeftBuffer.clear();
+                                window.screenShareLeftBuffer = null;
+                            }
+                            if (window.screenShareRightBuffer) {
+                                window.screenShareRightBuffer.clear();
+                                window.screenShareRightBuffer = null;
+                            }
+                            
+                            window.leftRingBuffer = null;
+                            window.rightRingBuffer = null;
+                            window.isScreenShareActive = false;
+                            window.isNativeActive = false;
+                            
+                            console.log('[HYBRID] Screen share cleanup completed');
+                        });
                         
                         // ФИНАЛЬНАЯ ПРОВЕРКА
                         const finalCheck = {
                             success: true,
-                            streamId: hybridStream.id,
-                            hasVideo: hybridStream.getVideoTracks().length > 0,
-                            hasAudio: hybridStream.getAudioTracks().length > 0,
-                            hasLeftBuffer: !!window.leftRingBuffer,
-                            hasRightBuffer: !!window.rightRingBuffer,
-                            contextState: audioContext.state
+                            streamId: screenShareStream.id,
+                            hasVideo: screenShareStream.getVideoTracks().length > 0,
+                            hasAudio: screenShareStream.getAudioTracks().length > 0,
+                            hasLeftBuffer: !!window.screenShareLeftBuffer,
+                            hasRightBuffer: !!window.screenShareRightBuffer,
+                            contextState: screenShareAudioContext.state,
+                            isScreenShare: true
                         };
                         
-                        console.log('[HYBRID] ✅ Final status:', finalCheck);
+                        console.log('[HYBRID] ✅ Screen share stream created:', finalCheck);
                         return finalCheck;
                         
                     } catch (error) {
                         console.error('[HYBRID] Error:', error);
+                        
+                        // Очистка при ошибке
+                        if (window.screenShareAudioContext) {
+                            try {
+                                await window.screenShareAudioContext.close();
+                            } catch (e) {}
+                            window.screenShareAudioContext = null;
+                        }
+                        
                         return { success: false, error: error.message };
                     }
                 })();
@@ -3437,6 +3735,197 @@ export class JitsiManager {
                 let isIntercepted = false;
                 let pendingSourcesCallback = null;
                 
+                // Функция показа диалога выбора режима звука (возвращает Promise)
+                function showAudioModeSelector() {
+                    return new Promise((resolve) => {
+                        console.log('[AudioMode] Showing audio mode selector...');
+                        
+                        // Удаляем предыдущий диалог если есть
+                        const existing = document.getElementById('audio-mode-selector');
+                        if (existing) existing.remove();
+                        
+                        const overlay = document.createElement('div');
+                        overlay.id = 'audio-mode-selector';
+                        overlay.style.cssText = \`
+                            position: fixed;
+                            top: 0;
+                            left: 0;
+                            right: 0;
+                            bottom: 0;
+                            background: rgba(0, 0, 0, 0.85);
+                            z-index: 10000;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            backdrop-filter: blur(5px);
+                            animation: fadeIn 0.3s ease-in;
+                        \`;
+                        
+                        const dialog = document.createElement('div');
+                        dialog.style.cssText = \`
+                            background: white;
+                            border-radius: 16px;
+                            padding: 32px;
+                            max-width: 500px;
+                            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+                            animation: slideIn 0.3s ease-out;
+                        \`;
+                        
+                        dialog.innerHTML = \`
+                            <h2 style="margin-top: 0; color: #333; font-size: 24px; margin-bottom: 24px;">
+                                Выберите режим захвата звука
+                            </h2>
+                            
+                            <div style="margin-bottom: 24px;">
+                                <label style="
+                                    display: flex;
+                                    align-items: flex-start;
+                                    padding: 16px;
+                                    border: 2px solid #e0e0e0;
+                                    border-radius: 12px;
+                                    cursor: pointer;
+                                    margin-bottom: 12px;
+                                    transition: all 0.3s;
+                                " onmouseover="this.style.borderColor='#2196F3'" 
+                                onmouseout="this.style.borderColor='#e0e0e0'"
+                                id="standard-audio-option">
+                                    <input type="radio" name="audioMode" value="standard" 
+                                        style="margin-right: 12px; margin-top: 2px; cursor: pointer;">
+                                    <div>
+                                        <div style="font-weight: 600; color: #333; margin-bottom: 4px;">
+                                            Стандартный звук
+                                        </div>
+                                        <div style="font-size: 13px; color: #666; line-height: 1.4;">
+                                            Транслирует только звук из окна или вкладки браузера. 
+                                            Системные звуки не передаются.
+                                        </div>
+                                    </div>
+                                </label>
+                                
+                                <label style="
+                                    display: flex;
+                                    align-items: flex-start;
+                                    padding: 16px;
+                                    border: 2px solid #e0e0e0;
+                                    border-radius: 12px;
+                                    cursor: pointer;
+                                    transition: all 0.3s;
+                                    position: relative;
+                                " onmouseover="this.style.borderColor='#4CAF50'" 
+                                onmouseout="this.style.borderColor='#e0e0e0'"
+                                id="native-audio-option">
+                                    <input type="radio" name="audioMode" value="native" checked
+                                        style="margin-right: 12px; margin-top: 2px; cursor: pointer;">
+                                    <div style="flex: 1;">
+                                        <div style="font-weight: 600; color: #333; margin-bottom: 4px;">
+                                            Нативный звук
+                                            <span style="
+                                                background: #4CAF50;
+                                                color: white;
+                                                padding: 2px 6px;
+                                                border-radius: 4px;
+                                                font-size: 10px;
+                                                margin-left: 8px;
+                                                font-weight: 500;
+                                            ">РЕКОМЕНДУЕТСЯ</span>
+                                        </div>
+                                        <div style="font-size: 13px; color: #666; line-height: 1.4;">
+                                            Захватывает весь системный звук, включая звуки из других приложений. 
+                                            Идеально для демонстрации видео или аудио контента.
+                                        </div>
+                                    </div>
+                                </label>
+                            </div>
+                            
+                            <div style="
+                                background: #fff3cd;
+                                border: 1px solid #ffc107;
+                                border-radius: 8px;
+                                padding: 12px;
+                                margin-bottom: 24px;
+                                display: flex;
+                                align-items: flex-start;
+                            ">
+                                <span style="color: #ff9800; margin-right: 8px; font-size: 18px;">⚠</span>
+                                <div style="font-size: 12px; color: #856404; line-height: 1.4;">
+                                    <strong>Примечание:</strong> Выбранный режим нельзя изменить во время демонстрации. 
+                                    Для смены режима потребуется остановить и заново запустить демонстрацию экрана.
+                                </div>
+                            </div>
+                            
+                            <div style="display: flex; gap: 12px; justify-content: flex-end;">
+                                <button id="cancel-audio-mode" style="
+                                    background: #f5f5f5;
+                                    color: #666;
+                                    border: none;
+                                    padding: 10px 24px;
+                                    border-radius: 8px;
+                                    cursor: pointer;
+                                    font-size: 15px;
+                                    font-weight: 500;
+                                    transition: background 0.3s;
+                                " onmouseover="this.style.background='#e0e0e0'" 
+                                onmouseout="this.style.background='#f5f5f5'">
+                                    Отмена
+                                </button>
+                                <button id="confirm-audio-mode" style="
+                                    background: #2196F3;
+                                    color: white;
+                                    border: none;
+                                    padding: 10px 24px;
+                                    border-radius: 8px;
+                                    cursor: pointer;
+                                    font-size: 15px;
+                                    font-weight: 500;
+                                    transition: background 0.3s;
+                                " onmouseover="this.style.background='#1976D2'" 
+                                onmouseout="this.style.background='#2196F3'">
+                                    Продолжить
+                                </button>
+                            </div>
+                        \`;
+                        
+                        overlay.appendChild(dialog);
+                        document.body.appendChild(overlay);
+                        
+                        // Анимации
+                        const style = document.createElement('style');
+                        style.textContent = \`
+                            @keyframes fadeIn {
+                                from { opacity: 0; }
+                                to { opacity: 1; }
+                            }
+                            @keyframes slideIn {
+                                from { transform: translateY(-20px); opacity: 0; }
+                                to { transform: translateY(0); opacity: 1; }
+                            }
+                        \`;
+                        document.head.appendChild(style);
+                        
+                        // Обработчики кнопок (используем resolve для возврата результата)
+                        document.getElementById('cancel-audio-mode').onclick = () => {
+                            overlay.remove();
+                            resolve(null); // Отмена
+                        };
+                        
+                        document.getElementById('confirm-audio-mode').onclick = () => {
+                            const selectedMode = document.querySelector('input[name="audioMode"]:checked').value;
+                            overlay.remove();
+                            resolve(selectedMode); // Возвращаем выбранный режим
+                        };
+                        
+                        // ESC для закрытия
+                        const handleEscape = (e) => {
+                            if (e.key === 'Escape') {
+                                overlay.remove();
+                                document.removeEventListener('keydown', handleEscape);
+                                resolve(null); // Отмена по ESC
+                            }
+                        };
+                        document.addEventListener('keydown', handleEscape);
+                    });
+                }
+                
                 // Ждем загрузки Jitsi API
                 function waitForJitsiAPI() {
                     return new Promise((resolve) => {
@@ -3468,7 +3957,7 @@ export class JitsiManager {
                     console.log('[JitsiManager] Original openDesktopPicker saved');
                     
                     // Перехватываем openDesktopPicker
-                    window.JitsiMeetScreenObtainer.openDesktopPicker = function(options, callback) {
+                    window.JitsiMeetScreenObtainer.openDesktopPicker = async function(options, callback) {
                         console.log('[JitsiManager] ✅ Desktop picker INTERCEPTED!', options);
                         
                         if (isIntercepted) {
@@ -3477,31 +3966,54 @@ export class JitsiManager {
                         }
                         
                         isIntercepted = true;
-                        pendingSourcesCallback = callback;
                         
-                        // ИЗМЕНЕНИЕ: Всегда запрашиваем источники от Electron
-                        if (window.ipcRenderer) {
-                            console.log('[JitsiManager] Requesting ELECTRON sources via IPC...');
+                        try {
+                            // ВАЖНО: Ждем выбора режима звука (await!)
+                            const audioMode = await showAudioModeSelector();
                             
-                            // Получаем источники от Electron's desktopCapturer
-                            window.ipcRenderer.invoke('get-electron-desktop-sources').then(electronSources => {
-                                console.log('[JitsiManager] Got', electronSources.length, 'Electron sources');
+                            if (!audioMode) {
+                                // Пользователь отменил
                                 isIntercepted = false;
+                                console.log('[JitsiManager] User cancelled audio mode selection');
+                                // Важно: НЕ вызываем callback, чтобы процесс остановился
+                                return;
+                            }
+                            
+                            console.log('[JitsiManager] Selected audio mode:', audioMode);
+                            
+                            // Устанавливаем режим звука
+                            if (window.ipcRenderer) {
+                                await window.ipcRenderer.invoke('jitsi:set-audio-mode', audioMode === 'native');
+                            }
+                            
+                            pendingSourcesCallback = callback;
+                            
+                            // Теперь запрашиваем источники
+                            if (window.ipcRenderer) {
+                                console.log('[JitsiManager] Requesting ELECTRON sources via IPC...');
+                                
+                                const electronSources = await window.ipcRenderer.invoke('get-electron-desktop-sources');
+                                console.log('[JitsiManager] Got', electronSources.length, 'Electron sources');
                                 
                                 if (electronSources && electronSources.length > 0) {
-                                    // Показываем диалог выбора с Electron источниками
+                                    // Показываем диалог выбора источника (тоже через Promise)
                                     showSourcePicker(electronSources, async (selectedElectronId) => {
+                                        if (!selectedElectronId) {
+                                            // Пользователь отменил выбор источника
+                                            isIntercepted = false;
+                                            return;
+                                        }
+                                        
                                         console.log('[JitsiManager] User selected Electron source:', selectedElectronId);
                                         
                                         // Сохраняем выбранный Electron ID
                                         await window.ipcRenderer.invoke('jitsi:save-selected-source', selectedElectronId);
                                         
-                                        // Запускаем native stream с Electron ID
-                                        // (конвертация будет происходить в main процессе)
+                                        // Запускаем stream с выбранным режимом звука
                                         const result = await window.ipcRenderer.invoke('create-native-stream-for-jitsi');
                                         
                                         if (result.success) {
-                                            console.log('[JitsiManager] Native stream created successfully');
+                                            console.log('[JitsiManager] Stream created successfully with mode:', audioMode);
                                             
                                             if (callback) {
                                                 callback(selectedElectronId, { audio: true, screenShareAudio: true });
@@ -3511,25 +4023,8 @@ export class JitsiManager {
                                             setTimeout(async () => {
                                                 console.log('[JitsiManager] Starting screen share...');
                                                 
-                                                if (window.APP && window.APP.store) {
+                                                if (window.JitsiMeetJS && window.JitsiMeetJS.createLocalTracks) {
                                                     try {
-                                                        const state = window.APP.store.getState();
-                                                        const isSharing = state['features/base/tracks']?.some(
-                                                            track => track.videoType === 'desktop' && track.local
-                                                        );
-                                                        
-                                                        if (!isSharing) {
-                                                            window.APP.store.dispatch({
-                                                                type: 'TOGGLE_SCREENSHARING'
-                                                            });
-                                                            console.log('[JitsiManager] Dispatched TOGGLE_SCREENSHARING');
-                                                        }
-                                                    } catch (e) {
-                                                        console.error('[JitsiManager] Redux dispatch failed:', e);
-                                                    }
-                                                } else if (window.JitsiMeetJS && window.JitsiMeetJS.createLocalTracks) {
-                                                    try {
-                                                        console.log('[JitsiManager] Creating desktop track...');
                                                         const tracks = await window.JitsiMeetJS.createLocalTracks({ 
                                                             devices: ['desktop']
                                                         });
@@ -3541,30 +4036,29 @@ export class JitsiManager {
                                             }, 1500);
                                             
                                         } else {
-                                            console.error('[JitsiManager] Failed to create native stream:', result.error);
-                                            if (callback) {
-                                                callback(selectedElectronId, { audio: true });
-                                            }
+                                            console.error('[JitsiManager] Failed to create stream:', result.error);
                                         }
+                                        
+                                        isIntercepted = false;
                                     });
                                 } else {
                                     console.error('[JitsiManager] No Electron sources received');
                                     isIntercepted = false;
                                     originalOpenDesktopPicker.call(this, options, callback);
                                 }
-                            }).catch(error => {
-                                console.error('[JitsiManager] Error getting Electron sources:', error);
+                            } else {
+                                console.error('[JitsiManager] ipcRenderer not available');
                                 isIntercepted = false;
                                 originalOpenDesktopPicker.call(this, options, callback);
-                            });
-                        } else {
-                            console.error('[JitsiManager] ipcRenderer not available');
+                            }
+                            
+                        } catch (error) {
+                            console.error('[JitsiManager] Error in interceptor:', error);
                             isIntercepted = false;
-                            originalOpenDesktopPicker.call(this, options, callback);
                         }
                     };
                     
-                    console.log('[JitsiManager] ✅ Screen share interceptor installed successfully');
+                    console.log('[JitsiManager] ✅ Screen share interceptor with audio mode selector installed');
                 });
                 
                 // Функция показа диалога выбора источника

@@ -194,7 +194,7 @@
     "adm-zip": "^0.5.5",
     "auto-launch": "^5.0.5",
     "backoff": "^2.5.0",
-    "electron": "^32.3.0",
+    "electron": "^32.3.3",
     "electron-builder": "^24.6.4",
     "electron-log": "^5.3.3",
     "electron-updater": "^6.3.4",

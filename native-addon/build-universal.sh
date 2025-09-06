@@ -1,6 +1,95 @@
 #!/bin/bash
 
-echo "🚀 Building TRUE Universal Binary (Intel + Apple Silicon)"
+# ========================================
+# АВТОМАТИЧЕСКОЕ ОПРЕДЕЛЕНИЕ ВЕРСИИ ELECTRON
+# ========================================
+
+echo "🔍 Detecting Electron version..."
+
+# Находим package.json (может быть в текущей директории или на уровень выше)
+if [ -f "../package.json" ]; then
+    PACKAGE_JSON="../package.json"
+elif [ -f "../../package.json" ]; then
+    PACKAGE_JSON="../../package.json"
+elif [ -f "package.json" ]; then
+    PACKAGE_JSON="package.json"
+else
+    echo "❌ package.json not found"
+    exit 1
+fi
+
+# Извлекаем версию Electron
+ELECTRON_VERSION=$(node -p "
+    const pkg = require('$PACKAGE_JSON');
+    const version = pkg.devDependencies?.electron || pkg.dependencies?.electron || '';
+    version.replace(/[\^~]/, '')
+")
+
+if [ -z "$ELECTRON_VERSION" ]; then
+    echo "❌ Electron version not found in package.json"
+    exit 1
+fi
+
+# Определяем ABI версию для этой версии Electron
+# ВАЖНО: Используем точное соответствие минорной версии!
+get_electron_abi() {
+    local version=$1
+    local major=$(echo $version | cut -d. -f1)
+    local minor=$(echo $version | cut -d. -f2)
+    
+    # Точное соответствие версий Electron -> ABI
+    if [ "$major" = "32" ]; then
+        if [ "$minor" = "3" ]; then
+            echo "125"  # Electron 32.3.x использует ABI 125
+        else
+            echo "125"  # Все версии Electron 32.x используют ABI 125
+        fi
+    else
+        case $major in
+            29) echo "121" ;;
+            30) echo "121" ;;
+            31) echo "124" ;;
+            33) echo "127" ;;
+            34) echo "128" ;;
+            *)
+                # Если версия не в таблице, пытаемся получить через API
+                echo "$(curl -s https://releases.electronjs.org/releases.json | \
+                    node -p "JSON.parse(require('fs').readFileSync(0)).find(r => r.version === 'v${version}')?.modules || '125'")"
+                ;;
+        esac
+    fi
+}
+
+ELECTRON_ABI=$(get_electron_abi $ELECTRON_VERSION)
+
+echo "✅ Detected Electron ${ELECTRON_VERSION} (ABI ${ELECTRON_ABI})"
+echo "📦 Using package.json from: $PACKAGE_JSON"
+
+# Скачиваем Electron headers если нужно
+ELECTRON_HEADERS_DIR="$HOME/.electron-gyp/${ELECTRON_VERSION}"
+if [ ! -d "$ELECTRON_HEADERS_DIR/include/node" ]; then
+    echo "📥 Downloading Electron headers for v${ELECTRON_VERSION}..."
+    mkdir -p "$ELECTRON_HEADERS_DIR"
+    
+    # Скачиваем headers
+    HEADERS_URL="https://electronjs.org/headers/v${ELECTRON_VERSION}/node-v${ELECTRON_VERSION}-headers.tar.gz"
+    if command -v curl &> /dev/null; then
+        curl -L "$HEADERS_URL" | tar -xz -C "$ELECTRON_HEADERS_DIR" --strip-components=1
+    else
+        wget -qO- "$HEADERS_URL" | tar -xz -C "$ELECTRON_HEADERS_DIR" --strip-components=1
+    fi
+    
+    if [ ! -d "$ELECTRON_HEADERS_DIR/include/node" ]; then
+        echo "❌ Failed to download Electron headers"
+        exit 1
+    fi
+    echo "✅ Electron headers downloaded"
+else
+    echo "✅ Using cached Electron headers"
+fi
+
+echo ""
+echo "🚀 Building Universal Binary for Electron ${ELECTRON_VERSION}"
 echo "📱 Current system: $(uname -m)"
 
 # Очистка
@@ -76,7 +165,7 @@ compile_swift_for_arch() {
 # Функция для компиляции C++ для конкретной архитектуры
 compile_cpp_for_arch() {
     local arch=$1
-    echo "🔨 Compiling C++ for $arch..."
+    echo "🔨 Compiling C++ for $arch (Electron ${ELECTRON_VERSION}, ABI ${ELECTRON_ABI})..."
     
     local clang_arch=$arch
     if [ "$arch" = "x86_64" ]; then
@@ -85,6 +174,8 @@ compile_cpp_for_arch() {
         clang_arch="arm64"
     fi
     
+    # КРИТИЧЕСКОЕ ИЗМЕНЕНИЕ: используем Electron headers вместо системных!
+    # НЕ передаем NODE_MODULE_VERSION через -D, так как он уже в headers
     clang++ -c \
         -arch $clang_arch \
         -std=c++20 \
@@ -94,24 +185,25 @@ compile_cpp_for_arch() {
         -fobjc-arc \
         -O3 \
         -I"$NODE_ADDON_API" \
-        -I/usr/local/include/node \
-        -I"$(node -p 'require("path").dirname(process.execPath) + "/../include/node"')" \
+        -I"$ELECTRON_HEADERS_DIR/include/node" \
         -DNAPI_DISABLE_CPP_EXCEPTIONS \
+        -DBUILDING_NODE_EXTENSION \
         -o webrtc_wrapper-$arch.o \
         "$CPP_FILE"
     
     if [ ! -f "webrtc_wrapper-$arch.o" ]; then
         echo "❌ C++ compilation failed for $arch"
+        echo "   Check that Electron headers are properly downloaded"
         return 1
     fi
-    echo "✅ C++ compiled for $arch"
+    echo "✅ C++ compiled for $arch with Electron ABI ${ELECTRON_ABI}"
     return 0
 }
 
 # Функция для линковки для конкретной архитектуры
 link_for_arch() {
     local arch=$1
-    echo "🔗 Linking for $arch..."
+    echo "🔗 Linking for $arch (Electron ${ELECTRON_VERSION})..."
     
     local clang_arch=$arch
     if [ "$arch" = "x86_64" ]; then
@@ -140,7 +232,7 @@ link_for_arch() {
         echo "❌ Linking failed for $arch"
         return 1
     fi
-    echo "✅ Linked for $arch"
+    echo "✅ Linked for $arch (Electron ABI ${ELECTRON_ABI})"
     return 0
 }
 
@@ -178,7 +270,9 @@ if [ "$HAVE_X86" = true ] && [ "$HAVE_ARM64" = true ]; then
         echo "📋 Universal Binary info:"
         lipo -info addon.node
         echo ""
-        echo "📊 File details:"
+        echo "📊 Build details:"
+        echo "   Electron version: ${ELECTRON_VERSION}"
+        echo "   Node ABI version: ${ELECTRON_ABI}"
         file addon.node
         ls -lh addon.node
         
@@ -208,21 +302,31 @@ rm -f addon-*.node
 rm -f *.swiftmodule *.swiftdoc *.swiftsourceinfo
 
 echo ""
-echo "✨ Build complete!"
+echo "✨ Build complete for Electron ${ELECTRON_VERSION} (ABI ${ELECTRON_ABI})!"
 
 # Финальная проверка
 if [ -f "addon.node" ]; then
     echo ""
-    echo "🎉 SUCCESS! Your addon.node is ready:"
+    echo "🎉 SUCCESS! Your addon.node is ready for Electron ${ELECTRON_VERSION}:"
     if lipo -info addon.node 2>/dev/null | grep -q "x86_64 arm64"; then
         echo "   ✅ Universal Binary (Intel + Apple Silicon)"
+        echo "   📊 Electron version: ${ELECTRON_VERSION}"
+        echo "   📊 Node ABI version: ${ELECTRON_ABI}"
     elif lipo -info addon.node 2>/dev/null | grep -q "x86_64"; then
         echo "   ⚠️ Intel only (x86_64)"
+        echo "   📊 Electron version: ${ELECTRON_VERSION}"
+        echo "   📊 Node ABI version: ${ELECTRON_ABI}"
     elif lipo -info addon.node 2>/dev/null | grep -q "arm64"; then
         echo "   ⚠️ Apple Silicon only (arm64)"
+        echo "   📊 Electron version: ${ELECTRON_VERSION}"
+        echo "   📊 Node ABI version: ${ELECTRON_ABI}"
     else
         echo "   ℹ️ Single architecture"
     fi
+    
+    echo ""
+    echo "📝 To verify this addon works with your Electron:"
+    echo "   cd .. && npm start"
 else
     echo "❌ Build failed - addon.node not created"
     exit 1
