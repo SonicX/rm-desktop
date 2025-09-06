@@ -326,9 +326,22 @@ public:
     ~VolumeController() {
         StopVolumeControl();
         
-        if (sessionManager) sessionManager->Release();
-        if (device) device->Release();
-        if (deviceEnumerator) deviceEnumerator->Release();
+        // Правильная очистка COM объектов
+        if (sessionManager) {
+            sessionManager->Release();
+            sessionManager = nullptr;
+        }
+        if (device) {
+            device->Release();
+            device = nullptr;
+        }
+        if (deviceEnumerator) {
+            deviceEnumerator->Release();
+            deviceEnumerator = nullptr;
+        }
+        
+        // Деинициализация COM для основного потока
+        CoUninitialize();
     }
 };
 
@@ -1461,12 +1474,14 @@ napi_value StartCapture(napi_env env, napi_callback_info info) {
     
     // Инициализируем и запускаем контроллер громкости
     if (!g_volumeController) {
+        CoInitialize(nullptr); // Инициализация COM для главного потока
         g_volumeController = std::make_unique<VolumeController>();
         if (g_volumeController->Initialize()) {
             g_volumeController->StartVolumeControl();
             OutputDebugStringA("Volume controller started\n");
         } else {
             OutputDebugStringA("Failed to initialize volume controller\n");
+            g_volumeController.reset(); // Очищаем если не удалось инициализировать
         }
     }
     
@@ -1561,8 +1576,10 @@ napi_value StopCapture(napi_env env, napi_callback_info info) {
     if (g_volumeController) {
         g_volumeController->StopVolumeControl();
         g_volumeController.reset();
-        OutputDebugStringA("Volume controller stopped\n");
+        CoUninitialize(); // Деинициализация COM
+        OutputDebugStringA("Volume controller stopped and cleaned up\n");
     }
+
     
     if (g_screenCapture) {
         g_screenCapture->StopCapture();
