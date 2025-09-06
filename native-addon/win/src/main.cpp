@@ -64,7 +64,7 @@ static std::atomic<uint64_t> g_audio_frame_count{0};
 static std::atomic<bool> g_capture_active{false};
 
 // НОВАЯ ГЛОБАЛЬНАЯ ПЕРЕМЕННАЯ ДЛЯ УПРАВЛЕНИЯ ГРОМКОСТЬЮ
-static std::atomic<float> g_participants_volume{0.35f};
+static std::atomic<float> g_participants_volume{0.20f};
 static std::mutex g_volume_mutex;
 
 // Структуры для передачи данных
@@ -1211,7 +1211,7 @@ napi_value SetParticipantsVolume(napi_env env, napi_callback_info info) {
     napi_value argv[1];
     napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
     
-    float volume = 0.35f; // Значение по умолчанию
+    float volume = 0.20f; // Значение по умолчанию
     
     if (argc >= 1) {
         double inputVolume;
