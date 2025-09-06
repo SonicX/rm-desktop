@@ -1032,7 +1032,8 @@ public:
                 rms += samples[i] * samples[i];
                 if (fabs(samples[i]) > maxSample) maxSample = fabs(samples[i]);
             }
-            rms = sqrt(rms / min(sampleCount, (size_t)1000));
+            size_t divisor = sampleCount < 1000 ? sampleCount : 1000;
+            rms = sqrt(rms / divisor);
             
             char log[512];
             sprintf_s(log, "[AUDIO-DIAG] Frame %d: Format=0x%X, Bits=%d, Ch=%d, Samples=%u, RMS=%.6f, Max=%.6f, Mode=%s\n",
