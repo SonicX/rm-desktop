@@ -62,6 +62,10 @@ static std::atomic<uint64_t> g_video_frame_count{0};
 static std::atomic<uint64_t> g_audio_frame_count{0};
 static std::atomic<bool> g_capture_active{false};
 
+// НОВАЯ ГЛОБАЛЬНАЯ ПЕРЕМЕННАЯ ДЛЯ УПРАВЛЕНИЯ ГРОМКОСТЬЮ
+static std::atomic<float> g_participants_volume{0.35f};
+static std::mutex g_volume_mutex;
+
 // Структуры для передачи данных
 struct VideoFrameData {
     uint8_t* data;
@@ -148,6 +152,187 @@ static SimpleSyncManager g_syncManager;
 double GetTimestamp() {
     return g_syncManager.GetTimestamp();
 }
+
+// Класс для управления громкостью других приложений
+class VolumeController {
+private:
+    IMMDeviceEnumerator* deviceEnumerator = nullptr;
+    IMMDevice* device = nullptr;
+    IAudioSessionManager2* sessionManager = nullptr;
+    DWORD currentProcessId = 0;
+    std::thread volumeThread;
+    std::atomic<bool> isRunning{false};
+    
+public:
+    bool Initialize() {
+        currentProcessId = GetCurrentProcessId();
+        
+        HRESULT hr = CoCreateInstance(
+            __uuidof(MMDeviceEnumerator),
+            nullptr,
+            CLSCTX_ALL,
+            __uuidof(IMMDeviceEnumerator),
+            (void**)&deviceEnumerator
+        );
+        
+        if (FAILED(hr)) return false;
+        
+        hr = deviceEnumerator->GetDefaultAudioEndpoint(
+            eRender,
+            eConsole,
+            &device
+        );
+        
+        if (FAILED(hr)) return false;
+        
+        hr = device->Activate(
+            __uuidof(IAudioSessionManager2),
+            CLSCTX_ALL,
+            nullptr,
+            (void**)&sessionManager
+        );
+        
+        return SUCCEEDED(hr);
+    }
+    
+    void StartVolumeControl() {
+        if (isRunning) return;
+        
+        isRunning = true;
+        volumeThread = std::thread([this]() {
+            CoInitialize(nullptr);
+            
+            while (isRunning) {
+                UpdateVolumes();
+                Sleep(100); // Обновляем каждые 100мс
+            }
+            
+            CoUninitialize();
+        });
+    }
+    
+    void UpdateVolumes() {
+        if (!sessionManager) return;
+        
+        IAudioSessionEnumerator* sessionEnumerator = nullptr;
+        HRESULT hr = sessionManager->GetSessionEnumerator(&sessionEnumerator);
+        if (FAILED(hr)) return;
+        
+        int sessionCount = 0;
+        sessionEnumerator->GetCount(&sessionCount);
+        
+        float targetVolume = g_participants_volume.load();
+        
+        for (int i = 0; i < sessionCount; i++) {
+            IAudioSessionControl* sessionControl = nullptr;
+            hr = sessionEnumerator->GetSession(i, &sessionControl);
+            if (FAILED(hr)) continue;
+            
+            IAudioSessionControl2* sessionControl2 = nullptr;
+            hr = sessionControl->QueryInterface(__uuidof(IAudioSessionControl2), (void**)&sessionControl2);
+            
+            if (SUCCEEDED(hr)) {
+                DWORD processId = 0;
+                hr = sessionControl2->GetProcessId(&processId);
+                
+                // Применяем громкость только к другим процессам (не к нашему Electron)
+                if (SUCCEEDED(hr) && processId != currentProcessId && processId != 0) {
+                    
+                    // Проверяем, является ли это браузером или коммуникационным приложением
+                    HANDLE hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, processId);
+                    if (hProcess) {
+                        wchar_t exePath[MAX_PATH];
+                        DWORD pathLen = MAX_PATH;
+                        if (QueryFullProcessImageNameW(hProcess, 0, exePath, &pathLen)) {
+                            std::wstring fullPath(exePath);
+                            
+                            // Проверяем, является ли это браузером или VoIP приложением
+                            if (fullPath.find(L"chrome.exe") != std::wstring::npos ||
+                                fullPath.find(L"firefox.exe") != std::wstring::npos ||
+                                fullPath.find(L"msedge.exe") != std::wstring::npos ||
+                                fullPath.find(L"opera.exe") != std::wstring::npos ||
+                                fullPath.find(L"brave.exe") != std::wstring::npos ||
+                                fullPath.find(L"teams.exe") != std::wstring::npos ||
+                                fullPath.find(L"zoom.exe") != std::wstring::npos ||
+                                fullPath.find(L"skype.exe") != std::wstring::npos) {
+                                
+                                ISimpleAudioVolume* simpleVolume = nullptr;
+                                hr = sessionControl->QueryInterface(__uuidof(ISimpleAudioVolume), (void**)&simpleVolume);
+                                
+                                if (SUCCEEDED(hr)) {
+                                    // Устанавливаем громкость
+                                    simpleVolume->SetMasterVolume(targetVolume, nullptr);
+                                    simpleVolume->Release();
+                                    
+                                    char log[256];
+                                    sprintf_s(log, "Volume set to %.2f for PID: %lu\n", targetVolume, processId);
+                                    OutputDebugStringA(log);
+                                }
+                            }
+                        }
+                        CloseHandle(hProcess);
+                    }
+                }
+                
+                sessionControl2->Release();
+            }
+            
+            sessionControl->Release();
+        }
+        
+        sessionEnumerator->Release();
+    }
+    
+    void StopVolumeControl() {
+        isRunning = false;
+        if (volumeThread.joinable()) {
+            volumeThread.join();
+        }
+        
+        // Восстанавливаем громкость всех приложений на 100%
+        if (sessionManager) {
+            RestoreVolumes();
+        }
+    }
+    
+    void RestoreVolumes() {
+        IAudioSessionEnumerator* sessionEnumerator = nullptr;
+        HRESULT hr = sessionManager->GetSessionEnumerator(&sessionEnumerator);
+        if (FAILED(hr)) return;
+        
+        int sessionCount = 0;
+        sessionEnumerator->GetCount(&sessionCount);
+        
+        for (int i = 0; i < sessionCount; i++) {
+            IAudioSessionControl* sessionControl = nullptr;
+            hr = sessionEnumerator->GetSession(i, &sessionControl);
+            if (FAILED(hr)) continue;
+            
+            ISimpleAudioVolume* simpleVolume = nullptr;
+            hr = sessionControl->QueryInterface(__uuidof(ISimpleAudioVolume), (void**)&simpleVolume);
+            
+            if (SUCCEEDED(hr)) {
+                simpleVolume->SetMasterVolume(1.0f, nullptr);
+                simpleVolume->Release();
+            }
+            
+            sessionControl->Release();
+        }
+        
+        sessionEnumerator->Release();
+    }
+    
+    ~VolumeController() {
+        StopVolumeControl();
+        
+        if (sessionManager) sessionManager->Release();
+        if (device) device->Release();
+        if (deviceEnumerator) deviceEnumerator->Release();
+    }
+};
+
+// Глобальный экземпляр контроллера громкости
+static std::unique_ptr<VolumeController> g_volumeController;
 
 // Класс для захвата экрана через DXGI
 class DXGIScreenCapture {
@@ -1004,6 +1189,54 @@ napi_value TestMethod(napi_env env, napi_callback_info info) {
     napi_value result;
     napi_create_string_utf8(env, "Windows Native Module v1.0 - Application Audio Support", NAPI_AUTO_LENGTH, &result);
     return result;
+}napi_value SetParticipantsVolume(napi_env env, napi_callback_info info) {
+    size_t argc = 1;
+    napi_value argv[1];
+    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+    
+    float volume = 0.35f; // Значение по умолчанию
+    
+    if (argc >= 1) {
+        double inputVolume;
+        napi_status status = napi_get_value_double(env, argv[0], &inputVolume);
+        
+        if (status == napi_ok) {
+            // Ограничиваем значение от 0 до 1
+            volume = (float)std::max(0.0, std::min(1.0, inputVolume));
+        }
+    }
+    
+    // Устанавливаем новое значение громкости
+    {
+        std::lock_guard<std::mutex> lock(g_volume_mutex);
+        g_participants_volume = volume;
+    }
+    
+    char log[128];
+    sprintf_s(log, "Participants volume set to: %.2f\n", volume);
+    OutputDebugStringA(log);
+    
+    napi_value result;
+    napi_create_object(env, &result);
+    
+    napi_value success, volumeSet;
+    napi_get_boolean(env, true, &success);
+    napi_create_double(env, volume, &volumeSet);
+    
+    napi_set_named_property(env, result, "success", success);
+    napi_set_named_property(env, result, "volume", volumeSet);
+    
+    return result;
+}
+
+// НОВАЯ ФУНКЦИЯ: Получение текущей громкости участников
+napi_value GetParticipantsVolume(napi_env env, napi_callback_info info) {
+    float currentVolume = g_participants_volume.load();
+    
+    napi_value result;
+    napi_create_double(env, currentVolume, &result);
+    
+    return result;
 }
 
 // Callback функция для перечисления окон
@@ -1223,6 +1456,17 @@ napi_value StartCapture(napi_env env, napi_callback_info info) {
     g_syncManager.Reset();
     OutputDebugStringA("Sync manager initialized\n");
     
+    // Инициализируем и запускаем контроллер громкости
+    if (!g_volumeController) {
+        g_volumeController = std::make_unique<VolumeController>();
+        if (g_volumeController->Initialize()) {
+            g_volumeController->StartVolumeControl();
+            OutputDebugStringA("Volume controller started\n");
+        } else {
+            OutputDebugStringA("Failed to initialize volume controller\n");
+        }
+    }
+    
     if (g_screenCapture) {
         g_screenCapture->StopCapture();
         g_screenCapture.reset();
@@ -1309,6 +1553,13 @@ napi_value StartCapture(napi_env env, napi_callback_info info) {
 // Остановка захвата
 napi_value StopCapture(napi_env env, napi_callback_info info) {
     g_capture_active = false;
+    
+    // Останавливаем контроллер громкости
+    if (g_volumeController) {
+        g_volumeController->StopVolumeControl();
+        g_volumeController.reset();
+        OutputDebugStringA("Volume controller stopped\n");
+    }
     
     if (g_screenCapture) {
         g_screenCapture->StopCapture();
@@ -1501,7 +1752,10 @@ napi_value Init(napi_env env, napi_value exports) {
         {"setCaptureQuality", nullptr, SetCaptureQuality, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"setCaptureSource", nullptr, SetCaptureSource, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"setWebRTCVideoCallback", nullptr, SetWebRTCVideoCallback, nullptr, nullptr, nullptr, napi_default, nullptr},
-        {"setWebRTCAudioCallback", nullptr, SetWebRTCAudioCallback, nullptr, nullptr, nullptr, napi_default, nullptr}
+        {"setWebRTCAudioCallback", nullptr, SetWebRTCAudioCallback, nullptr, nullptr, nullptr, napi_default, nullptr},
+        // НОВЫЕ МЕТОДЫ
+        {"setParticipantsVolume", nullptr, SetParticipantsVolume, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"getParticipantsVolume", nullptr, GetParticipantsVolume, nullptr, nullptr, nullptr, napi_default, nullptr}
     };
     
     napi_define_properties(env, exports, sizeof(desc) / sizeof(desc[0]), desc);
