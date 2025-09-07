@@ -1164,6 +1164,37 @@ export class JitsiManager {
             };
         });
 
+        ipcMain.handle("jitsi:screen-share-stopped", async () => {
+            log.info("[JITSI-MANAGER] Screen share stopped event received");
+            
+            // Сбрасываем состояние демонстрации
+            this.state.isStreamActive = false;
+            this.state.streamId = null;
+            
+            // Очищаем native capture если он активен
+            if (this.nativeCapture && this.nativeCapture.isCapturing) {
+                await this.nativeCapture.stopCapture();
+            }
+            
+            // Обновляем UI
+            if (this.state.window && !this.state.window.isDestroyed()) {
+                await this.state.window.webContents.executeJavaScript(`
+                    (function() {
+                        // Сбрасываем флаги
+                        window.isScreenShareActive = false;
+                        window.isNativeActive = false;
+                        
+                        // Сбрасываем флаг перехватчика - ВАЖНО!
+                        window.__interceptorFlag = false;
+                        
+                        console.log('[JITSI-MANAGER] Screen share flags reset');
+                    })();
+                `);
+            }
+            
+            return { success: true };
+        });
+
     }
 
     async getDebugInfo(): Promise<any> {
@@ -1186,7 +1217,8 @@ export class JitsiManager {
             await this.state.window.webContents.executeJavaScript(`
                 (function() {
                     console.log('[NUKE] === SELECTIVE CLEANUP STARTING ===');
-                    
+                    window.__interceptorFlag = false;
+
                     // Очищаем только streams демонстрации, НЕ трогая основной conference audio
                     if (window.jitsiNativeMediaStream) {
                         window.jitsiNativeMediaStream.getTracks().forEach(track => {
@@ -2406,6 +2438,8 @@ export class JitsiManager {
                         window.__screenShareMonitor.onStop(async function(source) {
                             console.log('[Monitor] Screen share stopped, source:', source);
                             
+                            window.__interceptorFlag = false;
+
                             // Проверяем, действительно ли остановлена демонстрация
                             // и это не ложное срабатывание при старте
                             if (!window.isNativeActive && !window.jitsiNativeMediaStream) {
@@ -2888,11 +2922,23 @@ export class JitsiManager {
                     console.log('[HYBRID] Creating hybrid stream, platform:', isWindows ? 'Windows' : 'macOS');
                     
                     try {
+                        // ВАЖНО: Полная очистка перед созданием нового потока
+                        // Очищаем ВСЕ старые ресурсы
+                        if (window.jitsiNativeMediaStream) {
+                            window.jitsiNativeMediaStream.getTracks().forEach(track => {
+                                track.stop();
+                                console.log('[HYBRID] Stopped old track:', track.kind);
+                            });
+                            window.jitsiNativeMediaStream = null;
+                        }
+
                         // ОЧИЩАЕМ СТАРЫЕ БУФЕРЫ ДЕМОНСТРАЦИИ
                         if (window.screenShareLeftBuffer || window.screenShareRightBuffer) {
                             console.log('[HYBRID] Cleaning old screen share buffers...');
                             window.screenShareLeftBuffer = null;
                             window.screenShareRightBuffer = null;
+                            window.leftRingBuffer = null;
+                            window.rightRingBuffer = null;
                         }
                         
                         // Закрываем старый контекст демонстрации если есть
@@ -2905,6 +2951,9 @@ export class JitsiManager {
                             }
                             window.screenShareAudioContext = null;
                         }
+
+                        window.isNativeActive = false;
+                        window.isScreenShareActive = false;
                         
                         // 1. Получаем VIDEO от Electron
                         console.log('[HYBRID] Getting video stream...');
@@ -3732,17 +3781,20 @@ export class JitsiManager {
             (function() {
                 console.log('[JitsiManager] Installing screen share interceptor...');
                 
-                let isIntercepted = false;
+                window.__interceptorFlag = window.__interceptorFlag || false;
                 let pendingSourcesCallback = null;
                 
-                // Функция показа диалога выбора режима звука (возвращает Promise)
+                // Функция показа диалога выбора режима звука
                 function showAudioModeSelector() {
                     return new Promise((resolve) => {
-                        console.log('[AudioMode] Showing audio mode selector...');
+                        console.log('[AudioMode] Creating promise for selector...');
                         
-                        // Удаляем предыдущий диалог если есть
+                        // Проверяем, нет ли уже открытого диалога
                         const existing = document.getElementById('audio-mode-selector');
-                        if (existing) existing.remove();
+                        if (existing) {
+                            console.log('[AudioMode] Removing existing dialog');
+                            existing.remove();
+                        }
                         
                         const overlay = document.createElement('div');
                         overlay.id = 'audio-mode-selector';
@@ -3753,13 +3805,19 @@ export class JitsiManager {
                             right: 0;
                             bottom: 0;
                             background: rgba(0, 0, 0, 0.85);
-                            z-index: 10000;
+                            z-index: 999999; /* Увеличиваем z-index */
                             display: flex;
                             align-items: center;
                             justify-content: center;
                             backdrop-filter: blur(5px);
-                            animation: fadeIn 0.3s ease-in;
                         \`;
+                        
+                        // Предотвращаем закрытие по клику на overlay
+                        overlay.onclick = (e) => {
+                            console.log('[AudioMode] Overlay clicked, stopping propagation');
+                            e.stopPropagation();
+                            e.preventDefault();
+                        };
                         
                         const dialog = document.createElement('div');
                         dialog.style.cssText = \`
@@ -3768,8 +3826,14 @@ export class JitsiManager {
                             padding: 32px;
                             max-width: 500px;
                             box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-                            animation: slideIn 0.3s ease-out;
+                            position: relative;
+                            z-index: 1000000;
                         \`;
+                        
+                        // Предотвращаем всплытие событий из диалога
+                        dialog.onclick = (e) => {
+                            e.stopPropagation();
+                        };
                         
                         dialog.innerHTML = \`
                             <h2 style="margin-top: 0; color: #333; font-size: 24px; margin-bottom: 24px;">
@@ -3786,9 +3850,7 @@ export class JitsiManager {
                                     cursor: pointer;
                                     margin-bottom: 12px;
                                     transition: all 0.3s;
-                                " onmouseover="this.style.borderColor='#2196F3'" 
-                                onmouseout="this.style.borderColor='#e0e0e0'"
-                                id="standard-audio-option">
+                                " id="standard-audio-option">
                                     <input type="radio" name="audioMode" value="standard" 
                                         style="margin-right: 12px; margin-top: 2px; cursor: pointer;">
                                     <div>
@@ -3796,8 +3858,7 @@ export class JitsiManager {
                                             Стандартный звук
                                         </div>
                                         <div style="font-size: 13px; color: #666; line-height: 1.4;">
-                                            Транслирует только звук из окна или вкладки браузера. 
-                                            Системные звуки не передаются.
+                                            Транслирует только звук из окна или вкладки браузера.
                                         </div>
                                     </div>
                                 </label>
@@ -3810,10 +3871,7 @@ export class JitsiManager {
                                     border-radius: 12px;
                                     cursor: pointer;
                                     transition: all 0.3s;
-                                    position: relative;
-                                " onmouseover="this.style.borderColor='#4CAF50'" 
-                                onmouseout="this.style.borderColor='#e0e0e0'"
-                                id="native-audio-option">
+                                " id="native-audio-option">
                                     <input type="radio" name="audioMode" value="native" checked
                                         style="margin-right: 12px; margin-top: 2px; cursor: pointer;">
                                     <div style="flex: 1;">
@@ -3826,31 +3884,13 @@ export class JitsiManager {
                                                 border-radius: 4px;
                                                 font-size: 10px;
                                                 margin-left: 8px;
-                                                font-weight: 500;
                                             ">РЕКОМЕНДУЕТСЯ</span>
                                         </div>
                                         <div style="font-size: 13px; color: #666; line-height: 1.4;">
-                                            Захватывает весь системный звук, включая звуки из других приложений. 
-                                            Идеально для демонстрации видео или аудио контента.
+                                            Захватывает весь системный звук.
                                         </div>
                                     </div>
                                 </label>
-                            </div>
-                            
-                            <div style="
-                                background: #fff3cd;
-                                border: 1px solid #ffc107;
-                                border-radius: 8px;
-                                padding: 12px;
-                                margin-bottom: 24px;
-                                display: flex;
-                                align-items: flex-start;
-                            ">
-                                <span style="color: #ff9800; margin-right: 8px; font-size: 18px;">⚠</span>
-                                <div style="font-size: 12px; color: #856404; line-height: 1.4;">
-                                    <strong>Примечание:</strong> Выбранный режим нельзя изменить во время демонстрации. 
-                                    Для смены режима потребуется остановить и заново запустить демонстрацию экрана.
-                                </div>
                             </div>
                             
                             <div style="display: flex; gap: 12px; justify-content: flex-end;">
@@ -3863,9 +3903,7 @@ export class JitsiManager {
                                     cursor: pointer;
                                     font-size: 15px;
                                     font-weight: 500;
-                                    transition: background 0.3s;
-                                " onmouseover="this.style.background='#e0e0e0'" 
-                                onmouseout="this.style.background='#f5f5f5'">
+                                ">
                                     Отмена
                                 </button>
                                 <button id="confirm-audio-mode" style="
@@ -3877,9 +3915,7 @@ export class JitsiManager {
                                     cursor: pointer;
                                     font-size: 15px;
                                     font-weight: 500;
-                                    transition: background 0.3s;
-                                " onmouseover="this.style.background='#1976D2'" 
-                                onmouseout="this.style.background='#2196F3'">
+                                ">
                                     Продолжить
                                 </button>
                             </div>
@@ -3888,41 +3924,59 @@ export class JitsiManager {
                         overlay.appendChild(dialog);
                         document.body.appendChild(overlay);
                         
-                        // Анимации
-                        const style = document.createElement('style');
-                        style.textContent = \`
-                            @keyframes fadeIn {
-                                from { opacity: 0; }
-                                to { opacity: 1; }
+                        console.log('[AudioMode] Dialog added to DOM');
+                        
+                        // Защита от автоматического удаления
+                        let protectionTimer = setInterval(() => {
+                            if (!document.getElementById('audio-mode-selector')) {
+                                console.error('[AudioMode] Dialog was removed unexpectedly!');
+                                clearInterval(protectionTimer);
                             }
-                            @keyframes slideIn {
-                                from { transform: translateY(-20px); opacity: 0; }
-                                to { transform: translateY(0); opacity: 1; }
-                            }
-                        \`;
-                        document.head.appendChild(style);
+                        }, 100);
                         
-                        // Обработчики кнопок (используем resolve для возврата результата)
-                        document.getElementById('cancel-audio-mode').onclick = () => {
-                            overlay.remove();
-                            resolve(null); // Отмена
-                        };
+                        // Обработчики кнопок
+                        const cancelBtn = document.getElementById('cancel-audio-mode');
+                        const confirmBtn = document.getElementById('confirm-audio-mode');
                         
-                        document.getElementById('confirm-audio-mode').onclick = () => {
-                            const selectedMode = document.querySelector('input[name="audioMode"]:checked').value;
-                            overlay.remove();
-                            resolve(selectedMode); // Возвращаем выбранный режим
-                        };
-                        
-                        // ESC для закрытия
-                        const handleEscape = (e) => {
-                            if (e.key === 'Escape') {
+                        if (cancelBtn) {
+                            cancelBtn.onclick = (e) => {
+                                console.log('[AudioMode] Cancel clicked');
+                                e.stopPropagation();
+                                clearInterval(protectionTimer);
                                 overlay.remove();
-                                document.removeEventListener('keydown', handleEscape);
-                                resolve(null); // Отмена по ESC
-                            }
-                        };
-                        document.addEventListener('keydown', handleEscape);
+                                resolve(null);
+                            };
+                        }
+                        
+                        if (confirmBtn) {
+                            confirmBtn.onclick = (e) => {
+                                console.log('[AudioMode] Confirm clicked');
+                                e.stopPropagation();
+                                const selectedMode = document.querySelector('input[name="audioMode"]:checked')?.value;
+                                console.log('[AudioMode] Selected mode:', selectedMode);
+                                clearInterval(protectionTimer);
+                                overlay.remove();
+                                resolve(selectedMode);
+                            };
+                        }
+                        
+                        // НЕ добавляем обработчик ESC, чтобы избежать случайного закрытия
+                        
+                        // Добавляем hover эффекты через JS
+                        const standardOption = document.getElementById('standard-audio-option');
+                        const nativeOption = document.getElementById('native-audio-option');
+                        
+                        if (standardOption) {
+                            standardOption.onmouseover = function() { this.style.borderColor = '#2196F3'; };
+                            standardOption.onmouseout = function() { this.style.borderColor = '#e0e0e0'; };
+                        }
+                        
+                        if (nativeOption) {
+                            nativeOption.onmouseover = function() { this.style.borderColor = '#4CAF50'; };
+                            nativeOption.onmouseout = function() { this.style.borderColor = '#e0e0e0'; };
+                        }
+                        
+                        console.log('[AudioMode] Dialog setup complete, waiting for user input...');
                     });
                 }
                 
@@ -3960,12 +4014,48 @@ export class JitsiManager {
                     window.JitsiMeetScreenObtainer.openDesktopPicker = async function(options, callback) {
                         console.log('[JitsiManager] ✅ Desktop picker INTERCEPTED!', options);
                         
-                        if (isIntercepted) {
+                        if (window.__interceptorFlag) {
                             console.log('[JitsiManager] Already processing, skipping...');
                             return;
                         }
+
+                        // ИСПРАВЛЕНО: Правильная проверка демонстрации экрана
+                        let isAlreadySharing = false;
+                        try {
+                            // Проверяем различными способами
+                            if (window.APP && window.APP.conference) {
+                                // Способ 1: через isSharingScreen если это функция
+                                if (typeof window.APP.conference.isSharingScreen === 'function') {
+                                    isAlreadySharing = window.APP.conference.isSharingScreen();
+                                }
+                                // Способ 2: через локальные треки
+                                else if (window.APP.conference.getLocalTracks) {
+                                    const tracks = window.APP.conference.getLocalTracks();
+                                    isAlreadySharing = tracks.some(track => track.videoType === 'desktop');
+                                }
+                                // Способ 3: через isLocalVideoMuted
+                                else if (window.APP.conference.isLocalVideoMuted) {
+                                    // Если видео не замьючено и есть desktop track
+                                    const localVideo = !window.APP.conference.isLocalVideoMuted();
+                                    isAlreadySharing = localVideo && window.isScreenShareActive;
+                                }
+                            }
+                            
+                            // Дополнительная проверка через наши флаги
+                            isAlreadySharing = isAlreadySharing || window.isNativeActive || window.isScreenShareActive || false;
+                            
+                        } catch (e) {
+                            console.log('[JitsiManager] Error checking share status:', e);
+                            isAlreadySharing = window.isScreenShareActive || false;
+                        }
                         
-                        isIntercepted = true;
+                        if (isAlreadySharing) {
+                            console.log('[JitsiManager] Already sharing screen, skipping interceptor');
+                            // Вызываем оригинальный метод для стандартной обработки
+                            return originalOpenDesktopPicker.call(this, options, callback);
+                        }
+                        
+                        window.__interceptorFlag = true;
                         
                         try {
                             // ВАЖНО: Ждем выбора режима звука (await!)
@@ -3973,7 +4063,7 @@ export class JitsiManager {
                             
                             if (!audioMode) {
                                 // Пользователь отменил
-                                isIntercepted = false;
+                                window.__interceptorFlag = false;
                                 console.log('[JitsiManager] User cancelled audio mode selection');
                                 // Важно: НЕ вызываем callback, чтобы процесс остановился
                                 return;
@@ -3992,74 +4082,116 @@ export class JitsiManager {
                             if (window.ipcRenderer) {
                                 console.log('[JitsiManager] Requesting ELECTRON sources via IPC...');
                                 
-                                const electronSources = await window.ipcRenderer.invoke('get-electron-desktop-sources');
-                                console.log('[JitsiManager] Got', electronSources.length, 'Electron sources');
-                                
-                                if (electronSources && electronSources.length > 0) {
-                                    // Показываем диалог выбора источника (тоже через Promise)
-                                    showSourcePicker(electronSources, async (selectedElectronId) => {
-                                        if (!selectedElectronId) {
-                                            // Пользователь отменил выбор источника
-                                            isIntercepted = false;
-                                            return;
-                                        }
-                                        
-                                        console.log('[JitsiManager] User selected Electron source:', selectedElectronId);
-                                        
-                                        // Сохраняем выбранный Electron ID
-                                        await window.ipcRenderer.invoke('jitsi:save-selected-source', selectedElectronId);
-                                        
-                                        // Запускаем stream с выбранным режимом звука
-                                        const result = await window.ipcRenderer.invoke('create-native-stream-for-jitsi');
-                                        
-                                        if (result.success) {
-                                            console.log('[JitsiManager] Stream created successfully with mode:', audioMode);
-                                            
-                                            if (callback) {
-                                                callback(selectedElectronId, { audio: true, screenShareAudio: true });
+                                try {
+                                    const electronSources = await window.ipcRenderer.invoke('get-electron-desktop-sources');
+                                    console.log('[JitsiManager] Got', electronSources.length, 'Electron sources');
+                                    
+                                    if (electronSources && electronSources.length > 0) {
+                                        // Показываем диалог выбора источника (тоже через Promise)
+                                        showSourcePicker(electronSources, async (selectedElectronId) => {
+                                            if (!selectedElectronId) {
+                                                // Пользователь отменил выбор источника
+                                                window.__interceptorFlag = false;
+                                                console.log('[JitsiManager] User cancelled source selection');
+                                                return;
                                             }
                                             
-                                            // Запускаем демонстрацию
-                                            setTimeout(async () => {
-                                                console.log('[JitsiManager] Starting screen share...');
-                                                
-                                                if (window.JitsiMeetJS && window.JitsiMeetJS.createLocalTracks) {
-                                                    try {
-                                                        const tracks = await window.JitsiMeetJS.createLocalTracks({ 
-                                                            devices: ['desktop']
-                                                        });
-                                                        console.log('[JitsiManager] Desktop track created');
-                                                    } catch (e) {
-                                                        console.error('[JitsiManager] createLocalTracks failed:', e);
-                                                    }
-                                                }
-                                            }, 1500);
+                                            console.log('[JitsiManager] User selected Electron source:', selectedElectronId);
                                             
-                                        } else {
-                                            console.error('[JitsiManager] Failed to create stream:', result.error);
-                                        }
-                                        
-                                        isIntercepted = false;
-                                    });
-                                } else {
-                                    console.error('[JitsiManager] No Electron sources received');
-                                    isIntercepted = false;
+                                            try {
+                                                // Сохраняем выбранный Electron ID
+                                                await window.ipcRenderer.invoke('jitsi:save-selected-source', selectedElectronId);
+                                                
+                                                // Запускаем stream с выбранным режимом звука
+                                                const result = await window.ipcRenderer.invoke('create-native-stream-for-jitsi');
+                                                
+                                                if (result.success) {
+                                                    console.log('[JitsiManager] Stream created successfully with mode:', audioMode);
+                                                    
+                                                    // ВАЖНО: Устанавливаем флаг что демонстрация началась
+                                                    window.isScreenShareActive = true;
+
+                                                    if (callback) {
+                                                        callback(selectedElectronId, { audio: true, screenShareAudio: true });
+                                                    }
+                                                    
+                                                    // Запускаем демонстрацию
+                                                    setTimeout(async () => {
+                                                        console.log('[JitsiManager] Starting screen share...');
+                                                        
+                                                        if (window.JitsiMeetJS && window.JitsiMeetJS.createLocalTracks) {
+                                                            try {
+                                                                const tracks = await window.JitsiMeetJS.createLocalTracks({ 
+                                                                    devices: ['desktop']
+                                                                });
+                                                                console.log('[JitsiManager] Desktop track created');
+                                                                
+                                                                // Сбрасываем флаг ПОСЛЕ успешного создания трека
+                                                                window.__interceptorFlag = false;
+                                                            } catch (e) {
+                                                                console.error('[JitsiManager] createLocalTracks failed:', e);
+                                                                window.__interceptorFlag = false;
+                                                                window.isScreenShareActive = false;
+                                                            }
+                                                        } else {
+                                                            window.__interceptorFlag = false;
+                                                        }
+                                                    }, 1500);
+                                                    
+                                                } else {
+                                                    console.error('[JitsiManager] Failed to create stream:', result.error);
+                                                    window.__interceptorFlag = false;
+                                                }
+                                            } catch (error) {
+                                                console.error('[JitsiManager] Error in source handling:', error);
+                                                window.__interceptorFlag = false;
+                                            }
+                                        });
+                                    } else {
+                                        console.error('[JitsiManager] No Electron sources received');
+                                        window.__interceptorFlag = false;
+                                        originalOpenDesktopPicker.call(this, options, callback);
+                                    }
+                                } catch (error) {
+                                    console.error('[JitsiManager] Error getting sources:', error);
+                                    window.__interceptorFlag = false;
                                     originalOpenDesktopPicker.call(this, options, callback);
                                 }
                             } else {
                                 console.error('[JitsiManager] ipcRenderer not available');
-                                isIntercepted = false;
+                                window.__interceptorFlag = false;
                                 originalOpenDesktopPicker.call(this, options, callback);
                             }
                             
                         } catch (error) {
                             console.error('[JitsiManager] Error in interceptor:', error);
-                            isIntercepted = false;
+                            window.__interceptorFlag = false;
                         }
                     };
                     
                     console.log('[JitsiManager] ✅ Screen share interceptor with audio mode selector installed');
                 });
+
+                // Добавляем обработчик остановки демонстрации
+                setInterval(() => {
+                    try {
+                        let isSharing = false;
+                        
+                        if (window.APP && window.APP.conference) {
+                            if (window.APP.conference.getLocalTracks) {
+                                const tracks = window.APP.conference.getLocalTracks();
+                                isSharing = tracks.some(track => track.videoType === 'desktop');
+                            }
+                        }
+                        
+                        if (window.isScreenShareActive && !isSharing) {
+                            console.log('[JitsiManager] Screen share stopped, resetting flag');
+                            window.isScreenShareActive = false;
+                        }
+                    } catch (e) {
+                        // Игнорируем ошибки в мониторинге
+                    }
+                }, 1000);
                 
                 // Функция показа диалога выбора источника
                 function showSourcePicker(sources, callback) {
