@@ -1053,14 +1053,21 @@ export class JitsiManager {
             const { desktopCapturer } = require('electron');
             const sources = await desktopCapturer.getSources({
                 types: ['window', 'screen'],
-                thumbnailSize: { width: 300, height: 200 }
+                thumbnailSize: { width: 200, height: 140 }
             });
             
+            // return sources.map(s => ({
+            //     id: s.id,
+            //     name: s.name,
+            //     display_id: s.display_id,
+            //     thumbnail: s.thumbnail.toDataURL()
+            // }));
+
             return sources.map(s => ({
                 id: s.id,
                 name: s.name,
                 display_id: s.display_id,
-                thumbnail: s.thumbnail.toDataURL()
+                thumbnail: s.thumbnail.resize({ width: 200 }).toDataURL('image/jpeg', 0.7)
             }));
         });
 
@@ -2175,6 +2182,9 @@ export class JitsiManager {
                                         // Подменяем getUserMedia
                                         navigator.mediaDevices.getUserMedia = async function(constraints) {
                                             console.log('[JitsiNative] getUserMedia intercepted in createLocalTracks');
+                                            if (window.__creatingHybridStream) {
+                                                return originalFunctions.getUserMedia.call(this, constraints);
+                                            }
                                             if (constraints && constraints.video && 
                                                 constraints.video.mandatory && 
                                                 constraints.video.mandatory.chromeMediaSource === 'desktop') {
@@ -2919,6 +2929,7 @@ export class JitsiManager {
             const result = await this.state.window.webContents.executeJavaScript(`
                 (async function() {
                     const isWindows = ${this.isWindowsPlatform()};
+                    window.__creatingHybridStream = true;
                     console.log('[HYBRID] Creating hybrid stream, platform:', isWindows ? 'Windows' : 'macOS');
                     
                     try {
@@ -2972,6 +2983,11 @@ export class JitsiManager {
                                 }
                             }
                         });
+
+                        window.__creatingHybridStream = false;
+
+                        window.jitsiNativeMediaStream = videoStream; // Временно сохраняем видео-поток
+                        window.isNativeActive = true;
                         
                         const videoTrack = videoStream.getVideoTracks()[0];
                         if (!videoTrack) {
@@ -4108,6 +4124,19 @@ export class JitsiManager {
                                                 if (result.success) {
                                                     console.log('[JitsiManager] Stream created successfully with mode:', audioMode);
                                                     
+                                                    // Ждем пока поток действительно появится
+                                                    let attempts = 0;
+                                                    while ((!window.jitsiNativeMediaStream || window.jitsiNativeMediaStream.getTracks().length === 0) && attempts < 20) {
+                                                        await new Promise(resolve => setTimeout(resolve, 100));
+                                                        attempts++;
+                                                    }
+                                                    
+                                                    if (!window.jitsiNativeMediaStream) {
+                                                        console.error('[JitsiManager] Stream creation timeout');
+                                                        window.__interceptorFlag = false;
+                                                        return;
+                                                    }
+
                                                     // ВАЖНО: Устанавливаем флаг что демонстрация началась
                                                     window.isScreenShareActive = true;
 
@@ -4136,7 +4165,7 @@ export class JitsiManager {
                                                         } else {
                                                             window.__interceptorFlag = false;
                                                         }
-                                                    }, 1500);
+                                                    }, 150);
                                                     
                                                 } else {
                                                     console.error('[JitsiManager] Failed to create stream:', result.error);
