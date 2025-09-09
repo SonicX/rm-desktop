@@ -2265,7 +2265,7 @@ export class JitsiManager {
                                 }
                                 
                                 // Иначе вызываем оригинальный метод (или показываем диалог выбора)
-                                return originalFunctions.openDesktopPicker.call(this, options, callback);
+                                console.log('[JitsiNative] No native stream, letting main interceptor handle');
                             };
                         }
                         
@@ -2459,7 +2459,15 @@ export class JitsiManager {
                             
                             // Добавляем задержку для проверки, что это действительно остановка
                             setTimeout(async () => {
-                                const stillSharing = window.APP?.conference?.isSharingScreen?.() || false;
+                                const stillSharing = (() => {
+                                    try {
+                                        if (window.APP?.conference?.getLocalTracks) {
+                                            const tracks = window.APP.conference.getLocalTracks();
+                                            return tracks.some(track => track.videoType === 'desktop');
+                                        }
+                                    } catch (e) {}
+                                    return false;
+                                })();
                                 
                                 if (!stillSharing) {
                                     console.log('[Monitor] Confirmed: screen share stopped, cleaning up...');
@@ -3800,555 +3808,555 @@ export class JitsiManager {
                 window.__interceptorFlag = window.__interceptorFlag || false;
                 let pendingSourcesCallback = null;
                 
-                // Функция показа диалога выбора режима звука
+                // Предзагрузка источников при инициализации
+                let cachedSources = null;
+                let cacheTime = 0;
+                const CACHE_DURATION = 5000; // 5 секунд
+                
+                // Функция для получения источников с кэшированием
+                async function getElectronSourcesWithCache() {
+                    const now = Date.now();
+                    if (cachedSources && (now - cacheTime) < CACHE_DURATION) {
+                        console.log('[JitsiManager] Using cached sources');
+                        return cachedSources;
+                    }
+                    
+                    if (window.ipcRenderer) {
+                        cachedSources = await window.ipcRenderer.invoke('get-electron-desktop-sources');
+                        cacheTime = now;
+                        return cachedSources;
+                    }
+                    return [];
+                }
+                
+                // Предзагружаем источники заранее
+                setTimeout(() => {
+                    getElectronSourcesWithCache().then(sources => {
+                        console.log('[JitsiManager] Preloaded', sources.length, 'sources');
+                    });
+                }, 1000);
+                
+                // Оптимизированная функция показа диалога выбора режима звука
                 function showAudioModeSelector() {
                     return new Promise((resolve) => {
-                        console.log('[AudioMode] Creating promise for selector...');
-                        
-                        // Проверяем, нет ли уже открытого диалога
-                        const existing = document.getElementById('audio-mode-selector');
-                        if (existing) {
-                            console.log('[AudioMode] Removing existing dialog');
-                            existing.remove();
-                        }
+                        // Используем requestAnimationFrame для плавного появления
+                        requestAnimationFrame(() => {
+                            const existing = document.getElementById('audio-mode-selector');
+                            if (existing) existing.remove();
+                            
+                            const overlay = document.createElement('div');
+                            overlay.id = 'audio-mode-selector';
+                            overlay.style.cssText = \`
+                                position: fixed;
+                                top: 0;
+                                left: 0;
+                                right: 0;
+                                bottom: 0;
+                                background: rgba(0, 0, 0, 0);
+                                z-index: 999999;
+                                display: flex;
+                                align-items: center;
+                                justify-content: center;
+                                backdrop-filter: blur(0px);
+                                transition: background 0.2s, backdrop-filter 0.2s;
+                            \`;
+                            
+                            const dialog = document.createElement('div');
+                            dialog.style.cssText = \`
+                                background: white;
+                                border-radius: 16px;
+                                padding: 32px;
+                                max-width: 500px;
+                                box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+                                transform: scale(0.9);
+                                opacity: 0;
+                                transition: transform 0.2s, opacity 0.2s;
+                            \`;
+                            
+                            dialog.innerHTML = \`
+                                <h2 style="margin-top: 0; color: #333; font-size: 24px; margin-bottom: 24px;">
+                                    Выберите режим захвата звука
+                                </h2>
+                                
+                                <div style="margin-bottom: 24px;">
+                                    <label style="
+                                        display: flex;
+                                        align-items: flex-start;
+                                        padding: 16px;
+                                        border: 2px solid #2196F3;
+                                        border-radius: 12px;
+                                        cursor: pointer;
+                                        margin-bottom: 12px;
+                                        transition: all 0.3s;
+                                        background: rgba(33, 150, 243, 0.05);
+                                    " id="standard-audio-option">
+                                        <input type="radio" name="audioMode" value="standard" checked
+                                            style="margin-right: 12px; margin-top: 2px; cursor: pointer;">
+                                        <div>
+                                            <div style="font-weight: 600; color: #333; margin-bottom: 4px;">
+                                                Стандартный звук
+                                                <span style="
+                                                    background: #2196F3;
+                                                    color: white;
+                                                    padding: 2px 6px;
+                                                    border-radius: 4px;
+                                                    font-size: 10px;
+                                                    margin-left: 8px;
+                                                ">СТАБИЛЬНО</span>
+                                            </div>
+                                            <div style="font-size: 13px; color: #666; line-height: 1.4;">
+                                                Транслирует звук от динамиков.  
+                                                Подходит для большинства случаев.
+                                            </div>
+                                        </div>
+                                    </label>
+                                    
+                                    <label style="
+                                        display: flex;
+                                        align-items: flex-start;
+                                        padding: 16px;
+                                        border: 2px solid #e0e0e0;
+                                        border-radius: 12px;
+                                        cursor: pointer;
+                                        transition: all 0.3s;
+                                    " id="native-audio-option">
+                                        <input type="radio" name="audioMode" value="native"
+                                            style="margin-right: 12px; margin-top: 2px; cursor: pointer;">
+                                        <div style="flex: 1;">
+                                            <div style="font-weight: 600; color: #333; margin-bottom: 4px;">
+                                                Системный звук
+                                                <span style="
+                                                    background: #FF9800;
+                                                    color: white;
+                                                    padding: 2px 6px;
+                                                    border-radius: 4px;
+                                                    font-size: 10px;
+                                                    margin-left: 8px;
+                                                ">БЕТА</span>
+                                            </div>
+                                            <div style="font-size: 13px; color: #666; line-height: 1.4; margin-bottom: 8px;">
+                                                Захватывает нативный звук системы. Идеально для трансляции игр 
+                                                и в наушниках.
+                                            </div>
+                                            <div style="
+                                                background: #FFF3E0;
+                                                border-left: 3px solid #FF9800;
+                                                padding: 8px 10px;
+                                                border-radius: 4px;
+                                            ">
+                                                <div style="font-size: 11px; color: #E65100; font-weight: 500; margin-bottom: 4px;">
+                                                    ⚠️ Экспериментальная функция
+                                                </div>
+                                                <div style="font-size: 11px; color: #666; line-height: 1.3;">
+                                                    Возможно небольшое эхо при активном общении. Мы активно работаем над улучшением.
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </label>
+                                </div>
+                                
+                                <div style="display: flex; gap: 12px; justify-content: flex-end;">
+                                    <button id="cancel-audio-mode" style="
+                                        background: #f5f5f5;
+                                        color: #666;
+                                        border: none;
+                                        padding: 10px 24px;
+                                        border-radius: 8px;
+                                        cursor: pointer;
+                                        font-size: 15px;
+                                        font-weight: 500;
+                                    ">
+                                        Отмена
+                                    </button>
+                                    <button id="confirm-audio-mode" style="
+                                        background: #2196F3;
+                                        color: white;
+                                        border: none;
+                                        padding: 10px 24px;
+                                        border-radius: 8px;
+                                        cursor: pointer;
+                                        font-size: 15px;
+                                        font-weight: 500;
+                                    ">
+                                        Продолжить
+                                    </button>
+                                </div>
+                            \`;
+                            
+                            overlay.appendChild(dialog);
+                            document.body.appendChild(overlay);
+                            
+                            // Анимация появления
+                            requestAnimationFrame(() => {
+                                overlay.style.background = 'rgba(0, 0, 0, 0.85)';
+                                overlay.style.backdropFilter = 'blur(5px)';
+                                dialog.style.transform = 'scale(1)';
+                                dialog.style.opacity = '1';
+                            });
+                            
+                            // Обработчики
+                            const cancelBtn = document.getElementById('cancel-audio-mode');
+                            const confirmBtn = document.getElementById('confirm-audio-mode');
+                            
+                            const closeDialog = (value) => {
+                                overlay.style.background = 'rgba(0, 0, 0, 0)';
+                                dialog.style.transform = 'scale(0.9)';
+                                dialog.style.opacity = '0';
+                                setTimeout(() => {
+                                    overlay.remove();
+                                    resolve(value);
+                                }, 200);
+                            };
+                            
+                            cancelBtn.onclick = () => closeDialog(null);
+                            confirmBtn.onclick = () => {
+                                const selectedMode = document.querySelector('input[name="audioMode"]:checked')?.value;
+                                closeDialog(selectedMode);
+                            };
+
+                            const standardOption = document.getElementById('standard-audio-option');
+                            const nativeOption = document.getElementById('native-audio-option');
+                            
+                            if (standardOption) {
+                                // Стандартный теперь имеет синюю подсветку по умолчанию
+                                standardOption.onmouseover = function() { 
+                                    this.style.borderColor = '#1976D2'; 
+                                    this.style.background = 'rgba(33, 150, 243, 0.08)';
+                                };
+                                standardOption.onmouseout = function() { 
+                                    this.style.borderColor = '#2196F3'; 
+                                    this.style.background = 'rgba(33, 150, 243, 0.05)';
+                                };
+                            }
+                            
+                            if (nativeOption) {
+                                nativeOption.onmouseover = function() { 
+                                    this.style.borderColor = '#FF9800'; 
+                                    this.style.background = 'rgba(255, 152, 0, 0.05)';
+                                };
+                                nativeOption.onmouseout = function() { 
+                                    this.style.borderColor = '#e0e0e0'; 
+                                    this.style.background = 'transparent';
+                                };
+                            }
+                            
+                            // Предзагружаем источники пока пользователь выбирает
+                            getElectronSourcesWithCache();
+                        });
+                    });
+                }
+                
+                // Оптимизированная функция показа выбора источника
+                function showSourcePicker(sources, callback) {
+                    requestAnimationFrame(() => {
+                        const existing = document.getElementById('source-picker-overlay');
+                        if (existing) existing.remove();
                         
                         const overlay = document.createElement('div');
-                        overlay.id = 'audio-mode-selector';
+                        overlay.id = 'source-picker-overlay';
                         overlay.style.cssText = \`
                             position: fixed;
                             top: 0;
                             left: 0;
                             right: 0;
                             bottom: 0;
-                            background: rgba(0, 0, 0, 0.85);
-                            z-index: 999999; /* Увеличиваем z-index */
+                            background: rgba(0, 0, 0, 0);
+                            z-index: 10000;
                             display: flex;
                             align-items: center;
                             justify-content: center;
-                            backdrop-filter: blur(5px);
+                            backdrop-filter: blur(0px);
+                            transition: background 0.2s, backdrop-filter 0.2s;
                         \`;
-                        
-                        // Предотвращаем закрытие по клику на overlay
-                        overlay.onclick = (e) => {
-                            console.log('[AudioMode] Overlay clicked, stopping propagation');
-                            e.stopPropagation();
-                            e.preventDefault();
-                        };
                         
                         const dialog = document.createElement('div');
                         dialog.style.cssText = \`
                             background: white;
                             border-radius: 16px;
                             padding: 32px;
-                            max-width: 500px;
+                            max-width: 90%;
+                            max-height: 80%;
+                            overflow: auto;
+                            min-width: 700px;
                             box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-                            position: relative;
-                            z-index: 1000000;
+                            transform: scale(0.9);
+                            opacity: 0;
+                            transition: transform 0.2s, opacity 0.2s;
                         \`;
                         
-                        // Предотвращаем всплытие событий из диалога
-                        dialog.onclick = (e) => {
-                            e.stopPropagation();
-                        };
+                        // Используем DocumentFragment для быстрого построения DOM
+                        const fragment = document.createDocumentFragment();
                         
-                        dialog.innerHTML = \`
-                            <h2 style="margin-top: 0; color: #333; font-size: 24px; margin-bottom: 24px;">
-                                Выберите режим захвата звука
-                            </h2>
-                            
-                            <div style="margin-bottom: 24px;">
-                                <label style="
-                                    display: flex;
-                                    align-items: flex-start;
-                                    padding: 16px;
-                                    border: 2px solid #e0e0e0;
-                                    border-radius: 12px;
-                                    cursor: pointer;
-                                    margin-bottom: 12px;
-                                    transition: all 0.3s;
-                                " id="standard-audio-option">
-                                    <input type="radio" name="audioMode" value="standard" 
-                                        style="margin-right: 12px; margin-top: 2px; cursor: pointer;">
-                                    <div>
-                                        <div style="font-weight: 600; color: #333; margin-bottom: 4px;">
-                                            Стандартный звук
-                                        </div>
-                                        <div style="font-size: 13px; color: #666; line-height: 1.4;">
-                                            Транслирует только звук из окна или вкладки браузера.
-                                        </div>
-                                    </div>
-                                </label>
-                                
-                                <label style="
-                                    display: flex;
-                                    align-items: flex-start;
-                                    padding: 16px;
-                                    border: 2px solid #e0e0e0;
-                                    border-radius: 12px;
-                                    cursor: pointer;
-                                    transition: all 0.3s;
-                                " id="native-audio-option">
-                                    <input type="radio" name="audioMode" value="native" checked
-                                        style="margin-right: 12px; margin-top: 2px; cursor: pointer;">
-                                    <div style="flex: 1;">
-                                        <div style="font-weight: 600; color: #333; margin-bottom: 4px;">
-                                            Нативный звук
-                                            <span style="
-                                                background: #4CAF50;
-                                                color: white;
-                                                padding: 2px 6px;
-                                                border-radius: 4px;
-                                                font-size: 10px;
-                                                margin-left: 8px;
-                                            ">РЕКОМЕНДУЕТСЯ</span>
-                                        </div>
-                                        <div style="font-size: 13px; color: #666; line-height: 1.4;">
-                                            Захватывает весь системный звук.
-                                        </div>
-                                    </div>
-                                </label>
-                            </div>
-                            
-                            <div style="display: flex; gap: 12px; justify-content: flex-end;">
-                                <button id="cancel-audio-mode" style="
-                                    background: #f5f5f5;
-                                    color: #666;
-                                    border: none;
-                                    padding: 10px 24px;
-                                    border-radius: 8px;
-                                    cursor: pointer;
-                                    font-size: 15px;
-                                    font-weight: 500;
-                                ">
-                                    Отмена
-                                </button>
-                                <button id="confirm-audio-mode" style="
-                                    background: #2196F3;
-                                    color: white;
-                                    border: none;
-                                    padding: 10px 24px;
-                                    border-radius: 8px;
-                                    cursor: pointer;
-                                    font-size: 15px;
-                                    font-weight: 500;
-                                ">
-                                    Продолжить
-                                </button>
-                            </div>
-                        \`;
+                        const header = document.createElement('h2');
+                        header.style.cssText = 'margin-top: 0; color: #333; font-size: 24px;';
+                        header.textContent = 'Выберите экран или окно для демонстрации';
+                        fragment.appendChild(header);
                         
-                        overlay.appendChild(dialog);
-                        document.body.appendChild(overlay);
-                        
-                        console.log('[AudioMode] Dialog added to DOM');
-                        
-                        // Защита от автоматического удаления
-                        let protectionTimer = setInterval(() => {
-                            if (!document.getElementById('audio-mode-selector')) {
-                                console.error('[AudioMode] Dialog was removed unexpectedly!');
-                                clearInterval(protectionTimer);
-                            }
-                        }, 100);
-                        
-                        // Обработчики кнопок
-                        const cancelBtn = document.getElementById('cancel-audio-mode');
-                        const confirmBtn = document.getElementById('confirm-audio-mode');
-                        
-                        if (cancelBtn) {
-                            cancelBtn.onclick = (e) => {
-                                console.log('[AudioMode] Cancel clicked');
-                                e.stopPropagation();
-                                clearInterval(protectionTimer);
-                                overlay.remove();
-                                resolve(null);
-                            };
-                        }
-                        
-                        if (confirmBtn) {
-                            confirmBtn.onclick = (e) => {
-                                console.log('[AudioMode] Confirm clicked');
-                                e.stopPropagation();
-                                const selectedMode = document.querySelector('input[name="audioMode"]:checked')?.value;
-                                console.log('[AudioMode] Selected mode:', selectedMode);
-                                clearInterval(protectionTimer);
-                                overlay.remove();
-                                resolve(selectedMode);
-                            };
-                        }
-                        
-                        // НЕ добавляем обработчик ESC, чтобы избежать случайного закрытия
-                        
-                        // Добавляем hover эффекты через JS
-                        const standardOption = document.getElementById('standard-audio-option');
-                        const nativeOption = document.getElementById('native-audio-option');
-                        
-                        if (standardOption) {
-                            standardOption.onmouseover = function() { this.style.borderColor = '#2196F3'; };
-                            standardOption.onmouseout = function() { this.style.borderColor = '#e0e0e0'; };
-                        }
-                        
-                        if (nativeOption) {
-                            nativeOption.onmouseover = function() { this.style.borderColor = '#4CAF50'; };
-                            nativeOption.onmouseout = function() { this.style.borderColor = '#e0e0e0'; };
-                        }
-                        
-                        console.log('[AudioMode] Dialog setup complete, waiting for user input...');
-                    });
-                }
-                
-                // Ждем загрузки Jitsi API
-                function waitForJitsiAPI() {
-                    return new Promise((resolve) => {
-                        let attempts = 0;
-                        const checkInterval = setInterval(() => {
-                            attempts++;
-                            
-                            if (window.JitsiMeetScreenObtainer && 
-                                typeof window.JitsiMeetScreenObtainer.openDesktopPicker === 'function') {
-                                clearInterval(checkInterval);
-                                console.log('[JitsiManager] JitsiMeetScreenObtainer found after', attempts, 'attempts');
-                                resolve(true);
-                            } else if (attempts > 100) {
-                                clearInterval(checkInterval);
-                                console.error('[JitsiManager] JitsiMeetScreenObtainer not found');
-                                resolve(false);
-                            }
-                        }, 100);
-                    });
-                }
-                
-                waitForJitsiAPI().then(ready => {
-                    if (!ready) {
-                        console.error('[JitsiManager] Failed to find Jitsi API');
-                        return;
-                    }
-                    
-                    const originalOpenDesktopPicker = window.JitsiMeetScreenObtainer.openDesktopPicker;
-                    console.log('[JitsiManager] Original openDesktopPicker saved');
-                    
-                    // Перехватываем openDesktopPicker
-                    window.JitsiMeetScreenObtainer.openDesktopPicker = async function(options, callback) {
-                        console.log('[JitsiManager] ✅ Desktop picker INTERCEPTED!', options);
-                        
-                        if (window.__interceptorFlag) {
-                            console.log('[JitsiManager] Already processing, skipping...');
-                            return;
-                        }
-
-                        // ИСПРАВЛЕНО: Правильная проверка демонстрации экрана
-                        let isAlreadySharing = false;
-                        try {
-                            // Проверяем различными способами
-                            if (window.APP && window.APP.conference) {
-                                // Способ 1: через isSharingScreen если это функция
-                                if (typeof window.APP.conference.isSharingScreen === 'function') {
-                                    isAlreadySharing = window.APP.conference.isSharingScreen();
-                                }
-                                // Способ 2: через локальные треки
-                                else if (window.APP.conference.getLocalTracks) {
-                                    const tracks = window.APP.conference.getLocalTracks();
-                                    isAlreadySharing = tracks.some(track => track.videoType === 'desktop');
-                                }
-                                // Способ 3: через isLocalVideoMuted
-                                else if (window.APP.conference.isLocalVideoMuted) {
-                                    // Если видео не замьючено и есть desktop track
-                                    const localVideo = !window.APP.conference.isLocalVideoMuted();
-                                    isAlreadySharing = localVideo && window.isScreenShareActive;
-                                }
-                            }
-                            
-                            // Дополнительная проверка через наши флаги
-                            isAlreadySharing = isAlreadySharing || window.isNativeActive || window.isScreenShareActive || false;
-                            
-                        } catch (e) {
-                            console.log('[JitsiManager] Error checking share status:', e);
-                            isAlreadySharing = window.isScreenShareActive || false;
-                        }
-                        
-                        if (isAlreadySharing) {
-                            console.log('[JitsiManager] Already sharing screen, skipping interceptor');
-                            // Вызываем оригинальный метод для стандартной обработки
-                            return originalOpenDesktopPicker.call(this, options, callback);
-                        }
-                        
-                        window.__interceptorFlag = true;
-                        
-                        try {
-                            // ВАЖНО: Ждем выбора режима звука (await!)
-                            const audioMode = await showAudioModeSelector();
-                            
-                            if (!audioMode) {
-                                // Пользователь отменил
-                                window.__interceptorFlag = false;
-                                console.log('[JitsiManager] User cancelled audio mode selection');
-                                // Важно: НЕ вызываем callback, чтобы процесс остановился
-                                return;
-                            }
-                            
-                            console.log('[JitsiManager] Selected audio mode:', audioMode);
-                            
-                            // Устанавливаем режим звука
-                            if (window.ipcRenderer) {
-                                await window.ipcRenderer.invoke('jitsi:set-audio-mode', audioMode === 'native');
-                            }
-                            
-                            pendingSourcesCallback = callback;
-                            
-                            // Теперь запрашиваем источники
-                            if (window.ipcRenderer) {
-                                console.log('[JitsiManager] Requesting ELECTRON sources via IPC...');
-                                
-                                try {
-                                    const electronSources = await window.ipcRenderer.invoke('get-electron-desktop-sources');
-                                    console.log('[JitsiManager] Got', electronSources.length, 'Electron sources');
-                                    
-                                    if (electronSources && electronSources.length > 0) {
-                                        // Показываем диалог выбора источника (тоже через Promise)
-                                        showSourcePicker(electronSources, async (selectedElectronId) => {
-                                            if (!selectedElectronId) {
-                                                // Пользователь отменил выбор источника
-                                                window.__interceptorFlag = false;
-                                                console.log('[JitsiManager] User cancelled source selection');
-                                                return;
-                                            }
-                                            
-                                            console.log('[JitsiManager] User selected Electron source:', selectedElectronId);
-                                            
-                                            try {
-                                                // Сохраняем выбранный Electron ID
-                                                await window.ipcRenderer.invoke('jitsi:save-selected-source', selectedElectronId);
-                                                
-                                                // Запускаем stream с выбранным режимом звука
-                                                const result = await window.ipcRenderer.invoke('create-native-stream-for-jitsi');
-                                                
-                                                if (result.success) {
-                                                    console.log('[JitsiManager] Stream created successfully with mode:', audioMode);
-                                                    
-                                                    // Ждем пока поток действительно появится
-                                                    let attempts = 0;
-                                                    while ((!window.jitsiNativeMediaStream || window.jitsiNativeMediaStream.getTracks().length === 0) && attempts < 20) {
-                                                        await new Promise(resolve => setTimeout(resolve, 100));
-                                                        attempts++;
-                                                    }
-                                                    
-                                                    if (!window.jitsiNativeMediaStream) {
-                                                        console.error('[JitsiManager] Stream creation timeout');
-                                                        window.__interceptorFlag = false;
-                                                        return;
-                                                    }
-
-                                                    // ВАЖНО: Устанавливаем флаг что демонстрация началась
-                                                    window.isScreenShareActive = true;
-
-                                                    if (callback) {
-                                                        callback(selectedElectronId, { audio: true, screenShareAudio: true });
-                                                    }
-                                                    
-                                                    // Запускаем демонстрацию
-                                                    setTimeout(async () => {
-                                                        console.log('[JitsiManager] Starting screen share...');
-                                                        
-                                                        if (window.JitsiMeetJS && window.JitsiMeetJS.createLocalTracks) {
-                                                            try {
-                                                                const tracks = await window.JitsiMeetJS.createLocalTracks({ 
-                                                                    devices: ['desktop']
-                                                                });
-                                                                console.log('[JitsiManager] Desktop track created');
-                                                                
-                                                                // Сбрасываем флаг ПОСЛЕ успешного создания трека
-                                                                window.__interceptorFlag = false;
-                                                            } catch (e) {
-                                                                console.error('[JitsiManager] createLocalTracks failed:', e);
-                                                                window.__interceptorFlag = false;
-                                                                window.isScreenShareActive = false;
-                                                            }
-                                                        } else {
-                                                            window.__interceptorFlag = false;
-                                                        }
-                                                    }, 150);
-                                                    
-                                                } else {
-                                                    console.error('[JitsiManager] Failed to create stream:', result.error);
-                                                    window.__interceptorFlag = false;
-                                                }
-                                            } catch (error) {
-                                                console.error('[JitsiManager] Error in source handling:', error);
-                                                window.__interceptorFlag = false;
-                                            }
-                                        });
-                                    } else {
-                                        console.error('[JitsiManager] No Electron sources received');
-                                        window.__interceptorFlag = false;
-                                        originalOpenDesktopPicker.call(this, options, callback);
-                                    }
-                                } catch (error) {
-                                    console.error('[JitsiManager] Error getting sources:', error);
-                                    window.__interceptorFlag = false;
-                                    originalOpenDesktopPicker.call(this, options, callback);
-                                }
-                            } else {
-                                console.error('[JitsiManager] ipcRenderer not available');
-                                window.__interceptorFlag = false;
-                                originalOpenDesktopPicker.call(this, options, callback);
-                            }
-                            
-                        } catch (error) {
-                            console.error('[JitsiManager] Error in interceptor:', error);
-                            window.__interceptorFlag = false;
-                        }
-                    };
-                    
-                    console.log('[JitsiManager] ✅ Screen share interceptor with audio mode selector installed');
-                });
-
-                // Добавляем обработчик остановки демонстрации
-                setInterval(() => {
-                    try {
-                        let isSharing = false;
-                        
-                        if (window.APP && window.APP.conference) {
-                            if (window.APP.conference.getLocalTracks) {
-                                const tracks = window.APP.conference.getLocalTracks();
-                                isSharing = tracks.some(track => track.videoType === 'desktop');
-                            }
-                        }
-                        
-                        if (window.isScreenShareActive && !isSharing) {
-                            console.log('[JitsiManager] Screen share stopped, resetting flag');
-                            window.isScreenShareActive = false;
-                        }
-                    } catch (e) {
-                        // Игнорируем ошибки в мониторинге
-                    }
-                }, 1000);
-                
-                // Функция показа диалога выбора источника
-                function showSourcePicker(sources, callback) {
-                    console.log('[SourcePicker] Showing picker with', sources.length, 'sources');
-                    
-                    const existing = document.getElementById('source-picker-overlay');
-                    if (existing) existing.remove();
-                    
-                    const overlay = document.createElement('div');
-                    overlay.id = 'source-picker-overlay';
-                    overlay.style.cssText = \`
-                        position: fixed;
-                        top: 0;
-                        left: 0;
-                        right: 0;
-                        bottom: 0;
-                        background: rgba(0, 0, 0, 0.85);
-                        z-index: 10000;
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
-                        backdrop-filter: blur(5px);
-                    \`;
-                    
-                    const dialog = document.createElement('div');
-                    dialog.style.cssText = \`
-                        background: white;
-                        border-radius: 16px;
-                        padding: 32px;
-                        max-width: 90%;
-                        max-height: 80%;
-                        overflow: auto;
-                        min-width: 700px;
-                        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-                    \`;
-                    
-                    let htmlContent = \`
-                        <h2 style="margin-top: 0; color: #333; font-size: 24px;">
-                            Выберите экран или окно для демонстрации
-                        </h2>
-                        <div style="
-                            display: grid; 
-                            grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); 
-                            gap: 20px; 
+                        const grid = document.createElement('div');
+                        grid.style.cssText = \`
+                            display: grid;
+                            grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+                            gap: 20px;
                             margin: 24px 0;
-                        ">
-                    \`;
-                    
-                    sources.forEach((source, index) => {
-                        const borderColor = '#2196F3';
+                        \`;
                         
-                        htmlContent += \`
-                            <div class="source-item" data-source-id="\${source.id}" style="
+                        // Создаем элементы источников
+                        sources.forEach(source => {
+                            const item = document.createElement('div');
+                            item.className = 'source-item';
+                            item.dataset.sourceId = source.id;
+                            item.style.cssText = \`
                                 border: 3px solid #e0e0e0;
                                 border-radius: 12px;
                                 padding: 16px;
                                 cursor: pointer;
                                 text-align: center;
                                 background: white;
-                                position: relative;
-                                transition: all 0.3s;
-                            " onmouseover="this.style.borderColor='\${borderColor}'; this.style.transform='scale(1.05)';" 
-                            onmouseout="this.style.borderColor='#e0e0e0'; this.style.transform='scale(1)';">
-                                <img src="\${source.thumbnail || ''}" style="
-                                    width: 100%; 
-                                    height: 160px; 
-                                    object-fit: contain; 
-                                    margin-bottom: 12px;
-                                    border-radius: 8px;
-                                    background: #f5f5f5;
-                                ">
-                                <div style="
-                                    font-size: 14px; 
-                                    color: #666; 
-                                    word-wrap: break-word;
-                                    font-weight: 500;
-                                ">\${source.name || 'Unknown'}</div>
-                            </div>
-                        \`;
-                    });
-                    
-                    htmlContent += \`
-                        </div>
-                        <div style="text-align: center; margin-top: 24px;">
-                            <button id="cancel-picker-btn" style="
-                                background: #f44336;
-                                color: white;
-                                border: none;
-                                padding: 12px 32px;
+                                transition: border-color 0.15s, transform 0.15s;
+                            \`;
+                            
+                            const img = document.createElement('img');
+                            img.src = source.thumbnail || '';
+                            img.style.cssText = \`
+                                width: 100%;
+                                height: 160px;
+                                object-fit: contain;
+                                margin-bottom: 12px;
                                 border-radius: 8px;
-                                cursor: pointer;
-                                font-size: 16px;
+                                background: #f5f5f5;
+                            \`;
+                            
+                            const name = document.createElement('div');
+                            name.style.cssText = \`
+                                font-size: 14px;
+                                color: #666;
+                                word-wrap: break-word;
                                 font-weight: 500;
-                            ">Отмена</button>
-                        </div>
-                    \`;
-                    
-                    dialog.innerHTML = htmlContent;
-                    overlay.appendChild(dialog);
-                    document.body.appendChild(overlay);
-                    
-                    // Обработчики кликов
-                    overlay.onclick = function(e) {
-                        e.stopPropagation();
+                            \`;
+                            name.textContent = source.name || 'Unknown';
+                            
+                            item.appendChild(img);
+                            item.appendChild(name);
+                            
+                            // Hover эффекты через CSS классы
+                            item.onmouseenter = () => {
+                                item.style.borderColor = '#2196F3';
+                                item.style.transform = 'scale(1.05)';
+                            };
+                            item.onmouseleave = () => {
+                                item.style.borderColor = '#e0e0e0';
+                                item.style.transform = 'scale(1)';
+                            };
+                            
+                            item.onclick = () => {
+                                overlay.style.background = 'rgba(0, 0, 0, 0)';
+                                dialog.style.transform = 'scale(0.9)';
+                                dialog.style.opacity = '0';
+                                setTimeout(() => {
+                                    overlay.remove();
+                                    callback(source.id);
+                                }, 200);
+                            };
+                            
+                            grid.appendChild(item);
+                        });
                         
-                        const sourceItem = e.target.closest('.source-item');
-                        if (sourceItem) {
-                            const sourceId = sourceItem.dataset.sourceId;
-                            overlay.remove();
-                            callback(sourceId);
-                            return;
-                        }
+                        fragment.appendChild(grid);
                         
-                        if (e.target.id === 'cancel-picker-btn' || e.target === overlay) {
-                            overlay.remove();
-                            return;
-                        }
-                    };
-                    
-                    // Escape для закрытия
-                    const handleEscape = function(e) {
-                        if (e.key === 'Escape') {
-                            overlay.remove();
-                            document.removeEventListener('keydown', handleEscape);
-                        }
-                    };
-                    document.addEventListener('keydown', handleEscape);
+                        const cancelButton = document.createElement('button');
+                        cancelButton.textContent = 'Отмена';
+                        cancelButton.style.cssText = \`
+                            display: block;
+                            margin: 24px auto 0;
+                            background: #f44336;
+                            color: white;
+                            border: none;
+                            padding: 12px 32px;
+                            border-radius: 8px;
+                            cursor: pointer;
+                            font-size: 16px;
+                            font-weight: 500;
+                            transition: background 0.15s;
+                        \`;
+                        
+                        cancelButton.onclick = () => {
+                            overlay.style.background = 'rgba(0, 0, 0, 0)';
+                            dialog.style.transform = 'scale(0.9)';
+                            dialog.style.opacity = '0';
+                            setTimeout(() => {
+                                overlay.remove();
+                                callback(null);
+                            }, 200);
+                        };
+                        
+                        fragment.appendChild(cancelButton);
+                        
+                        dialog.appendChild(fragment);
+                        overlay.appendChild(dialog);
+                        document.body.appendChild(overlay);
+                        
+                        // Анимация появления
+                        requestAnimationFrame(() => {
+                            overlay.style.background = 'rgba(0, 0, 0, 0.85)';
+                            overlay.style.backdropFilter = 'blur(5px)';
+                            dialog.style.transform = 'scale(1)';
+                            dialog.style.opacity = '1';
+                        });
+                    });
                 }
+                
+                // Ждем загрузки Jitsi API
+                function waitForJitsiAPI() {
+                    return new Promise((resolve) => {
+                        if (window.JitsiMeetScreenObtainer?.openDesktopPicker) {
+                            resolve(true);
+                            return;
+                        }
+                        
+                        let attempts = 0;
+                        const checkInterval = setInterval(() => {
+                            attempts++;
+                            if (window.JitsiMeetScreenObtainer?.openDesktopPicker) {
+                                clearInterval(checkInterval);
+                                resolve(true);
+                            } else if (attempts > 100) {
+                                clearInterval(checkInterval);
+                                resolve(false);
+                            }
+                        }, 50); // Уменьшили интервал проверки
+                    });
+                }
+                
+                waitForJitsiAPI().then(ready => {
+                    if (!ready) return;
+                    
+                    const originalOpenDesktopPicker = window.JitsiMeetScreenObtainer.openDesktopPicker;
+                    
+                    window.JitsiMeetScreenObtainer.openDesktopPicker = async function(options, callback) {
+                        console.log('[JitsiManager] Desktop picker intercepted');
+                        if (window.__interceptorFlag) {
+                            console.log('[JitsiManager] Already processing, skipping');
+                            return;
+                        }
+                        
+                        // Проверка на активную демонстрацию
+                        let isAlreadySharing = false;
+                        try {
+                            if (window.APP?.conference?.getLocalTracks) {
+                                const tracks = window.APP.conference.getLocalTracks();
+                                isAlreadySharing = tracks.some(track => track.videoType === 'desktop');
+                            }
+                            isAlreadySharing = isAlreadySharing || window.isScreenShareActive;
+                        } catch (e) {}
+                        
+                        const hasNativeStream = window.isScreenShareActive || window.isNativeActive;
+    
+                        if (isAlreadySharing || hasNativeStream) {
+                            console.log('[JitsiManager] Screen share detected, clearing flags');
+                            // Сбрасываем все флаги для следующего запуска
+                            window.isScreenShareActive = false;
+                            window.isNativeActive = false;
+                            window.__interceptorFlag = false;
+                            
+                            // Очищаем stream если есть
+                            if (window.jitsiNativeMediaStream) {
+                                window.jitsiNativeMediaStream.getTracks().forEach(track => track.stop());
+                                window.jitsiNativeMediaStream = null;
+                            }
+                            
+                            // Не продолжаем обработку
+                            return;
+                        }
+
+                        
+                        window.__interceptorFlag = true;
+                        
+                        try {
+                            // Параллельно показываем диалог и загружаем источники
+                            const [audioMode, sources] = await Promise.all([
+                                showAudioModeSelector(),
+                                getElectronSourcesWithCache()
+                            ]);
+                            
+                            if (!audioMode) {
+                                window.__interceptorFlag = false;
+                                console.log('[JitsiManager] User cancelled audio mode selection');
+                                return;
+                            }
+                            
+                            // Устанавливаем режим звука
+                            if (window.ipcRenderer) {
+                                window.ipcRenderer.invoke('jitsi:set-audio-mode', audioMode === 'native');
+                            }
+                            
+                            // Сразу показываем выбор источников
+                            showSourcePicker(sources, async (selectedId) => {
+                                if (!selectedId) {
+                                    window.__interceptorFlag = false;
+                                    console.log('[JitsiManager] User cancelled source selection');
+                                    return;
+                                }
+                                
+                                try {
+                                    await window.ipcRenderer.invoke('jitsi:save-selected-source', selectedId);
+                                    const streamResult = await window.ipcRenderer.invoke('create-native-stream-for-jitsi');
+                                    
+                                    if (streamResult.success) {
+                                        // Ждем готовности потока
+                                        let attempts = 0;
+                                        while (!window.jitsiNativeMediaStream?.getTracks?.().length && attempts++ < 20) {
+                                            await new Promise(r => setTimeout(r, 50));
+                                        }
+                                        
+                                        if (!window.jitsiNativeMediaStream) {
+                                            window.__interceptorFlag = false;
+                                            console.error('[JitsiManager] Stream creation timeout');
+                                            return;
+                                        }
+                                        
+                                        window.isScreenShareActive = true;
+                                        
+                                        // Вызываем callback если он есть
+                                        if (callback) {
+                                            callback(selectedId, { 
+                                                audio: true, 
+                                                screenShareAudio: true
+                                            });
+                                        }
+                                        
+                                        // Запускаем демонстрацию
+                                        setTimeout(async () => {
+                                            try {
+                                                if (window.JitsiMeetJS?.createLocalTracks) {
+                                                    const tracks = await window.JitsiMeetJS.createLocalTracks({ 
+                                                        devices: ['desktop']
+                                                    });
+                                                    console.log('[JitsiManager] Desktop track created');
+                                                }
+                                            } catch (e) {
+                                                console.error('[JitsiManager] createLocalTracks failed:', e);
+                                                window.isScreenShareActive = false;
+                                            } finally {
+                                                // Сбрасываем флаг после завершения
+                                                window.__interceptorFlag = false;
+                                            }
+                                        }, 100);
+                                        
+                                    } else {
+                                        console.error('[JitsiManager] Stream creation failed');
+                                        window.__interceptorFlag = false;
+                                    }
+                                } catch (error) {
+                                    console.error('[JitsiManager] Error:', error);
+                                    window.__interceptorFlag = false;
+                                }
+                            });
+                        } catch (error) {
+                            console.error('[JitsiManager] Error:', error);
+                            window.__interceptorFlag = false;
+                        }
+                    };
+                });
                 
                 return { success: true };
             })();
