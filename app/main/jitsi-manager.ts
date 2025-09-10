@@ -1007,6 +1007,27 @@ export class JitsiManager {
         ipcMain.handle("jitsi:conference-left", async () => {
             log.info("[JITSI-MANAGER] Conference left event received");
             
+            // Сбрасываем ВСЕ флаги в окне
+            if (this.state.window && !this.state.window.isDestroyed()) {
+                await this.state.window.webContents.executeJavaScript(`
+                    (function() {
+                        window.__interceptorFlag = false;
+                        window.isScreenShareActive = false;
+                        window.isNativeActive = false;
+                        window.isStandardMode = false;
+                        window.isHybridMode = false;
+                        
+                        // Очищаем потоки
+                        if (window.jitsiNativeMediaStream) {
+                            window.jitsiNativeMediaStream.getTracks().forEach(t => t.stop());
+                            window.jitsiNativeMediaStream = null;
+                        }
+                        
+                        console.log('[JITSI-MANAGER] All flags reset on conference leave');
+                    })();
+                `);
+            }
+            
             // Небольшая задержка для корректного завершения
             setTimeout(async () => {
                 log.info("[JITSI-MANAGER] Closing window after conference leave");
@@ -2446,68 +2467,77 @@ export class JitsiManager {
                 (function() {
                     if (window.__screenShareMonitor) {
                         window.__screenShareMonitor.onStop(async function(source) {
-                            console.log('[Monitor] Screen share stopped, source:', source);
+                            console.log('[Monitor] Screen share stopped event, source:', source);
                             
-                            window.__interceptorFlag = false;
-
-                            // Проверяем, действительно ли остановлена демонстрация
-                            // и это не ложное срабатывание при старте
-                            if (!window.isNativeActive && !window.jitsiNativeMediaStream) {
-                                console.log('[Monitor] Native stream already inactive, skipping cleanup');
-                                return;
-                            }
-                            
-                            // Добавляем задержку для проверки, что это действительно остановка
+                            // ВАЖНО: Добавляем задержку для проверки, что это реальная остановка
+                            // а не ложное срабатывание при инициализации
                             setTimeout(async () => {
-                                const stillSharing = (() => {
-                                    try {
-                                        if (window.APP?.conference?.getLocalTracks) {
-                                            const tracks = window.APP.conference.getLocalTracks();
-                                            return tracks.some(track => track.videoType === 'desktop');
-                                        }
-                                    } catch (e) {}
-                                    return false;
-                                })();
+                                // Проверяем текущее состояние
+                                const stillInitializing = window.__interceptorFlag === true;
+                                const hasActiveStream = window.jitsiNativeMediaStream && 
+                                                    window.jitsiNativeMediaStream.getTracks().some(t => t.readyState === 'live');
                                 
-                                if (!stillSharing) {
-                                    console.log('[Monitor] Confirmed: screen share stopped, cleaning up...');
-                                    
-                                    // ВАЖНО: Очищаем ТОЛЬКО ресурсы демонстрации
-                                    if (window.screenShareAudioContext) {
-                                        await window.screenShareAudioContext.close();
-                                        window.screenShareAudioContext = null;
+                                // Проверяем наличие активных desktop треков в Jitsi
+                                let hasDesktopTrack = false;
+                                try {
+                                    if (window.APP?.conference?.getLocalTracks) {
+                                        const tracks = window.APP.conference.getLocalTracks();
+                                        hasDesktopTrack = tracks.some(track => track.videoType === 'desktop');
                                     }
-                                    
-                                    // Очищаем только stream демонстрации
-                                    if (window.jitsiNativeMediaStream) {
-                                        window.jitsiNativeMediaStream.getTracks().forEach(track => {
-                                            track.stop();
-                                            console.log('[Monitor] Stopped track:', track.kind);
-                                        });
-                                        window.jitsiNativeMediaStream = null;
-                                    }
-                                    
-                                    // Очищаем буферы
-                                    window.leftRingBuffer = null;
-                                    window.rightRingBuffer = null;
-                                    window.isNativeActive = false;
-                                    window.isScreenShareActive = false;
-                                    
-                                    // НЕ вызываем полную остановку native capture
-                                    if (window.ipcRenderer) {
-                                        await window.ipcRenderer.invoke('jitsi:stop-screen-share-only');
-                                    }
-                                    
-                                    // Восстанавливаем основной аудио контекст Jitsi
-                                    if (window.APP && window.APP.conference) {
-                                        console.log('[Monitor] Restoring conference audio...');
-                                        // Jitsi должен автоматически восстановить аудио
-                                        // Но можем явно переинициализировать если нужно
-                                        window.APP.conference._setupAudioLevels && 
-                                            window.APP.conference._setupAudioLevels();
-                                    }
+                                } catch (e) {}
+                                
+                                // Если еще идет инициализация или есть активный desktop трек - не очищаем
+                                if (stillInitializing || hasDesktopTrack) {
+                                    console.log('[Monitor] Ignoring stop event - still initializing or has desktop track');
+                                    return;
                                 }
-                            }, 1000);
+                                
+                                // Если нет активного потока и нет инициализации - можно пропустить очистку
+                                if (!hasActiveStream && !window.isScreenShareActive && !window.isNativeActive) {
+                                    console.log('[Monitor] Already cleaned up, skipping');
+                                    return;
+                                }
+                                
+                                console.log('[Monitor] Confirmed real stop, cleaning up...');
+                                
+                                // Сбрасываем флаг перехватчика
+                                window.__interceptorFlag = false;
+                                
+                                // Очищаем ресурсы демонстрации
+                                if (window.screenShareAudioContext) {
+                                    try {
+                                        await window.screenShareAudioContext.close();
+                                    } catch (e) {}
+                                    window.screenShareAudioContext = null;
+                                }
+                                
+                                if (window.jitsiNativeMediaStream) {
+                                    window.jitsiNativeMediaStream.getTracks().forEach(track => {
+                                        track.stop();
+                                        console.log('[Monitor] Stopped track:', track.kind);
+                                    });
+                                    window.jitsiNativeMediaStream = null;
+                                }
+                                
+                                // Очищаем буферы
+                                window.leftRingBuffer = null;
+                                window.rightRingBuffer = null;
+                                window.screenShareLeftBuffer = null;
+                                window.screenShareRightBuffer = null;
+                                
+                                // Сбрасываем флаги
+                                window.isNativeActive = false;
+                                window.isScreenShareActive = false;
+                                window.isStandardMode = false;
+                                
+                                // Уведомляем основной процесс только о реальной остановке
+                                if (window.ipcRenderer) {
+                                    await window.ipcRenderer.invoke('jitsi:screen-share-stopped');
+                                }
+                                
+                                console.log('[Monitor] Cleanup completed');
+                                
+                            }, 2000); // Увеличиваем задержку до 2 секунд
                         });
                     }
                 })();
@@ -2745,6 +2775,28 @@ export class JitsiManager {
                         window.isNativeActive = true;
                         window.isStandardMode = true; // Флаг стандартного режима
                         window.isHybridMode = false;
+
+                        // ВАЖНО: Добавляем обработчик остановки трека
+                        const videoTrack = stream.getVideoTracks()[0];
+                        if (videoTrack) {
+                            videoTrack.addEventListener('ended', () => {
+                                console.log('[STANDARD] Video track ended, cleaning up...');
+                                
+                                // Сбрасываем ВСЕ флаги
+                                window.isScreenShareActive = false;
+                                window.isNativeActive = false;
+                                window.isStandardMode = false;
+                                window.__interceptorFlag = false;
+                                
+                                // Очищаем поток
+                                if (window.jitsiNativeMediaStream) {
+                                    window.jitsiNativeMediaStream.getTracks().forEach(t => t.stop());
+                                    window.jitsiNativeMediaStream = null;
+                                }
+                                
+                                console.log('[STANDARD] Cleanup completed, flags reset');
+                            });
+                        }
                         
                         return {
                             success: true,
@@ -2756,6 +2808,8 @@ export class JitsiManager {
                         
                     } catch (error) {
                         console.error('[STANDARD] Error:', error);
+                        // При ошибке тоже сбрасываем флаг
+                        window.__interceptorFlag = false;
                         return { success: false, error: error.message };
                     }
                 })();
@@ -4204,6 +4258,45 @@ export class JitsiManager {
                         });
                     });
                 }
+
+                setInterval(() => {
+                    // Добавляем проверку, что не идет инициализация
+                    if (window.__interceptorFlag === true) {
+                        // Пропускаем проверку во время инициализации
+                        return;
+                    }
+                    
+                    if (window.isScreenShareActive || window.isStandardMode) {
+                        let isStillSharing = false;
+                        try {
+                            if (window.APP?.conference?.getLocalTracks) {
+                                const tracks = window.APP.conference.getLocalTracks();
+                                isStillSharing = tracks.some(track => track.videoType === 'desktop');
+                            }
+                        } catch (e) {}
+                        
+                        // Проверяем также состояние потока
+                        const hasLiveStream = window.jitsiNativeMediaStream && 
+                                            window.jitsiNativeMediaStream.getTracks().some(t => t.readyState === 'live');
+                        
+                        // Если нет ни desktop трека, ни живого потока, но флаги активны
+                        if (!isStillSharing && !hasLiveStream && (window.isScreenShareActive || window.isStandardMode)) {
+                            console.log('[Monitor] Auto-cleanup: no active desktop track or stream');
+                            
+                            window.isScreenShareActive = false;
+                            window.isNativeActive = false;
+                            window.__interceptorFlag = false;
+                            window.isStandardMode = false;
+                            
+                            if (window.jitsiNativeMediaStream) {
+                                window.jitsiNativeMediaStream.getTracks().forEach(track => {
+                                    track.stop();
+                                });
+                                window.jitsiNativeMediaStream = null;
+                            }
+                        }
+                    }
+                }, 3000); // Проверяем каждую секунду
                 
                 // Ждем загрузки Jitsi API
                 function waitForJitsiAPI() {
@@ -4234,7 +4327,9 @@ export class JitsiManager {
                     
                     window.JitsiMeetScreenObtainer.openDesktopPicker = async function(options, callback) {
                         console.log('[JitsiManager] Desktop picker intercepted');
-                        if (window.__interceptorFlag) {
+                        
+                        // Проверяем флаг
+                        if (window.__interceptorFlag === true) {
                             console.log('[JitsiManager] Already processing, skipping');
                             return;
                         }
@@ -4246,33 +4341,38 @@ export class JitsiManager {
                                 const tracks = window.APP.conference.getLocalTracks();
                                 isAlreadySharing = tracks.some(track => track.videoType === 'desktop');
                             }
-                            isAlreadySharing = isAlreadySharing || window.isScreenShareActive;
                         } catch (e) {}
                         
-                        const hasNativeStream = window.isScreenShareActive || window.isNativeActive;
-    
-                        if (isAlreadySharing || hasNativeStream) {
-                            console.log('[JitsiManager] Screen share detected, clearing flags');
-                            // Сбрасываем все флаги для следующего запуска
+                        if (isAlreadySharing) {
+                            console.log('[JitsiManager] Already sharing, stopping first');
+                            try {
+                                if (window.APP?.conference?.toggleScreenSharing) {
+                                    await window.APP.conference.toggleScreenSharing();
+                                    await new Promise(resolve => setTimeout(resolve, 500));
+                                }
+                            } catch (e) {
+                                console.error('[JitsiManager] Error stopping share:', e);
+                            }
+                            
+                            // Сбрасываем флаги
                             window.isScreenShareActive = false;
                             window.isNativeActive = false;
                             window.__interceptorFlag = false;
+                            window.isStandardMode = false;
                             
-                            // Очищаем stream если есть
                             if (window.jitsiNativeMediaStream) {
                                 window.jitsiNativeMediaStream.getTracks().forEach(track => track.stop());
                                 window.jitsiNativeMediaStream = null;
                             }
                             
-                            // Не продолжаем обработку
-                            return;
+                            console.log('[JitsiManager] Previous share stopped');
                         }
-
                         
+                        // Устанавливаем флаг
                         window.__interceptorFlag = true;
                         
                         try {
-                            // Параллельно показываем диалог и загружаем источники
+                            // Показываем диалоги
                             const [audioMode, sources] = await Promise.all([
                                 showAudioModeSelector(),
                                 getElectronSourcesWithCache()
@@ -4280,79 +4380,75 @@ export class JitsiManager {
                             
                             if (!audioMode) {
                                 window.__interceptorFlag = false;
-                                console.log('[JitsiManager] User cancelled audio mode selection');
+                                console.log('[JitsiManager] User cancelled audio mode');
                                 return;
                             }
                             
                             // Устанавливаем режим звука
                             if (window.ipcRenderer) {
-                                window.ipcRenderer.invoke('jitsi:set-audio-mode', audioMode === 'native');
+                                await window.ipcRenderer.invoke('jitsi:set-audio-mode', audioMode === 'native');
                             }
                             
-                            // Сразу показываем выбор источников
+                            // Показываем выбор источников
                             showSourcePicker(sources, async (selectedId) => {
                                 if (!selectedId) {
                                     window.__interceptorFlag = false;
-                                    console.log('[JitsiManager] User cancelled source selection');
+                                    console.log('[JitsiManager] User cancelled source');
                                     return;
                                 }
                                 
                                 try {
+                                    // Сохраняем выбранный источник
                                     await window.ipcRenderer.invoke('jitsi:save-selected-source', selectedId);
+                                    
+                                    // Создаем поток
                                     const streamResult = await window.ipcRenderer.invoke('create-native-stream-for-jitsi');
                                     
-                                    if (streamResult.success) {
-                                        // Ждем готовности потока
-                                        let attempts = 0;
-                                        while (!window.jitsiNativeMediaStream?.getTracks?.().length && attempts++ < 20) {
-                                            await new Promise(r => setTimeout(r, 50));
-                                        }
-                                        
-                                        if (!window.jitsiNativeMediaStream) {
-                                            window.__interceptorFlag = false;
-                                            console.error('[JitsiManager] Stream creation timeout');
-                                            return;
-                                        }
-                                        
-                                        window.isScreenShareActive = true;
-                                        
-                                        // Вызываем callback если он есть
-                                        if (callback) {
-                                            callback(selectedId, { 
-                                                audio: true, 
-                                                screenShareAudio: true
-                                            });
-                                        }
-                                        
-                                        // Запускаем демонстрацию
-                                        setTimeout(async () => {
-                                            try {
-                                                if (window.JitsiMeetJS?.createLocalTracks) {
-                                                    const tracks = await window.JitsiMeetJS.createLocalTracks({ 
-                                                        devices: ['desktop']
-                                                    });
-                                                    console.log('[JitsiManager] Desktop track created');
-                                                }
-                                            } catch (e) {
-                                                console.error('[JitsiManager] createLocalTracks failed:', e);
-                                                window.isScreenShareActive = false;
-                                            } finally {
-                                                // Сбрасываем флаг после завершения
-                                                window.__interceptorFlag = false;
-                                            }
-                                        }, 100);
-                                        
-                                    } else {
+                                    if (!streamResult.success) {
                                         console.error('[JitsiManager] Stream creation failed');
                                         window.__interceptorFlag = false;
+                                        return;
                                     }
+                                    
+                                    // Ждем готовности потока
+                                    let attempts = 0;
+                                    while (!window.jitsiNativeMediaStream?.getTracks?.().length && attempts++ < 20) {
+                                        await new Promise(r => setTimeout(r, 50));
+                                    }
+                                    
+                                    if (!window.jitsiNativeMediaStream) {
+                                        console.error('[JitsiManager] Stream timeout');
+                                        window.__interceptorFlag = false;
+                                        return;
+                                    }
+                                    
+                                    console.log('[JitsiManager] Stream ready, calling original callback');
+                                    window.isScreenShareActive = true;
+                                    
+                                    // ВАЖНО: Вызываем оригинальный callback
+                                    // Это запустит процесс создания desktop track в Jitsi
+                                    if (callback) {
+                                        // Передаем фейковый sourceId и опции
+                                        callback('native:' + selectedId, { 
+                                            audio: true, 
+                                            screenShareAudio: true 
+                                        });
+                                    }
+                                    
+                                    // Сбрасываем флаг через небольшую задержку
+                                    setTimeout(() => {
+                                        window.__interceptorFlag = false;
+                                        console.log('[JitsiManager] Interceptor flag reset');
+                                    }, 500);
+                                    
                                 } catch (error) {
                                     console.error('[JitsiManager] Error:', error);
                                     window.__interceptorFlag = false;
                                 }
                             });
+                            
                         } catch (error) {
-                            console.error('[JitsiManager] Error:', error);
+                            console.error('[JitsiManager] Error in picker:', error);
                             window.__interceptorFlag = false;
                         }
                     };
