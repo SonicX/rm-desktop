@@ -2833,7 +2833,7 @@ export class JitsiManager {
     }
 
     private async createStandardStream(): Promise<{ success: boolean; error?: string; streamId?: string }> {
-        log.info("[STREAM-ELECTRON] Creating standard Jitsi stream (no native audio)");
+        log.info("[STREAM-ELECTRON] Creating standard Jitsi stream");
         
         if (!this.state.window || this.state.window.isDestroyed()) {
             return { success: false, error: "No window" };
@@ -2849,17 +2849,12 @@ export class JitsiManager {
         try {
             const result = await this.state.window.webContents.executeJavaScript(`
                 (async function() {
-                    console.log('[STANDARD] Creating standard stream with Electron audio...');
+                    console.log('[STANDARD] Creating standard stream with Electron capture...');
                     
                     try {
-                        // Получаем видео И аудио от Electron Desktop Capture
+                        // Создаем поток ТОЛЬКО с видео (без аудио, чтобы не конфликтовать с микрофоном)
                         const stream = await navigator.mediaDevices.getUserMedia({
-                            audio: {
-                                mandatory: {
-                                    chromeMediaSource: 'desktop',
-                                    chromeMediaSourceId: '${electronSourceId}'
-                                }
-                            },
+                            audio: false, // ВАЖНО: не захватываем аудио
                             video: {
                                 mandatory: {
                                     chromeMediaSource: 'desktop',
@@ -2877,28 +2872,24 @@ export class JitsiManager {
                         // Сохраняем поток для Jitsi
                         window.jitsiNativeMediaStream = stream;
                         window.isNativeActive = true;
-                        window.isStandardMode = true; // Флаг стандартного режима
+                        window.isStandardMode = true;
                         window.isHybridMode = false;
-
-                        // ВАЖНО: Добавляем обработчик остановки трека
+                        
+                        // Добавляем обработчик остановки видео трека
                         const videoTrack = stream.getVideoTracks()[0];
                         if (videoTrack) {
                             videoTrack.addEventListener('ended', () => {
                                 console.log('[STANDARD] Video track ended, cleaning up...');
                                 
-                                // Сбрасываем ВСЕ флаги
                                 window.isScreenShareActive = false;
                                 window.isNativeActive = false;
                                 window.isStandardMode = false;
                                 window.__interceptorFlag = false;
                                 
-                                // Очищаем поток
                                 if (window.jitsiNativeMediaStream) {
                                     window.jitsiNativeMediaStream.getTracks().forEach(t => t.stop());
                                     window.jitsiNativeMediaStream = null;
                                 }
-                                
-                                console.log('[STANDARD] Cleanup completed, flags reset');
                             });
                         }
                         
@@ -2906,13 +2897,12 @@ export class JitsiManager {
                             success: true,
                             streamId: stream.id,
                             hasVideo: stream.getVideoTracks().length > 0,
-                            hasAudio: stream.getAudioTracks().length > 0,
+                            hasAudio: false, // Явно указываем что аудио нет
                             mode: 'standard'
                         };
                         
                     } catch (error) {
-                        console.error('[STANDARD] Error:', error);
-                        // При ошибке тоже сбрасываем флаг
+                        console.error('[STANDARD] Error creating stream:', error);
                         window.__interceptorFlag = false;
                         return { success: false, error: error.message };
                     }
@@ -2922,7 +2912,7 @@ export class JitsiManager {
             if (result.success) {
                 this.state.isStreamActive = true;
                 this.state.streamId = result.streamId;
-                log.info(`[STREAM-ELECTRON] Standard stream created: ${result.streamId}`);
+                log.info(`[STREAM-ELECTRON] Standard video stream created: ${result.streamId}`);
             }
             
             return result;
