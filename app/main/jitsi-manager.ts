@@ -2571,6 +2571,82 @@ export class JitsiManager {
                 })();
             `);
 
+            await this.state.window.webContents.executeJavaScript(`
+                (function() {
+                    // Защита микрофона от удаления при демонстрации экрана
+                    console.log('[JitsiProtection] Installing microphone protection...');
+                    
+                    // Ждем инициализации conference
+                    const protectionInterval = setInterval(() => {
+                        if (window.APP?.conference?._room) {
+                            clearInterval(protectionInterval);
+                            
+                            // Сохраняем оригинальный removeTrack
+                            const originalRemoveTrack = window.APP.conference.removeTrack;
+                            
+                            window.APP.conference.removeTrack = function(track) {
+                                // Проверяем, не пытаются ли удалить микрофон во время демонстрации
+                                if (track && track.type === 'audio' && track.videoType !== 'desktop') {
+                                    const tracks = this.getLocalTracks();
+                                    const hasDesktop = tracks.some(t => t.videoType === 'desktop');
+                                    
+                                    if (hasDesktop || window.isScreenShareActive || window.__interceptorFlag) {
+                                        console.log('[JitsiProtection] Blocked microphone removal during screen share');
+                                        
+                                        // Сохраняем трек для восстановления
+                                        window.__protectedMicTrack = track;
+                                        
+                                        // Откладываем восстановление
+                                        setTimeout(() => {
+                                            if (window.__protectedMicTrack && !window.__protectedMicTrack.isDisposed()) {
+                                                const current = window.APP.conference.getLocalTracks();
+                                                const hasMic = current.some(t => 
+                                                    t.type === 'audio' && 
+                                                    t.videoType !== 'desktop'
+                                                );
+                                                
+                                                if (!hasMic) {
+                                                    console.log('[JitsiProtection] Re-adding protected microphone');
+                                                    window.APP.conference.addTrack(window.__protectedMicTrack);
+                                                }
+                                            }
+                                        }, 100);
+                                        
+                                        // НЕ вызываем оригинальный метод - блокируем удаление
+                                        return Promise.resolve();
+                                    }
+                                }
+                                
+                                // Для всех остальных треков вызываем оригинал
+                                return originalRemoveTrack.call(this, track);
+                            };
+                            
+                            // Также перехватываем replaceTrack если он есть
+                            if (window.APP.conference.replaceTrack) {
+                                const originalReplaceTrack = window.APP.conference.replaceTrack;
+                                
+                                window.APP.conference.replaceTrack = function(oldTrack, newTrack) {
+                                    // Защищаем микрофон от замены
+                                    if (oldTrack && oldTrack.type === 'audio' && oldTrack.videoType !== 'desktop') {
+                                        const tracks = this.getLocalTracks();
+                                        const hasDesktop = tracks.some(t => t.videoType === 'desktop');
+                                        
+                                        if (hasDesktop && (!newTrack || newTrack.videoType === 'desktop')) {
+                                            console.log('[JitsiProtection] Blocked microphone replacement during screen share');
+                                            return Promise.resolve();
+                                        }
+                                    }
+                                    
+                                    return originalReplaceTrack.call(this, oldTrack, newTrack);
+                                };
+                            }
+                            
+                            console.log('[JitsiProtection] Microphone protection installed');
+                        }
+                    }, 100);
+                })();
+            `);
+
             await this.injectDebugOverlay();
 
             // 🆕 Настройка debug callback для native capture (ИСПРАВЛЕННАЯ ВЕРСИЯ)
@@ -4478,96 +4554,44 @@ export class JitsiManager {
                                         });
                                     }
 
-                                    const checkMicrophoneInterval = setInterval(async () => {
-                                    try {
-                                        const tracks = window.APP.conference.getLocalTracks();
-                                        const hasDesktop = tracks.some(t => t.videoType === 'desktop');
+                                    setTimeout(async () => {
+                                        window.__interceptorFlag = false;
                                         
-                                        if (hasDesktop) {
-                                            // Desktop трек добавлен, проверяем микрофон
-                                            clearInterval(checkMicrophoneInterval);
-                                            window.__interceptorFlag = false;
-                                            
+                                        try {
+                                            // Проверяем и восстанавливаем микрофон
+                                            const tracks = window.APP.conference.getLocalTracks();
                                             const hasMic = tracks.some(t => 
                                                 t.type === 'audio' && 
-                                                t.videoType !== 'desktop' && 
-                                                !t.isDisposed()
+                                                t.videoType !== 'desktop'
                                             );
                                             
-                                            if (!hasMic && window.__savedMicrophoneTrack) {
-                                                console.log('[JitsiManager] Desktop added, restoring microphone...');
+                                            if (!hasMic) {
+                                                console.log('[JitsiManager] Microphone missing, creating new...');
                                                 
-                                                // Небольшая задержка для стабилизации
-                                                await new Promise(r => setTimeout(r, 100));
+                                                // Создаем новый микрофон
+                                                const audioTracks = await window.JitsiMeetJS.createLocalTracks({
+                                                    devices: ['audio']
+                                                });
                                                 
-                                                if (!window.__savedMicrophoneTrack.isDisposed()) {
-                                                    try {
-                                                        await window.APP.conference.addTrack(window.__savedMicrophoneTrack);
-                                                        
-                                                        // Восстанавливаем состояние mute
-                                                        if (!window.__microphoneMuted) {
-                                                            await window.__savedMicrophoneTrack.unmute();
-                                                        }
-                                                        
-                                                        console.log('[JitsiManager] Microphone restored successfully');
-                                                    } catch (e) {
-                                                        console.error('[JitsiManager] Failed to restore saved track:', e);
-                                                        
-                                                        // Создаем новый трек
-                                                        try {
-                                                            const audioTracks = await window.JitsiMeetJS.createLocalTracks({
-                                                                devices: ['audio']
-                                                            });
-                                                            
-                                                            if (audioTracks && audioTracks[0]) {
-                                                                await window.APP.conference.addTrack(audioTracks[0]);
-                                                                
-                                                                if (window.__microphoneMuted) {
-                                                                    await audioTracks[0].mute();
-                                                                }
-                                                                
-                                                                console.log('[JitsiManager] New microphone track created');
-                                                            }
-                                                        } catch (e2) {
-                                                            console.error('[JitsiManager] Failed to create new audio:', e2);
-                                                        }
-                                                    }
-                                                } else {
-                                                    // Трек уничтожен, создаем новый
-                                                    console.log('[JitsiManager] Saved track disposed, creating new...');
-                                                    const audioTracks = await window.JitsiMeetJS.createLocalTracks({
-                                                        devices: ['audio']
-                                                    });
+                                                if (audioTracks && audioTracks[0]) {
+                                                    await window.APP.conference.addTrack(audioTracks[0]);
                                                     
-                                                    if (audioTracks && audioTracks[0]) {
-                                                        await window.APP.conference.addTrack(audioTracks[0]);
-                                                        
-                                                        if (window.__microphoneMuted) {
-                                                            await audioTracks[0].mute();
-                                                        }
+                                                    // Восстанавливаем состояние mute
+                                                    if (window.__microphoneMuted) {
+                                                        await audioTracks[0].mute();
                                                     }
+                                                    
+                                                    console.log('[JitsiManager] New microphone added');
                                                 }
-                                                
-                                                // Очищаем сохраненные данные
-                                                window.__savedMicrophoneTrack = null;
-                                                window.__microphoneMuted = null;
-                                            } else {
-                                                console.log('[JitsiManager] Microphone already present or not saved');
-                                                window.__interceptorFlag = false;
                                             }
+                                        } catch (e) {
+                                            console.error('[JitsiManager] Error checking/restoring mic:', e);
                                         }
-                                    } catch (e) {
-                                        console.error('[JitsiManager] Check interval error:', e);
-                                    }
-                                }, 100); // Проверяем каждые 100мс
-
-                                // Таймаут безопасности - если за 10 секунд ничего не произошло
-                                setTimeout(() => {
-                                    clearInterval(checkMicrophoneInterval);
-                                    window.__interceptorFlag = false;
-                                    window.__savedMicrophoneTrack = null;
-                                    window.__microphoneMuted = null;
-                                }, 10000);
+                                        
+                                        // Очищаем данные
+                                        window.__savedMicrophoneTrack = null;
+                                        window.__microphoneMuted = null;
+                                    }, 3000); // Даем время на стабилизацию
                                 } catch (error) {
                                     console.error('[JitsiManager] Error:', error);
                                     window.__interceptorFlag = false;
