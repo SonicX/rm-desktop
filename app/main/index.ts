@@ -932,38 +932,113 @@ async function createMainWindow(): Promise<BrowserWindow> {
     // app.exit(0);
   });
 
+  // Обработчик сброса кнопки
+  ipcMain.on("reset-update-button", () => {
+      if (mainWindow && mainWindow.webContents) {
+          mainWindow.webContents.executeJavaScript(`
+              const updateBtn = document.querySelector('#update-action');
+              if (updateBtn) {
+                  // Убираем состояние загрузки
+                  updateBtn.classList.remove('downloading');
+                  updateBtn.classList.add('available');
+                  updateBtn.disabled = false;
+                  
+                  // Сбрасываем прогресс
+                  const progressBar = updateBtn.querySelector('#update-progress-bar');
+                  if (progressBar) {
+                      progressBar.style.width = '0%';
+                  }
+                  
+                  const progressText = updateBtn.querySelector('#update-progress-text');
+                  if (progressText) {
+                      progressText.style.display = 'none';
+                  }
+                  
+                  const tooltip = document.querySelector('#update-tooltip');
+                  if (tooltip && window.pendingUpdate) {
+                      tooltip.innerText = 'Версия ' + window.pendingUpdate.version + ' доступна';
+                  }
+              }
+          `);
+      }
+  });
+
+  ipcMain.on("update-download-progress", (event, progress) => {
+      if (mainWindow && mainWindow.webContents) {
+          mainWindow.webContents.executeJavaScript(`
+              const updateBtn = document.querySelector('#update-action');
+              if (updateBtn && updateBtn.classList.contains('downloading')) {
+                  const progressBar = updateBtn.querySelector('#update-progress-bar');
+                  const progressText = updateBtn.querySelector('#update-progress-text');
+                  const tooltip = document.querySelector('#update-tooltip');
+                  
+                  const percent = Math.round(${progress});
+                  
+                  if (progressBar) {
+                      progressBar.style.width = percent + '%';
+                  }
+                  
+                  if (progressText) {
+                      progressText.innerText = percent + '%';
+                  }
+                  
+                  if (tooltip) {
+                      tooltip.innerText = 'Загрузка: ' + percent + '%';
+                  }
+                  
+                  // Если загрузка завершена
+                  if (percent >= 100) {
+                      setTimeout(() => {
+                          if (progressText) {
+                              progressText.innerText = 'Установка...';
+                          }
+                          if (tooltip) {
+                              tooltip.innerText = 'Запуск установщика...';
+                          }
+                      }, 500);
+                  }
+              }
+          `);
+      }
+  });
+
   async function downloadUpdate(url: string, destinationPath: string): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const file = fs.createWriteStream(destinationPath);
-      
-      https.get(url, (response) => {
-        const totalSize = parseInt(response.headers['content-length'] || '0', 10);
-        let downloadedSize = 0;
-        
-        response.pipe(file);
-        
-        response.on('data', (chunk) => {
-          downloadedSize += chunk.length;
-          const progress = totalSize > 0 ? (downloadedSize / totalSize) * 100 : 0;
-          mainWindow?.webContents.send("update-download-progress", progress);
-          log.info(`Download progress: ${progress.toFixed(2)}%`);
-        });
-        
-        file.on('finish', () => {
-          file.close();
-          log.info('Download completed');
-          resolve();
-        });
-        
-        response.on('error', (err) => {
-          fs.unlink(destinationPath, () => {});
-          reject(err);
-        });
-      }).on('error', (err) => {
-        fs.unlink(destinationPath, () => {});
-        reject(err);
+      return new Promise((resolve, reject) => {
+          const file = fs.createWriteStream(destinationPath);
+          
+          https.get(url, (response) => {
+              const totalSize = parseInt(response.headers['content-length'] || '0', 10);
+              let downloadedSize = 0;
+              
+              response.pipe(file);
+              
+              response.on('data', (chunk) => {
+                  downloadedSize += chunk.length;
+                  const progress = totalSize > 0 ? (downloadedSize / totalSize) * 100 : 0;
+                  
+                  // Отправляем прогресс в renderer
+                  mainWindow?.webContents.send("update-download-progress", progress);
+                  
+                  // Также отправляем в главное окно для обновления кнопки
+                  if (mainWindow) {
+                      mainWindow.webContents.executeJavaScript(`
+                          const event = new CustomEvent('update-progress', { 
+                              detail: { progress: ${progress} } 
+                          });
+                          window.dispatchEvent(event);
+                      `);
+                  }
+                  
+                  log.info(`Download progress: ${progress.toFixed(2)}%`);
+              });
+              
+              file.on('finish', () => {
+                  file.close();
+                  log.info('Download completed');
+                  resolve();
+              });
+          });
       });
-    });
   }
 
   // Затем функция распаковки, которая использует downloadUpdate
@@ -1044,6 +1119,172 @@ async function createMainWindow(): Promise<BrowserWindow> {
     }
     
     return { success: true, action: 'postponed' };
+  });
+
+  // Добавьте этот обработчик рядом с другими ipcMain
+  ipcMain.on("show-update-button", (event, updateInfo) => {
+      log.info(`📦 Main: Showing update button for version ${updateInfo.version}`);
+      
+      if (mainWindow && mainWindow.webContents) {
+          mainWindow.webContents.executeJavaScript(`
+              const updateBtn = document.querySelector('#update-action');
+              if (updateBtn) {
+                  // Очищаем кнопку
+                  updateBtn.classList.remove('hidden', 'inactive');
+                  updateBtn.classList.add('available');
+                  
+                  // Добавляем элементы прогресса если их нет
+                  if (!updateBtn.querySelector('#update-progress-bar')) {
+                      const progressBar = document.createElement('div');
+                      progressBar.id = 'update-progress-bar';
+                      updateBtn.appendChild(progressBar);
+                      
+                      const progressText = document.createElement('div');
+                      progressText.id = 'update-progress-text';
+                      progressText.style.display = 'none';
+                      updateBtn.appendChild(progressText);
+                  }
+                  
+                  const tooltip = document.querySelector('#update-tooltip');
+                  if (tooltip) {
+                      tooltip.innerText = 'Версия ${updateInfo.version} доступна';
+                  }
+                  
+                  window.pendingUpdate = ${JSON.stringify(updateInfo)};
+                  
+                  if (!updateBtn.hasUpdateHandler) {
+                      updateBtn.addEventListener('click', () => {
+                          console.log('Клик по кнопке обновления');
+                          
+                          // Меняем состояние кнопки на "загрузка"
+                          updateBtn.classList.remove('available');
+                          updateBtn.classList.add('downloading');
+                          updateBtn.disabled = true;
+                          
+                          const progressText = updateBtn.querySelector('#update-progress-text');
+                          if (progressText) {
+                              progressText.style.display = 'block';
+                              progressText.innerText = '0%';
+                          }
+                          
+                          if (tooltip) {
+                              tooltip.innerText = 'Загрузка...';
+                          }
+                          
+                          // Отправляем событие
+                          if (window.pendingUpdate) {
+                              const webview = document.querySelector('webview');
+                              if (webview) {
+                                  webview.executeJavaScript(\`
+                                      if (window.electron_bridge) {
+                                          window.electron_bridge.send_event('trigger-update', \${JSON.stringify(window.pendingUpdate)});
+                                      }
+                                  \`);
+                              }
+                          }
+                      });
+                      updateBtn.hasUpdateHandler = true;
+                  }
+              }
+          `);
+      }
+  });
+
+  // Обработчик начала обновления
+  ipcMain.on("start-update", async (event, updateInfo) => {
+      log.info(`📦 Starting update to version ${updateInfo.version}`);
+      
+      // Используем существующий обработчик
+      const result = await ipcMain.handle("handle-zulip-update", event, updateInfo);
+      log.info(`📦 Update result: ${JSON.stringify(result)}`);
+  });
+
+  ipcMain.handle('get-app-version', () => {
+      return app.getVersion();
+  });
+
+  ipcMain.handle("download-update", async (event, updateInfo) => {
+    try {
+      // Если используется electron-updater
+      if (autoUpdater) {
+        autoUpdater.downloadUpdate();
+        return { success: true };
+      }
+      
+      // Или ручная загрузка
+      const updateDir = path.join(app.getPath('userData'), 'updates');
+      if (!fs.existsSync(updateDir)) {
+        fs.mkdirSync(updateDir, { recursive: true });
+      }
+      
+      await downloadUpdateFile(updateInfo.downloadUrl, updateDir, (progress) => {
+        mainWindow?.webContents.send("update-download-progress", progress);
+      });
+      
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.on("install-update", () => {
+    if (autoUpdater) {
+      autoUpdater.quitAndInstall();
+    } else {
+      // Ручная установка
+      const updatePath = path.join(app.getPath('userData'), 'updates', 'installer.exe');
+      if (fs.existsSync(updatePath)) {
+        child_process.spawn(updatePath, [], {
+          detached: true,
+          stdio: 'ignore'
+        }).unref();
+        
+        setTimeout(() => {
+          app.quit();
+        }, 1000);
+      }
+    }
+  });
+
+  // Функция для загрузки с прогрессом
+  async function downloadUpdateFile(url: string, destDir: string, onProgress: (percent: number) => void): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const destPath = path.join(destDir, 'update.zip');
+      const file = fs.createWriteStream(destPath);
+      
+      https.get(url, (response) => {
+        const totalSize = parseInt(response.headers['content-length'] || '0', 10);
+        let downloadedSize = 0;
+        
+        response.on('data', (chunk) => {
+          downloadedSize += chunk.length;
+          const progress = totalSize > 0 ? (downloadedSize / totalSize) * 100 : 0;
+          onProgress(progress);
+        });
+        
+        response.pipe(file);
+        
+        file.on('finish', () => {
+          file.close();
+          resolve();
+        });
+        
+        response.on('error', reject);
+      }).on('error', reject);
+    });
+  }
+
+  // Настройка автообновлений с electron-updater
+  autoUpdater.on("update-available", (info) => {
+    mainWindow?.webContents.send("update-available", info);
+  });
+
+  autoUpdater.on("download-progress", (progressObj) => {
+    mainWindow?.webContents.send("update-download-progress", progressObj.percent);
+  });
+
+  autoUpdater.on("update-downloaded", (info) => {
+    mainWindow?.webContents.send("update-downloaded");
   });
 
   if (process.env.GDK_BACKEND !== GDK_BACKEND) {

@@ -75,6 +75,18 @@ export function removeConfigItem(key: string): void {
   database.save();
 }
 
+export function getPendingUpdate(): any {
+  return getConfigItem("pendingUpdate", null);
+}
+
+export function setPendingUpdate(updateInfo: any): void {
+  setConfigItem("pendingUpdate", updateInfo);
+}
+
+export function clearPendingUpdate(): void {
+  removeConfigItem("pendingUpdate");
+}
+
 function reloadDatabase(): void {
   const settingsJsonPath = path.join(
     app.getPath("userData"),

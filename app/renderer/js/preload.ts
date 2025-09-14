@@ -604,6 +604,63 @@ electron_bridge.on_event("zulip-update-available", async (data: {
   electron_bridge.send_event("update-response", result);
 });
 
+// Обработчик запроса версии от Zulip
+// В preload.ts
+electron_bridge.on_event("request-electron-version", () => {
+    ipcRenderer.send("preload-log", "📦 Zulip requested Electron version");
+    
+    // Пробуем получить версию через remote
+    try {
+        const { app } = require('@electron/remote');
+        const version = app.getVersion();
+        
+        electron_bridge.send_event("electron-version", { 
+            version: version 
+        });
+        
+        ipcRenderer.send("preload-log", `📦 Sent version back to Zulip: ${version}`);
+    } catch (error) {
+        // Если remote недоступен, запрашиваем у main процесса
+        ipcRenderer.invoke('get-app-version').then(version => {
+            electron_bridge.send_event("electron-version", { 
+                version: version 
+            });
+            ipcRenderer.send("preload-log", `📦 Sent version back to Zulip via IPC: ${version}`);
+        }).catch(err => {
+            // Крайний случай - отправляем версию по умолчанию
+            electron_bridge.send_event("electron-version", { 
+                version: "5.26.1" 
+            });
+            ipcRenderer.send("preload-log", `📦 Error getting version, sent default: 5.26.1`);
+        });
+    }
+});
+
+// Слушаем событие об обновлении от сервера
+electron_bridge.on_event("show-update-available", (data: {
+    version: string;
+    downloadUrl: string;
+    releaseNotes?: string;
+}) => {
+    ipcRenderer.send("preload-log", `📦 Update available from Zulip: v${data.version}`);
+    
+    // Отправляем напрямую в main процесс
+    ipcRenderer.send("show-update-button", data);
+});
+
+electron_bridge.on_event("trigger-update", (updateInfo: any) => {
+    ipcRenderer.send("preload-log", `📦 Triggering update for version ${updateInfo.version}`);
+    
+    ipcRenderer.invoke("handle-zulip-update", updateInfo).then(result => {
+        ipcRenderer.send("preload-log", `📦 Update result: ${JSON.stringify(result)}`);
+        
+        // Если пользователь отменил, сбрасываем состояние кнопки
+        if (result.action === 'postponed') {
+            ipcRenderer.send("reset-update-button");
+        }
+    });
+});
+
 contextBridge.exposeInMainWorld("testUpdate", {
   triggerUpdate: () => {
     electron_bridge.emit_event("zulip-update-available", {
