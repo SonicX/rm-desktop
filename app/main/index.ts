@@ -963,45 +963,6 @@ async function createMainWindow(): Promise<BrowserWindow> {
       }
   });
 
-  ipcMain.on("update-download-progress", (event, progress) => {
-      if (mainWindow && mainWindow.webContents) {
-          mainWindow.webContents.executeJavaScript(`
-              const updateBtn = document.querySelector('#update-action');
-              if (updateBtn && updateBtn.classList.contains('downloading')) {
-                  const progressBar = updateBtn.querySelector('#update-progress-bar');
-                  const progressText = updateBtn.querySelector('#update-progress-text');
-                  const tooltip = document.querySelector('#update-tooltip');
-                  
-                  const percent = Math.round(${progress});
-                  
-                  if (progressBar) {
-                      progressBar.style.width = percent + '%';
-                  }
-                  
-                  if (progressText) {
-                      progressText.innerText = percent + '%';
-                  }
-                  
-                  if (tooltip) {
-                      tooltip.innerText = 'Загрузка: ' + percent + '%';
-                  }
-                  
-                  // Если загрузка завершена
-                  if (percent >= 100) {
-                      setTimeout(() => {
-                          if (progressText) {
-                              progressText.innerText = 'Установка...';
-                          }
-                          if (tooltip) {
-                              tooltip.innerText = 'Запуск установщика...';
-                          }
-                      }, 500);
-                  }
-              }
-          `);
-      }
-  });
-
   async function downloadUpdate(url: string, destinationPath: string): Promise<void> {
       return new Promise((resolve, reject) => {
           const file = fs.createWriteStream(destinationPath);
@@ -1016,17 +977,37 @@ async function createMainWindow(): Promise<BrowserWindow> {
                   downloadedSize += chunk.length;
                   const progress = totalSize > 0 ? (downloadedSize / totalSize) * 100 : 0;
                   
-                  // Отправляем прогресс в renderer
+                  // Отправляем прогресс в renderer окно
                   mainWindow?.webContents.send("update-download-progress", progress);
                   
-                  // Также отправляем в главное окно для обновления кнопки
+                  // УБИРАЕМ эту строку - ipcRenderer здесь недоступен
+                  // ipcRenderer.send("update-download-progress", progress);
+                  
+                  // Вместо этого отправляем событие прогресса напрямую
                   if (mainWindow) {
+                      const percent = Math.round(progress);
                       mainWindow.webContents.executeJavaScript(`
-                          const event = new CustomEvent('update-progress', { 
-                              detail: { progress: ${progress} } 
-                          });
-                          window.dispatchEvent(event);
-                      `);
+                          (function() {
+                              const updateBtn = document.querySelector('#update-action');
+                              if (updateBtn && updateBtn.classList.contains('downloading')) {
+                                  const progressBar = updateBtn.querySelector('#update-progress-bar');
+                                  const progressText = updateBtn.querySelector('#update-progress-text');
+                                  const tooltip = document.querySelector('#update-tooltip');
+                                  
+                                  if (progressBar) {
+                                      progressBar.style.width = '${percent}%';
+                                  }
+                                  
+                                  if (progressText) {
+                                      progressText.innerText = '${percent}%';
+                                  }
+                                  
+                                  if (tooltip) {
+                                      tooltip.innerText = 'Загрузка: ${percent}%';
+                                  }
+                              }
+                          })();
+                      `).catch(() => {});
                   }
                   
                   log.info(`Download progress: ${progress.toFixed(2)}%`);
@@ -1037,6 +1018,14 @@ async function createMainWindow(): Promise<BrowserWindow> {
                   log.info('Download completed');
                   resolve();
               });
+              
+              response.on('error', (err) => {
+                  fs.unlink(destinationPath, () => {});
+                  reject(err);
+              });
+          }).on('error', (err) => {
+              fs.unlink(destinationPath, () => {});
+              reject(err);
           });
       });
   }

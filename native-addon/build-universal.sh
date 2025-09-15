@@ -19,51 +19,92 @@ else
 fi
 
 # Извлекаем версию Electron
-ELECTRON_VERSION=$(node -p "
-    const pkg = require('$PACKAGE_JSON');
-    const version = pkg.devDependencies?.electron || pkg.dependencies?.electron || '';
-    version.replace(/[\^~]/, '')
-")
+# ========================================
+# НАДЁЖНОЕ ОПРЕДЕЛЕНИЕ НАТИВНОГО БИНАРНИКА ELECTRON
+# ========================================
 
-if [ -z "$ELECTRON_VERSION" ]; then
-    echo "❌ Electron version not found in package.json"
+echo "🔍 Detecting REAL Electron binary..."
+
+# Приоритет: нативный бинарник из dist/
+if [ -f "node_modules/electron/dist/Electron.app/Contents/MacOS/Electron" ]; then
+    ELECTRON_BIN="node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+elif [ -f "../node_modules/electron/dist/Electron.app/Contents/MacOS/Electron" ]; then
+    ELECTRON_BIN="../node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+elif [ -f "../../node_modules/electron/dist/Electron.app/Contents/MacOS/Electron" ]; then
+    ELECTRON_BIN="../../node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+else
+    echo "❌ Native Electron binary not found in node_modules. Trying to reinstall..."
+    # Устанавливаем Electron 37.3.1 (исправление!)
+    npm install electron@37.3.1 --no-save --ignore-scripts && \
+    (cd node_modules/electron && node install.js) || {
+        echo "❌ Failed to reinstall Electron binary"
+        exit 1
+    }
+    # Проверяем снова
+    if [ -f "node_modules/electron/dist/Electron.app/Contents/MacOS/Electron" ]; then
+        ELECTRON_BIN="node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+    elif [ -f "../node_modules/electron/dist/Electron.app/Contents/MacOS/Electron" ]; then
+        ELECTRON_BIN="../node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+    else
+        echo "❌ Still no native Electron binary found. Aborting."
+        exit 1
+    fi
+fi
+
+echo "🔍 Using REAL Electron binary: $ELECTRON_BIN"
+ELECTRON_VERSION=$("$ELECTRON_BIN" --version | sed 's/^v//')
+ELECTRON_ABI=$("$ELECTRON_BIN" --abi)
+
+if [ -z "$ELECTRON_VERSION" ] || [ -z "$ELECTRON_ABI" ]; then
+    echo "❌ Failed to get version or ABI from native binary"
     exit 1
 fi
 
-# Определяем ABI версию для этой версии Electron
-# ВАЖНО: Используем точное соответствие минорной версии!
-get_electron_abi() {
-    local version=$1
-    local major=$(echo $version | cut -d. -f1)
-    local minor=$(echo $version | cut -d. -f2)
+echo "✅ Detected Electron ${ELECTRON_VERSION} (ABI ${ELECTRON_ABI})"
+
+# 🔒 КРИТИЧЕСКАЯ ПРОВЕРКА: Electron 37.x должен иметь ABI 136
+if [[ "$ELECTRON_VERSION" == 37* ]] && [ "$ELECTRON_ABI" != "136" ]; then
+    echo "❌ CRITICAL: ABI mismatch for Electron 37.x"
+    echo "   Expected ABI: 136"
+    echo "   Actual ABI: $ELECTRON_ABI"
+    echo "   Your Electron binary may be corrupted or from wrong version."
+    echo "   Reinstalling Electron 37.3.1 from GitHub..."
     
-    # Точное соответствие версий Electron -> ABI
-    if [ "$major" = "32" ]; then
-        if [ "$minor" = "3" ]; then
-            echo "125"  # Electron 32.3.x использует ABI 125
-        else
-            echo "125"  # Все версии Electron 32.x используют ABI 125
+    # Переходим в папку electron
+    ELECTRON_DIR=$(dirname "$ELECTRON_BIN")
+    cd "$ELECTRON_DIR/../../.."  # Это node_modules/electron
+    
+    # Удаляем старый dist
+    rm -rf dist
+    mkdir -p dist
+    cd dist
+    
+    # Определяем архитектуру
+    ARCH=$(uname -m)
+    if [ "$ARCH" = "x86_64" ]; then
+        ZIP_URL="https://github.com/electron/electron/releases/download/v37.3.1/electron-v37.3.1-darwin-x64.zip"
+    else
+        ZIP_URL="https://github.com/electron/electron/releases/download/v37.3.1/electron-v37.3.1-darwin-arm64.zip"
+    fi
+    
+    echo "📥 Downloading official Electron 37.3.1 from GitHub: $ZIP_URL"
+    if curl -L# "$ZIP_URL" -o electron.zip && unzip -o electron.zip && rm -f electron.zip; then
+        echo "✅ Official Electron binary installed"
+        # Обновляем путь
+        ELECTRON_BIN="Electron.app/Contents/MacOS/Electron"
+        ELECTRON_VERSION=$("$ELECTRON_BIN" --version | sed 's/^v//')
+        ELECTRON_ABI=$("$ELECTRON_BIN" --abi)
+        echo "✅ Re-checked: Electron ${ELECTRON_VERSION} (ABI ${ELECTRON_ABI})"
+        
+        if [ "$ELECTRON_ABI" != "136" ]; then
+            echo "❌ Even official binary has wrong ABI. Aborting."
+            exit 1
         fi
     else
-        case $major in
-            29) echo "121" ;;
-            30) echo "121" ;;
-            31) echo "124" ;;
-            33) echo "127" ;;
-            34) echo "128" ;;
-            *)
-                # Если версия не в таблице, пытаемся получить через API
-                echo "$(curl -s https://releases.electronjs.org/releases.json | \
-                    node -p "JSON.parse(require('fs').readFileSync(0)).find(r => r.version === 'v${version}')?.modules || '125'")"
-                ;;
-        esac
+        echo "❌ Failed to download or extract official binary. Aborting."
+        exit 1
     fi
-}
-
-ELECTRON_ABI=$(get_electron_abi $ELECTRON_VERSION)
-
-echo "✅ Detected Electron ${ELECTRON_VERSION} (ABI ${ELECTRON_ABI})"
-echo "📦 Using package.json from: $PACKAGE_JSON"
+fi
 
 # Скачиваем Electron headers если нужно
 ELECTRON_HEADERS_DIR="$HOME/.electron-gyp/${ELECTRON_VERSION}"
