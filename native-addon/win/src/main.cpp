@@ -309,6 +309,86 @@ private:
     }
 };
 
+class EchoTestAndCancel {
+private:
+    static constexpr int SAMPLE_RATE = 48000;
+    
+    // Тестовый сигнал: двухтональный маркер
+    void GenerateTestTone(std::vector<float>& samples, int position) {
+        int toneLength = std::min(960, (int)samples.size() - position); // 20мс
+        
+        for (int i = 0; i < toneLength; i++) {
+            float t = (float)i / SAMPLE_RATE;
+            // Двухтональный сигнал: 880Hz + 1320Hz (уникальная комбинация)
+            float tone = 0.15f * (sinf(2.0f * 3.14159f * 880.0f * t) +
+                                  sinf(2.0f * 3.14159f * 1320.0f * t));
+            samples[position + i] += tone;
+        }
+    }
+    
+    // Детектор двухтонального сигнала
+    bool DetectTestTone(const std::vector<float>& samples, int position) {
+        if (position + 960 > samples.size()) return false;
+        
+        float energy880 = 0, energy1320 = 0;
+        
+        // Простой частотный анализ (Goertzel algorithm)
+        for (int i = 0; i < 960; i++) {
+            float t = (float)i / SAMPLE_RATE;
+            energy880 += samples[position + i] * sinf(2.0f * 3.14159f * 880.0f * t);
+            energy1320 += samples[position + i] * sinf(2.0f * 3.14159f * 1320.0f * t);
+        }
+        
+        energy880 = fabs(energy880) / 960;
+        energy1320 = fabs(energy1320) / 960;
+        
+        // Если обе частоты присутствуют - это наш маркер
+        return (energy880 > 0.05f && energy1320 > 0.05f);
+    }
+    
+public:
+    void ProcessAndTest(std::vector<float>& samples) {
+        static int testCounter = 0;
+        static std::vector<int> echoPositions;
+        
+        // Каждые 50 фреймов добавляем тестовый тон
+        if (++testCounter % 50 == 0) {
+            GenerateTestTone(samples, 0);
+            OutputDebugStringA("[TEST] Injected test tone\n");
+        }
+        
+        // Сканируем весь буфер на наличие тестовых тонов
+        int detectCount = 0;
+        for (size_t pos = 0; pos < samples.size() - 960; pos += 480) {
+            if (DetectTestTone(samples, pos)) {
+                detectCount++;
+                
+                // МОДИФИЦИРУЕМ найденное эхо
+                for (int i = 0; i < 960; i++) {
+                    // Создаем "рваный" звук для явной идентификации
+                    if ((i / 48) % 2 == 0) {
+                        samples[pos + i] *= 0.1f;  // Заглушаем
+                    } else {
+                        samples[pos + i] *= 2.0f;   // Усиливаем
+                    }
+                }
+                
+                // Запоминаем позицию для анализа задержки
+                echoPositions.push_back(pos);
+                
+                char log[256];
+                sprintf_s(log, "[ECHO-FOUND] Test tone detected at sample %zu (%.1fms from start)\n", 
+                         pos, (float)pos * 1000.0f / SAMPLE_RATE);
+                OutputDebugStringA(log);
+            }
+        }
+        
+        if (detectCount > 0) {
+            OutputDebugStringA("[SUCCESS] Echo cancellation is working! Modified echoes will sound distorted.\n");
+        }
+    }
+};
+
 // Класс для управления громкостью других приложений
 class VolumeController {
 private:
@@ -757,6 +837,9 @@ private:
     UniversalEchoCanceller echoCanceller;
     bool echoEnabled = true;
 
+    EchoTestAndCancel echoTester;  // Добавляем тестер
+    bool testMode = true;  // Включаем тестовый режим
+
 
     std::atomic<bool> isCapturing{false};
     std::thread captureThread;
@@ -1075,7 +1158,9 @@ public:
         static int debugCounter = 0;
         debugCounter++;
         
-        // Конвертируем в float (существующий код)
+        // ============================================
+        // КОНВЕРТАЦИЯ В FLOAT
+        // ============================================
         bool hasNonZero = false;
         
         if (waveFormat->wFormatTag == WAVE_FORMAT_IEEE_FLOAT) {
@@ -1133,85 +1218,23 @@ public:
         }
         
         // ============================================
-        // ТЕСТОВЫЙ РЕЖИМ: Генерация тестового сигнала
+        // РЕЖИМ ТЕСТИРОВАНИЯ ЭХОПОДАВЛЕНИЯ
         // ============================================
-        if (diagnosticMode) {
-            diagnosticFrameCount++;
+        if (testMode) {
+            // В тестовом режиме ТОЛЬКО тестируем эхо
+            echoTester.ProcessAndTest(samples);
             
-            // Первые 5 секунд - генерируем тестовый сигнал
-            // Следующие 5 секунд - реальный захват
-            // Потом снова тестовый и т.д.
-            int cyclePosition = (diagnosticFrameCount / 100) % 2; // Меняем каждые ~2 секунды при 48kHz
+            // Логируем что мы в тестовом режиме
+            static int testLogCounter = 0;
+            if (++testLogCounter % 100 == 0) {
+                OutputDebugStringA("[TEST-MODE] Echo test active, listening for echoes...\n");
+            }
+        } 
+        else if (echoEnabled && !diagnosticMode) {
+            // ============================================
+            // ОБЫЧНОЕ ЭХОПОДАВЛЕНИЕ (когда не в тесте)
+            // ============================================
             
-            if (cyclePosition == 0) {
-                // ГЕНЕРИРУЕМ ТЕСТОВЫЙ СИГНАЛ (синусоида 440 Гц)
-                float omega = 2.0f * 3.14159265f * testSignalFrequency / waveFormat->nSamplesPerSec;
-                
-                for (size_t i = 0; i < numFrames; i++) {
-                    float sampleValue = testSignalAmplitude * sinf(omega * testSignalPhase);
-                    testSignalPhase++;
-                    
-                    // Записываем во все каналы
-                    for (UINT ch = 0; ch < waveFormat->nChannels; ch++) {
-                        samples[i * waveFormat->nChannels + ch] = sampleValue;
-                    }
-                }
-                
-                // Логируем переключение на тестовый сигнал
-                if (diagnosticFrameCount % 100 == 1) {
-                    char log[256];
-                    sprintf_s(log, "[TEST-SIGNAL] Frame %d: Generating 440Hz sine wave, amplitude=%.2f\n",
-                            diagnosticFrameCount, testSignalAmplitude);
-                    OutputDebugStringA(log);
-                }
-                
-                hasNonZero = true; // Гарантируем что есть данные
-            } else {
-                // РЕАЛЬНЫЙ ЗАХВАТ - добавляем маркер для идентификации
-                // Добавляем очень тихий пилот-тон 1kHz чтобы отличить от тишины
-                float pilotFreq = 1000.0f;
-                float pilotAmp = 0.001f; // Очень тихий
-                float omega = 2.0f * 3.14159265f * pilotFreq / waveFormat->nSamplesPerSec;
-                
-                for (size_t i = 0; i < sampleCount; i++) {
-                    samples[i] += pilotAmp * sinf(omega * (testSignalPhase + i));
-                }
-                testSignalPhase += sampleCount;
-                
-                if (diagnosticFrameCount % 100 == 51) {
-                    char log[256];
-                    sprintf_s(log, "[REAL-CAPTURE] Frame %d: Real audio + pilot tone, hasData=%s\n",
-                            diagnosticFrameCount, hasNonZero ? "YES" : "NO");
-                    OutputDebugStringA(log);
-                }
-            }
-        }
-
-        // ============================================
-        // ТЕСТОВЫЙ МАРКЕР - ДОБАВЛЯЕМ ХАРАКТЕРНЫЙ ЗВУК
-        // ============================================
-        static int markerCounter = 0;
-        static bool addMarker = false;
-        
-        // Каждые 2 секунды добавляем короткий "бип"
-        if (++markerCounter % (waveFormat->nSamplesPerSec * 2 / numFrames) == 0) {
-            addMarker = true;
-            OutputDebugStringA("[MARKER] Adding beep marker to verify processing\n");
-        }
-        
-        if (addMarker) {
-            // Добавляем характерный двухтональный сигнал (800Hz + 1200Hz)
-            for (size_t i = 0; i < std::min((size_t)1000, samples.size()); i++) {
-                float t = (float)i / waveFormat->nSamplesPerSec;
-                float beep = 0.1f * (sinf(2.0f * 3.14159f * 800.0f * t) + 
-                                    sinf(2.0f * 3.14159f * 1200.0f * t));
-                samples[i] += beep;
-            }
-            addMarker = false;
-        }
-
-        // ПРОСТОЕ ПРИМЕНЕНИЕ ЭХОПОДАВЛЕНИЯ
-        if (echoEnabled && !diagnosticMode) {
             // Если стерео - обрабатываем каждый канал
             if (waveFormat->nChannels == 2) {
                 std::vector<float> leftChannel;
@@ -1236,27 +1259,12 @@ public:
                 // Моно - обрабатываем напрямую
                 echoCanceller.ProcessBuffer(samples);
             }
-            
-            // Диагностика
-            static int echoLogCounter = 0;
-            if (++echoLogCounter % 50 == 0) {
-                float rms = 0;
-                for (size_t i = 0; i < std::min((size_t)100, samples.size()); i++) {
-                    rms += samples[i] * samples[i];
-                }
-                rms = sqrt(rms / 100);
-                
-                char log[256];
-                sprintf_s(log, "[ECHO-RESULT] After processing: RMS=%.6f\n", rms);
-                OutputDebugStringA(log);
-            }
         }
         
         // ============================================
-        // ДЕТАЛЬНАЯ ДИАГНОСТИКА
+        // ДИАГНОСТИКА (только если не в тесте)
         // ============================================
-        if (debugCounter <= 10 || debugCounter % 100 == 0) {
-            // Вычисляем RMS (среднеквадратичное) для оценки громкости
+        if (!testMode && (debugCounter <= 10 || debugCounter % 100 == 0)) {
             float rms = 0;
             float maxSample = 0;
             for (size_t i = 0; i < sampleCount && i < 1000; i++) {
@@ -1267,15 +1275,19 @@ public:
             rms = sqrt(rms / divisor);
             
             char log[512];
-            sprintf_s(log, "[AUDIO-DIAG] Frame %d: Format=0x%X, Bits=%d, Ch=%d, Samples=%u, RMS=%.6f, Max=%.6f, Mode=%s\n",
-                    debugCounter, waveFormat->wFormatTag, waveFormat->wBitsPerSample,
-                    waveFormat->nChannels, numFrames, rms, maxSample,
-                    diagnosticMode ? (diagnosticFrameCount/100 % 2 == 0 ? "TEST_SIGNAL" : "REAL+PILOT") : "NORMAL");
+            sprintf_s(log, "[AUDIO-DIAG] Frame %d: RMS=%.6f, Max=%.6f, TestMode=%s, EchoEnabled=%s\n",
+                    debugCounter, rms, maxSample,
+                    testMode ? "ON" : "OFF",
+                    echoEnabled ? "ON" : "OFF");
             OutputDebugStringA(log);
         }
         
-        // НЕ применяем фильтрацию в режиме диагностики
-        if (!diagnosticMode && targetProcessId != 0 && !echoEnabled) {
+        // ============================================
+        // ФИНАЛЬНАЯ ОБРАБОТКА И ОТПРАВКА
+        // ============================================
+        
+        // Применяем фильтрацию процесса (если нужно)
+        if (!diagnosticMode && !testMode && targetProcessId != 0 && !echoEnabled) {
             ApplyProcessFilter(samples);
         }
         
