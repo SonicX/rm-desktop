@@ -225,6 +225,145 @@ public:
     }
 };
 
+class AdaptiveEchoCanceller {
+private:
+    static constexpr int MAX_DELAY_MS = 1500;  // Максимальная задержка 1.5 сек
+    static constexpr int SAMPLE_RATE = 48000;
+    static constexpr int MAX_DELAY_SAMPLES = (MAX_DELAY_MS * SAMPLE_RATE) / 1000;
+    
+    // Кольцевой буфер для хранения истории звука
+    std::vector<float> historyBuffer;
+    int historyIndex = 0;
+    
+    // Параметры адаптивного фильтра
+    std::vector<float> filterWeights;
+    float adaptRate = 0.001f;
+    
+    // Корреляционный детектор задержки
+    int detectedDelay = 0;
+    int delaySearchCounter = 0;
+    
+public:
+    AdaptiveEchoCanceller() {
+        historyBuffer.resize(MAX_DELAY_SAMPLES, 0.0f);
+        filterWeights.resize(4800, 0.0f);  // 100мс фильтр
+    }
+    
+    // Основной метод обработки
+    void ProcessBuffer(std::vector<float>& samples) {
+        // Каждые 100 фреймов ищем задержку эха
+        if (++delaySearchCounter % 100 == 0) {
+            detectedDelay = FindEchoDelay(samples);
+            
+            char log[256];
+            sprintf_s(log, "[ECHO] Detected delay: %d samples (%.1f ms)\n", 
+                     detectedDelay, (float)detectedDelay * 1000.0f / SAMPLE_RATE);
+            OutputDebugStringA(log);
+        }
+        
+        // Применяем подавление с найденной задержкой
+        for (size_t i = 0; i < samples.size(); i++) {
+            float currentSample = samples[i];
+            
+            // Добавляем в историю
+            historyBuffer[historyIndex] = currentSample;
+            
+            // Получаем задержанный сигнал (потенциальное эхо)
+            int delayedIndex = (historyIndex - detectedDelay + MAX_DELAY_SAMPLES) % MAX_DELAY_SAMPLES;
+            float delayedSample = historyBuffer[delayedIndex];
+            
+            // Адаптивное вычитание
+            float prediction = 0;
+            int filterStart = (delayedIndex - filterWeights.size() + MAX_DELAY_SAMPLES) % MAX_DELAY_SAMPLES;
+            
+            // Вычисляем предсказание эха
+            for (size_t j = 0; j < filterWeights.size(); j++) {
+                int idx = (filterStart + j) % MAX_DELAY_SAMPLES;
+                prediction += filterWeights[j] * historyBuffer[idx];
+            }
+            
+            // Вычитаем предсказанное эхо
+            float cleanSample = currentSample - prediction;
+            
+            // Обновляем веса фильтра (LMS алгоритм)
+            float error = cleanSample;
+            float learningRate = adaptRate / (1.0f + GetSignalPower(delayedIndex));
+            
+            for (size_t j = 0; j < filterWeights.size(); j++) {
+                int idx = (filterStart + j) % MAX_DELAY_SAMPLES;
+                filterWeights[j] += learningRate * error * historyBuffer[idx];
+                
+                // Ограничиваем веса для стабильности
+                filterWeights[j] = std::max(-1.0f, std::min(1.0f, filterWeights[j]));
+            }
+            
+            samples[i] = cleanSample;
+            
+            // Сдвигаем индекс
+            historyIndex = (historyIndex + 1) % MAX_DELAY_SAMPLES;
+        }
+    }
+    
+private:
+    // Поиск задержки эха через кросс-корреляцию
+    int FindEchoDelay(const std::vector<float>& samples) {
+        // Ищем в диапазоне 200-1500мс
+        const int MIN_DELAY = (200 * SAMPLE_RATE) / 1000;   // 200мс
+        const int MAX_SEARCH = (1500 * SAMPLE_RATE) / 1000; // 1500мс
+        const int STEP = 480;  // Шаг поиска ~10мс
+        
+        float maxCorrelation = 0;
+        int bestDelay = MIN_DELAY;
+        
+        // Берем последние 1000 сэмплов для анализа
+        size_t testSize = std::min((size_t)1000, samples.size());
+        
+        for (int delay = MIN_DELAY; delay < MAX_SEARCH; delay += STEP) {
+            float correlation = 0;
+            float norm1 = 0, norm2 = 0;
+            
+            for (size_t i = 0; i < testSize; i++) {
+                int histIdx = (historyIndex - delay - i + MAX_DELAY_SAMPLES) % MAX_DELAY_SAMPLES;
+                float delayed = historyBuffer[histIdx];
+                float current = samples[samples.size() - testSize + i];
+                
+                correlation += current * delayed;
+                norm1 += current * current;
+                norm2 += delayed * delayed;
+            }
+            
+            // Нормализованная корреляция
+            if (norm1 > 0 && norm2 > 0) {
+                correlation = correlation / sqrt(norm1 * norm2);
+                
+                if (correlation > maxCorrelation) {
+                    maxCorrelation = correlation;
+                    bestDelay = delay;
+                }
+            }
+        }
+        
+        // Возвращаем задержку только если корреляция достаточно высокая
+        if (maxCorrelation > 0.3f) {
+            return bestDelay;
+        }
+        
+        return detectedDelay; // Сохраняем предыдущее значение
+    }
+    
+    float GetSignalPower(int centerIndex) {
+        float power = 0;
+        const int windowSize = 100;
+        
+        for (int i = -windowSize/2; i < windowSize/2; i++) {
+            int idx = (centerIndex + i + MAX_DELAY_SAMPLES) % MAX_DELAY_SAMPLES;
+            power += historyBuffer[idx] * historyBuffer[idx];
+        }
+        
+        return power / windowSize;
+    }
+};
+
 // Класс для управления громкостью других приложений
 class VolumeController {
 private:
@@ -670,14 +809,7 @@ private:
     IAudioSessionManager2* sessionManager = nullptr;
     WAVEFORMATEX* waveFormat = nullptr;
     
-    // Для эхоподавления через разделение потоков
-    std::vector<float> electronAudioStream;  // Звук от Electron (с эхом)
-    std::vector<float> externalAudioStream;  // Внешний звук (Jitsi и др.)
-    std::mutex electronStreamMutex;
-    std::mutex externalStreamMutex;
-
-
-    EchoCancellingCapture echoCancellingCapture;  // Экземпляр эхоподавителя
+    AdaptiveEchoCanceller echoCanceller;
     bool echoEnabled = false;
 
 
@@ -1110,26 +1242,23 @@ public:
             }
         }
 
-        // ============================================
-        // ЭХОПОДАВЛЕНИЕ ЧЕРЕЗ РАЗДЕЛЕНИЕ ПОТОКОВ
-        // ============================================
+        // ПРОСТОЕ ПРИМЕНЕНИЕ ЭХОПОДАВЛЕНИЯ
         if (echoEnabled && !diagnosticMode) {
-            DWORD currentProcessId = GetCurrentProcessId();
-            DWORD sourceProcessId = targetProcessId != 0 ? targetProcessId : GetActiveAudioProcessId();
+            echoCanceller.ProcessBuffer(samples);
             
-            // Используем echoCancellingCapture вместо echoCanceller
-            echoCancellingCapture.ProcessSystemAudio(
-                samples.data(), 
-                samples.size(), 
-                sourceProcessId
-            );
-            
-            std::vector<float> cleanAudio = echoCancellingCapture.GetCleanAudio();
-            
-            if (!cleanAudio.empty()) {
-                samples = cleanAudio;
-            } else {
-                return; // Недостаточно данных
+            static int logCounter = 0;
+            if (++logCounter % 100 == 0) {
+                // Вычисляем уровень подавления для диагностики
+                float rms_before = 0, rms_after = 0;
+                for (size_t i = 0; i < std::min((size_t)100, samples.size()); i++) {
+                    rms_after += samples[i] * samples[i];
+                }
+                rms_after = sqrt(rms_after / 100);
+                
+                char log[256];
+                sprintf_s(log, "[ECHO] Frame %d: RMS after=%.6f\n", 
+                         logCounter, rms_after);
+                OutputDebugStringA(log);
             }
         }
         
@@ -1168,72 +1297,6 @@ public:
         }
         
         SendBufferedFrames();
-    }
-
-    // Вспомогательный метод для определения процесса в системном режиме
-    DWORD GetActiveAudioProcessId() {
-        // В системном режиме WASAPI loopback не дает информацию о процессе
-        // Попробуем определить через активные сессии
-        if (!sessionManager) return 0;
-        
-        IAudioSessionEnumerator* sessionEnumerator = nullptr;
-        HRESULT hr = sessionManager->GetSessionEnumerator(&sessionEnumerator);
-        if (FAILED(hr)) return 0;
-        
-        int sessionCount = 0;
-        sessionEnumerator->GetCount(&sessionCount);
-        
-        DWORD mostActiveProcess = 0;
-        float maxVolume = 0;
-        
-        for (int i = 0; i < sessionCount; i++) {
-            IAudioSessionControl* sessionControl = nullptr;
-            hr = sessionEnumerator->GetSession(i, &sessionControl);
-            if (FAILED(hr)) continue;
-            
-            AudioSessionState state;
-            hr = sessionControl->GetState(&state);
-            
-            if (SUCCEEDED(hr) && state == AudioSessionStateActive) {
-                IAudioMeterInformation* meterInfo = nullptr;
-                hr = sessionControl->QueryInterface(__uuidof(IAudioMeterInformation), 
-                                                (void**)&meterInfo);
-                
-                if (SUCCEEDED(hr)) {
-                    float peakValue = 0;
-                    meterInfo->GetPeakValue(&peakValue);
-                    
-                    if (peakValue > maxVolume) {
-                        IAudioSessionControl2* sessionControl2 = nullptr;
-                        hr = sessionControl->QueryInterface(__uuidof(IAudioSessionControl2), 
-                                                        (void**)&sessionControl2);
-                        if (SUCCEEDED(hr)) {
-                            sessionControl2->GetProcessId(&mostActiveProcess);
-                            maxVolume = peakValue;
-                            sessionControl2->Release();
-                        }
-                    }
-                    meterInfo->Release();
-                }
-            }
-            sessionControl->Release();
-        }
-        
-        sessionEnumerator->Release();
-        return mostActiveProcess;
-    }
-
-    // НОВЫЙ МЕТОД ДЛЯ ЭХОПОДАВЛЕНИЯ
-    bool TryProcessEchoCancellation(std::vector<float>& samples) {
-        // Получаем очищенный звук от echoCancellingCapture
-        std::vector<float> cleanAudio = echoCancellingCapture.GetCleanAudio();
-        
-        if (!cleanAudio.empty()) {
-            samples = cleanAudio;
-            return true;
-        }
-        
-        return false;
     }
         
     void ApplyProcessFilter(std::vector<float>& samples) {
