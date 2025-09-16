@@ -154,6 +154,77 @@ double GetTimestamp() {
     return g_syncManager.GetTimestamp();
 }
 
+class EchoCancellingCapture {
+private:
+    struct AudioStream {
+        std::vector<float> buffer;
+        std::mutex mutex;
+    };
+    
+    AudioStream allAudioStream;      // Весь системный звук
+    AudioStream electronOnlyStream;  // Только ваш Electron
+    
+    // Простой адаптивный фильтр
+    float adaptiveGain = 1.0f;
+    
+public:
+    void ProcessSystemAudio(float* samples, size_t count, DWORD processId) {
+        if (processId == GetCurrentProcessId()) {
+            // Это звук от вашего Electron (с микрофоном)
+            std::lock_guard<std::mutex> lock(electronOnlyStream.mutex);
+            electronOnlyStream.buffer.insert(
+                electronOnlyStream.buffer.end(), 
+                samples, samples + count
+            );
+        } else {
+            // Это внешний звук (Jitsi и др.)
+            std::lock_guard<std::mutex> lock(allAudioStream.mutex);
+            allAudioStream.buffer.insert(
+                allAudioStream.buffer.end(),
+                samples, samples + count
+            );
+        }
+    }
+    
+    std::vector<float> GetCleanAudio() {
+        std::lock_guard<std::mutex> lock1(electronOnlyStream.mutex);
+        std::lock_guard<std::mutex> lock2(allAudioStream.mutex);
+        
+        size_t minSize = std::min(
+            electronOnlyStream.buffer.size(),
+            allAudioStream.buffer.size()
+        );
+        
+        std::vector<float> result(minSize);
+        
+        // Простое адаптивное вычитание
+        for (size_t i = 0; i < minSize; i++) {
+            float electron = electronOnlyStream.buffer[i];
+            float external = allAudioStream.buffer[i];
+            
+            // Вычитаем внешний звук с адаптивным коэффициентом
+            result[i] = electron - (external * adaptiveGain);
+            
+            // Адаптируем коэффициент
+            float error = result[i];
+            adaptiveGain += 0.00001f * error * external;
+            adaptiveGain = std::max(0.0f, std::min(2.0f, adaptiveGain));
+        }
+        
+        // Очищаем использованные данные
+        electronOnlyStream.buffer.erase(
+            electronOnlyStream.buffer.begin(),
+            electronOnlyStream.buffer.begin() + minSize
+        );
+        allAudioStream.buffer.erase(
+            allAudioStream.buffer.begin(),
+            allAudioStream.buffer.begin() + minSize
+        );
+        
+        return result;
+    }
+};
+
 // Класс для управления громкостью других приложений
 class VolumeController {
 private:
@@ -599,6 +670,17 @@ private:
     IAudioSessionManager2* sessionManager = nullptr;
     WAVEFORMATEX* waveFormat = nullptr;
     
+    // Для эхоподавления через разделение потоков
+    std::vector<float> electronAudioStream;  // Звук от Electron (с эхом)
+    std::vector<float> externalAudioStream;  // Внешний звук (Jitsi и др.)
+    std::mutex electronStreamMutex;
+    std::mutex externalStreamMutex;
+    bool echoEnabled = false;
+
+    // Экземпляр эхоподавителя (используйте EchoCancellingCapture из предыдущего ответа)
+    EchoCancellingCapture echoCancellingCapture;
+
+
     std::atomic<bool> isCapturing{false};
     std::thread captureThread;
     std::vector<float> accumulationBuffer;
@@ -844,6 +926,13 @@ public:
         
         return SUCCEEDED(hr);
     }
+
+    void EnableEchoCancellation(bool enable) {
+        echoEnabled = enable;
+        OutputDebugStringA(enable ? 
+            "Echo cancellation ENABLED\n" : 
+            "Echo cancellation DISABLED\n");
+    }
     
     void StartCapture() {
         if (!audioClient) return;
@@ -1020,6 +1109,47 @@ public:
                 }
             }
         }
+
+        // ============================================
+        // ЭХОПОДАВЛЕНИЕ ЧЕРЕЗ РАЗДЕЛЕНИЕ ПОТОКОВ
+        // ============================================
+        if (echoEnabled && !diagnosticMode) {
+            // Определяем от какого процесса пришел звук
+            DWORD currentProcessId = GetCurrentProcessId();
+            DWORD sourceProcessId = 0;
+            
+            // В режиме захвата окна - известен процесс
+            if (targetProcessId != 0) {
+                sourceProcessId = targetProcessId;
+            } else {
+                // В режиме системного захвата - определяем через сессии
+                sourceProcessId = GetActiveAudioProcessId();
+            }
+            
+            // Передаем в эхоподавитель с указанием процесса
+            echoCancellingCapture.ProcessSystemAudio(
+                samples.data(), 
+                samples.size(), 
+                sourceProcessId
+            );
+            
+            // Получаем очищенный звук
+            std::vector<float> cleanAudio = echoCancellingCapture.GetCleanAudio();
+            
+            if (!cleanAudio.empty()) {
+                samples = cleanAudio;
+                
+                if (debugCounter % 100 == 0) {
+                    char log[256];
+                    sprintf_s(log, "[ECHO] Applied echo cancellation, cleaned %zu samples\n", 
+                            cleanAudio.size());
+                    OutputDebugStringA(log);
+                }
+            } else {
+                // Еще недостаточно данных для обработки
+                return;
+            }
+        }
         
         // ============================================
         // ДЕТАЛЬНАЯ ДИАГНОСТИКА
@@ -1044,7 +1174,7 @@ public:
         }
         
         // НЕ применяем фильтрацию в режиме диагностики
-        if (!diagnosticMode && targetProcessId != 0) {
+        if (!diagnosticMode && targetProcessId != 0 && !echoEnabled) {
             ApplyProcessFilter(samples);
         }
         
@@ -1057,7 +1187,92 @@ public:
         
         SendBufferedFrames();
     }
-    
+
+    // Вспомогательный метод для определения процесса в системном режиме
+    DWORD GetActiveAudioProcessId() {
+        // В системном режиме WASAPI loopback не дает информацию о процессе
+        // Попробуем определить через активные сессии
+        if (!sessionManager) return 0;
+        
+        IAudioSessionEnumerator* sessionEnumerator = nullptr;
+        HRESULT hr = sessionManager->GetSessionEnumerator(&sessionEnumerator);
+        if (FAILED(hr)) return 0;
+        
+        int sessionCount = 0;
+        sessionEnumerator->GetCount(&sessionCount);
+        
+        DWORD mostActiveProcess = 0;
+        float maxVolume = 0;
+        
+        for (int i = 0; i < sessionCount; i++) {
+            IAudioSessionControl* sessionControl = nullptr;
+            hr = sessionEnumerator->GetSession(i, &sessionControl);
+            if (FAILED(hr)) continue;
+            
+            AudioSessionState state;
+            hr = sessionControl->GetState(&state);
+            
+            if (SUCCEEDED(hr) && state == AudioSessionStateActive) {
+                IAudioMeterInformation* meterInfo = nullptr;
+                hr = sessionControl->QueryInterface(__uuidof(IAudioMeterInformation), 
+                                                (void**)&meterInfo);
+                
+                if (SUCCEEDED(hr)) {
+                    float peakValue = 0;
+                    meterInfo->GetPeakValue(&peakValue);
+                    
+                    if (peakValue > maxVolume) {
+                        IAudioSessionControl2* sessionControl2 = nullptr;
+                        hr = sessionControl->QueryInterface(__uuidof(IAudioSessionControl2), 
+                                                        (void**)&sessionControl2);
+                        if (SUCCEEDED(hr)) {
+                            sessionControl2->GetProcessId(&mostActiveProcess);
+                            maxVolume = peakValue;
+                            sessionControl2->Release();
+                        }
+                    }
+                    meterInfo->Release();
+                }
+            }
+            sessionControl->Release();
+        }
+        
+        sessionEnumerator->Release();
+        return mostActiveProcess;
+    }
+
+    // НОВЫЙ МЕТОД ДЛЯ ЭХОПОДАВЛЕНИЯ
+    bool TryProcessEchoCancellation(std::vector<float>& samples) {
+        std::lock_guard<std::mutex> lock1(electronStreamMutex);
+        std::lock_guard<std::mutex> lock2(externalStreamMutex);
+        
+        // Нужно минимум TARGET_FRAME_SIZE сэмплов в каждом буфере
+        size_t minSize = std::min(electronAudioStream.size(), 
+                                externalAudioStream.size());
+        
+        if (minSize < samples.size()) {
+            // Недостаточно данных
+            return false;
+        }
+        
+        // Применяем адаптивное вычитание
+        for (size_t i = 0; i < samples.size(); i++) {
+            float electronSample = electronAudioStream[i];
+            float externalSample = externalAudioStream[i];
+            
+            // Простое эхоподавление через вычитание
+            samples[i] = echoCanceller.ProcessSample(electronSample, externalSample);
+        }
+        
+        // Удаляем обработанные данные из буферов
+        electronAudioStream.erase(electronAudioStream.begin(), 
+                                electronAudioStream.begin() + samples.size());
+        externalAudioStream.erase(externalAudioStream.begin(), 
+                                externalAudioStream.begin() + samples.size());
+        
+        return true;
+    }
+        
     void ApplyProcessFilter(std::vector<float>& samples) {
         // ВРЕМЕННО ОТКЛЮЧЕНО для отладки
         return;
