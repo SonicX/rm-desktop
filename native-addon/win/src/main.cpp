@@ -154,213 +154,151 @@ double GetTimestamp() {
     return g_syncManager.GetTimestamp();
 }
 
-class EchoCancellingCapture {
+class UniversalEchoCanceller {
 private:
-    struct AudioStream {
-        std::vector<float> buffer;
-        std::mutex mutex;
-    };
-    
-    AudioStream allAudioStream;      // Весь системный звук
-    AudioStream electronOnlyStream;  // Только ваш Electron
-    
-    // Простой адаптивный фильтр
-    float adaptiveGain = 1.0f;
-    
-public:
-    void ProcessSystemAudio(float* samples, size_t count, DWORD processId) {
-        if (processId == GetCurrentProcessId()) {
-            // Это звук от вашего Electron (с микрофоном)
-            std::lock_guard<std::mutex> lock(electronOnlyStream.mutex);
-            electronOnlyStream.buffer.insert(
-                electronOnlyStream.buffer.end(), 
-                samples, samples + count
-            );
-        } else {
-            // Это внешний звук (Jitsi и др.)
-            std::lock_guard<std::mutex> lock(allAudioStream.mutex);
-            allAudioStream.buffer.insert(
-                allAudioStream.buffer.end(),
-                samples, samples + count
-            );
-        }
-    }
-    
-    std::vector<float> GetCleanAudio() {
-        std::lock_guard<std::mutex> lock1(electronOnlyStream.mutex);
-        std::lock_guard<std::mutex> lock2(allAudioStream.mutex);
-        
-        size_t minSize = std::min(
-            electronOnlyStream.buffer.size(),
-            allAudioStream.buffer.size()
-        );
-        
-        std::vector<float> result(minSize);
-        
-        // Простое адаптивное вычитание
-        for (size_t i = 0; i < minSize; i++) {
-            float electron = electronOnlyStream.buffer[i];
-            float external = allAudioStream.buffer[i];
-            
-            // Вычитаем внешний звук с адаптивным коэффициентом
-            result[i] = electron - (external * adaptiveGain);
-            
-            // Адаптируем коэффициент
-            float error = result[i];
-            adaptiveGain += 0.00001f * error * external;
-            adaptiveGain = std::max(0.0f, std::min(2.0f, adaptiveGain));
-        }
-        
-        // Очищаем использованные данные
-        electronOnlyStream.buffer.erase(
-            electronOnlyStream.buffer.begin(),
-            electronOnlyStream.buffer.begin() + minSize
-        );
-        allAudioStream.buffer.erase(
-            allAudioStream.buffer.begin(),
-            allAudioStream.buffer.begin() + minSize
-        );
-        
-        return result;
-    }
-};
-
-class AdaptiveEchoCanceller {
-private:
-    static constexpr int MAX_DELAY_MS = 1500;  // Максимальная задержка 1.5 сек
     static constexpr int SAMPLE_RATE = 48000;
+    static constexpr int MAX_DELAY_MS = 2000; // До 2 секунд
     static constexpr int MAX_DELAY_SAMPLES = (MAX_DELAY_MS * SAMPLE_RATE) / 1000;
     
-    // Кольцевой буфер для хранения истории звука
-    std::vector<float> historyBuffer;
-    int historyIndex = 0;
+    std::vector<float> ringBuffer;
+    int writeIndex = 0;
     
-    // Параметры адаптивного фильтра
-    std::vector<float> filterWeights;
-    float adaptRate = 0.001f;
-    
-    // Корреляционный детектор задержки
+    // Адаптивные параметры
     int detectedDelay = 0;
-    int delaySearchCounter = 0;
+    float echoGain = 0.5f;
+    int searchCounter = 0;
+    
+    // Статистика для автоопределения
+    std::vector<float> correlationHistory;
     
 public:
-    AdaptiveEchoCanceller() {
-        historyBuffer.resize(MAX_DELAY_SAMPLES, 0.0f);
-        filterWeights.resize(4800, 0.0f);  // 100мс фильтр
+    UniversalEchoCanceller() {
+        ringBuffer.resize(MAX_DELAY_SAMPLES, 0.0f);
+        correlationHistory.resize(20, 0.0f); // История последних 20 измерений
     }
     
-    // Основной метод обработки
     void ProcessBuffer(std::vector<float>& samples) {
-        // Каждые 100 фреймов ищем задержку эха
-        if (++delaySearchCounter % 100 == 0) {
-            detectedDelay = FindEchoDelay(samples);
-            
-            char log[256];
-            sprintf_s(log, "[ECHO] Detected delay: %d samples (%.1f ms)\n", 
-                     detectedDelay, (float)detectedDelay * 1000.0f / SAMPLE_RATE);
-            OutputDebugStringA(log);
+        // Автоматический поиск задержки каждые 50 фреймов
+        if (++searchCounter % 50 == 0) {
+            DetectEchoDelay(samples);
         }
         
         // Применяем подавление с найденной задержкой
-        for (size_t i = 0; i < samples.size(); i++) {
-            float currentSample = samples[i];
-            
-            // Добавляем в историю
-            historyBuffer[historyIndex] = currentSample;
-            
-            // Получаем задержанный сигнал (потенциальное эхо)
-            int delayedIndex = (historyIndex - detectedDelay + MAX_DELAY_SAMPLES) % MAX_DELAY_SAMPLES;
-            float delayedSample = historyBuffer[delayedIndex];
-            
-            // Адаптивное вычитание
-            float prediction = 0;
-            int filterStart = (delayedIndex - filterWeights.size() + MAX_DELAY_SAMPLES) % MAX_DELAY_SAMPLES;
-            
-            // Вычисляем предсказание эха
-            for (size_t j = 0; j < filterWeights.size(); j++) {
-                int idx = (filterStart + j) % MAX_DELAY_SAMPLES;
-                prediction += filterWeights[j] * historyBuffer[idx];
-            }
-            
-            // Вычитаем предсказанное эхо
-            float cleanSample = currentSample - prediction;
-            
-            // Обновляем веса фильтра (LMS алгоритм)
-            float error = cleanSample;
-            float learningRate = adaptRate / (1.0f + GetSignalPower(delayedIndex));
-            
-            for (size_t j = 0; j < filterWeights.size(); j++) {
-                int idx = (filterStart + j) % MAX_DELAY_SAMPLES;
-                filterWeights[j] += learningRate * error * historyBuffer[idx];
-                
-                // Ограничиваем веса для стабильности
-                filterWeights[j] = std::max(-1.0f, std::min(1.0f, filterWeights[j]));
-            }
-            
-            samples[i] = cleanSample;
-            
-            // Сдвигаем индекс
-            historyIndex = (historyIndex + 1) % MAX_DELAY_SAMPLES;
+        if (detectedDelay > 0) {
+            ApplyEchoCancellation(samples);
         }
     }
     
 private:
-    // Поиск задержки эха через кросс-корреляцию
-    int FindEchoDelay(const std::vector<float>& samples) {
-        // Ищем в диапазоне 200-1500мс
-        const int MIN_DELAY = (200 * SAMPLE_RATE) / 1000;   // 200мс
-        const int MAX_SEARCH = (1500 * SAMPLE_RATE) / 1000; // 1500мс
-        const int STEP = 480;  // Шаг поиска ~10мс
+    void DetectEchoDelay(const std::vector<float>& samples) {
+        float bestCorrelation = 0;
+        int bestDelay = 0;
         
-        float maxCorrelation = 0;
-        int bestDelay = MIN_DELAY;
-        
-        // Берем последние 1000 сэмплов для анализа
-        size_t testSize = std::min((size_t)1000, samples.size());
-        
-        for (int delay = MIN_DELAY; delay < MAX_SEARCH; delay += STEP) {
-            float correlation = 0;
-            float norm1 = 0, norm2 = 0;
+        // Проверяем задержки от 100мс до 2000мс с шагом 50мс
+        for (int delayMs = 100; delayMs <= 2000; delayMs += 50) {
+            int delaySamples = (delayMs * SAMPLE_RATE) / 1000;
             
-            for (size_t i = 0; i < testSize; i++) {
-                int histIdx = (historyIndex - delay - i + MAX_DELAY_SAMPLES) % MAX_DELAY_SAMPLES;
-                float delayed = historyBuffer[histIdx];
-                float current = samples[samples.size() - testSize + i];
-                
-                correlation += current * delayed;
-                norm1 += current * current;
-                norm2 += delayed * delayed;
-            }
+            if (delaySamples >= MAX_DELAY_SAMPLES) break;
             
-            // Нормализованная корреляция
-            if (norm1 > 0 && norm2 > 0) {
-                correlation = correlation / sqrt(norm1 * norm2);
-                
-                if (correlation > maxCorrelation) {
-                    maxCorrelation = correlation;
-                    bestDelay = delay;
-                }
+            float correlation = CalculateCorrelation(samples, delaySamples);
+            
+            if (correlation > bestCorrelation) {
+                bestCorrelation = correlation;
+                bestDelay = delaySamples;
             }
         }
         
-        // Возвращаем задержку только если корреляция достаточно высокая
-        if (maxCorrelation > 0.3f) {
-            return bestDelay;
-        }
+        // Обновляем историю корреляций
+        correlationHistory[searchCounter % correlationHistory.size()] = bestCorrelation;
         
-        return detectedDelay; // Сохраняем предыдущее значение
+        // Среднее значение корреляции
+        float avgCorrelation = 0;
+        for (float c : correlationHistory) {
+            avgCorrelation += c;
+        }
+        avgCorrelation /= correlationHistory.size();
+        
+        // Обновляем задержку если корреляция стабильно высокая
+        if (bestCorrelation > 0.3f && bestCorrelation > avgCorrelation * 0.8f) {
+            // Плавное обновление задержки
+            if (detectedDelay == 0) {
+                detectedDelay = bestDelay;
+            } else {
+                detectedDelay = (detectedDelay * 3 + bestDelay) / 4; // Сглаживание
+            }
+            
+            // Автоподстройка силы эха
+            echoGain = bestCorrelation * 0.8f;
+            
+            char log[256];
+            sprintf_s(log, "[ECHO] Detected delay: %dms (%.1f samples), correlation: %.3f, gain: %.3f\n", 
+                     (detectedDelay * 1000) / SAMPLE_RATE, 
+                     (float)detectedDelay, 
+                     bestCorrelation, 
+                     echoGain);
+            OutputDebugStringA(log);
+        }
     }
     
-    float GetSignalPower(int centerIndex) {
-        float power = 0;
-        const int windowSize = 100;
+    float CalculateCorrelation(const std::vector<float>& samples, int delaySamples) {
+        // Используем последние 2000 сэмплов для анализа
+        int analyzeLength = std::min(2000, (int)samples.size());
+        if (analyzeLength < 100) return 0;
         
-        for (int i = -windowSize/2; i < windowSize/2; i++) {
-            int idx = (centerIndex + i + MAX_DELAY_SAMPLES) % MAX_DELAY_SAMPLES;
-            power += historyBuffer[idx] * historyBuffer[idx];
+        float correlation = 0;
+        float energy1 = 0;
+        float energy2 = 0;
+        
+        for (int i = 0; i < analyzeLength; i++) {
+            int currentIdx = samples.size() - analyzeLength + i;
+            int delayedIdx = (writeIndex - delaySamples - analyzeLength + i + MAX_DELAY_SAMPLES) % MAX_DELAY_SAMPLES;
+            
+            float current = samples[currentIdx];
+            float delayed = ringBuffer[delayedIdx];
+            
+            correlation += current * delayed;
+            energy1 += current * current;
+            energy2 += delayed * delayed;
         }
         
-        return power / windowSize;
+        if (energy1 > 0.0001f && energy2 > 0.0001f) {
+            return fabs(correlation) / (sqrt(energy1) * sqrt(energy2));
+        }
+        
+        return 0;
+    }
+    
+    void ApplyEchoCancellation(std::vector<float>& samples) {
+        for (size_t i = 0; i < samples.size(); i++) {
+            // Сохраняем текущий сэмпл
+            ringBuffer[writeIndex] = samples[i];
+            
+            // Получаем задержанный сэмпл
+            int echoIdx = (writeIndex - detectedDelay + MAX_DELAY_SAMPLES) % MAX_DELAY_SAMPLES;
+            float echoSample = ringBuffer[echoIdx];
+            
+            // Адаптивное вычитание
+            float cleaned = samples[i] - (echoSample * echoGain);
+            
+            // Ограничитель для предотвращения искажений
+            float inputLevel = fabs(samples[i]);
+            float outputLevel = fabs(cleaned);
+            
+            // Если после вычитания сигнал стал громче - что-то не так
+            if (outputLevel > inputLevel * 1.5f) {
+                // Уменьшаем агрессивность
+                cleaned = samples[i] - (echoSample * echoGain * 0.5f);
+                echoGain *= 0.95f; // Адаптивно уменьшаем
+            }
+            
+            // Noise gate для остаточного эха
+            if (outputLevel < inputLevel * 0.1f) {
+                cleaned *= 0.5f;
+            }
+            
+            samples[i] = cleaned;
+            writeIndex = (writeIndex + 1) % MAX_DELAY_SAMPLES;
+        }
     }
 };
 
@@ -809,8 +747,8 @@ private:
     IAudioSessionManager2* sessionManager = nullptr;
     WAVEFORMATEX* waveFormat = nullptr;
     
-    AdaptiveEchoCanceller echoCanceller;
-    bool echoEnabled = false;
+    UniversalEchoCanceller echoCanceller;
+    bool echoEnabled = true;
 
 
     std::atomic<bool> isCapturing{false};
@@ -1244,20 +1182,42 @@ public:
 
         // ПРОСТОЕ ПРИМЕНЕНИЕ ЭХОПОДАВЛЕНИЯ
         if (echoEnabled && !diagnosticMode) {
-            echoCanceller.ProcessBuffer(samples);
-            
-            static int logCounter = 0;
-            if (++logCounter % 100 == 0) {
-                // Вычисляем уровень подавления для диагностики
-                float rms_before = 0, rms_after = 0;
-                for (size_t i = 0; i < std::min((size_t)100, samples.size()); i++) {
-                    rms_after += samples[i] * samples[i];
+            // Если стерео - обрабатываем каждый канал
+            if (waveFormat->nChannels == 2) {
+                std::vector<float> leftChannel;
+                std::vector<float> rightChannel;
+                
+                // Разделяем каналы
+                for (size_t i = 0; i < samples.size(); i += 2) {
+                    leftChannel.push_back(samples[i]);
+                    rightChannel.push_back(samples[i + 1]);
                 }
-                rms_after = sqrt(rms_after / 100);
+                
+                // Обрабатываем каждый канал
+                echoCanceller.ProcessBuffer(leftChannel);
+                echoCanceller.ProcessBuffer(rightChannel);
+                
+                // Объединяем обратно
+                for (size_t i = 0; i < leftChannel.size(); i++) {
+                    samples[i * 2] = leftChannel[i];
+                    samples[i * 2 + 1] = rightChannel[i];
+                }
+            } else {
+                // Моно - обрабатываем напрямую
+                echoCanceller.ProcessBuffer(samples);
+            }
+            
+            // Диагностика
+            static int echoLogCounter = 0;
+            if (++echoLogCounter % 50 == 0) {
+                float rms = 0;
+                for (size_t i = 0; i < std::min((size_t)100, samples.size()); i++) {
+                    rms += samples[i] * samples[i];
+                }
+                rms = sqrt(rms / 100);
                 
                 char log[256];
-                sprintf_s(log, "[ECHO] Frame %d: RMS after=%.6f\n", 
-                         logCounter, rms_after);
+                sprintf_s(log, "[ECHO-RESULT] After processing: RMS=%.6f\n", rms);
                 OutputDebugStringA(log);
             }
         }
