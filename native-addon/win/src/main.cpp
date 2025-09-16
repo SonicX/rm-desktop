@@ -675,10 +675,10 @@ private:
     std::vector<float> externalAudioStream;  // Внешний звук (Jitsi и др.)
     std::mutex electronStreamMutex;
     std::mutex externalStreamMutex;
-    bool echoEnabled = false;
 
-    // Экземпляр эхоподавителя (используйте EchoCancellingCapture из предыдущего ответа)
-    EchoCancellingCapture echoCancellingCapture;
+
+    EchoCancellingCapture echoCancellingCapture;  // Экземпляр эхоподавителя
+    bool echoEnabled = false;
 
 
     std::atomic<bool> isCapturing{false};
@@ -1114,40 +1114,22 @@ public:
         // ЭХОПОДАВЛЕНИЕ ЧЕРЕЗ РАЗДЕЛЕНИЕ ПОТОКОВ
         // ============================================
         if (echoEnabled && !diagnosticMode) {
-            // Определяем от какого процесса пришел звук
             DWORD currentProcessId = GetCurrentProcessId();
-            DWORD sourceProcessId = 0;
+            DWORD sourceProcessId = targetProcessId != 0 ? targetProcessId : GetActiveAudioProcessId();
             
-            // В режиме захвата окна - известен процесс
-            if (targetProcessId != 0) {
-                sourceProcessId = targetProcessId;
-            } else {
-                // В режиме системного захвата - определяем через сессии
-                sourceProcessId = GetActiveAudioProcessId();
-            }
-            
-            // Передаем в эхоподавитель с указанием процесса
+            // Используем echoCancellingCapture вместо echoCanceller
             echoCancellingCapture.ProcessSystemAudio(
                 samples.data(), 
                 samples.size(), 
                 sourceProcessId
             );
             
-            // Получаем очищенный звук
             std::vector<float> cleanAudio = echoCancellingCapture.GetCleanAudio();
             
             if (!cleanAudio.empty()) {
                 samples = cleanAudio;
-                
-                if (debugCounter % 100 == 0) {
-                    char log[256];
-                    sprintf_s(log, "[ECHO] Applied echo cancellation, cleaned %zu samples\n", 
-                            cleanAudio.size());
-                    OutputDebugStringA(log);
-                }
             } else {
-                // Еще недостаточно данных для обработки
-                return;
+                return; // Недостаточно данных
             }
         }
         
@@ -1243,34 +1225,15 @@ public:
 
     // НОВЫЙ МЕТОД ДЛЯ ЭХОПОДАВЛЕНИЯ
     bool TryProcessEchoCancellation(std::vector<float>& samples) {
-        std::lock_guard<std::mutex> lock1(electronStreamMutex);
-        std::lock_guard<std::mutex> lock2(externalStreamMutex);
+        // Получаем очищенный звук от echoCancellingCapture
+        std::vector<float> cleanAudio = echoCancellingCapture.GetCleanAudio();
         
-        // Нужно минимум TARGET_FRAME_SIZE сэмплов в каждом буфере
-        size_t minSize = std::min(electronAudioStream.size(), 
-                                externalAudioStream.size());
-        
-        if (minSize < samples.size()) {
-            // Недостаточно данных
-            return false;
+        if (!cleanAudio.empty()) {
+            samples = cleanAudio;
+            return true;
         }
         
-        // Применяем адаптивное вычитание
-        for (size_t i = 0; i < samples.size(); i++) {
-            float electronSample = electronAudioStream[i];
-            float externalSample = externalAudioStream[i];
-            
-            // Простое эхоподавление через вычитание
-            samples[i] = echoCanceller.ProcessSample(electronSample, externalSample);
-        }
-        
-        // Удаляем обработанные данные из буферов
-        electronAudioStream.erase(electronAudioStream.begin(), 
-                                electronAudioStream.begin() + samples.size());
-        externalAudioStream.erase(externalAudioStream.begin(), 
-                                externalAudioStream.begin() + samples.size());
-        
-        return true;
+        return false;
     }
         
     void ApplyProcessFilter(std::vector<float>& samples) {
