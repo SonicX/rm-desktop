@@ -1180,6 +1180,29 @@ public:
             }
         }
 
+        // ============================================
+        // ТЕСТОВЫЙ МАРКЕР - ДОБАВЛЯЕМ ХАРАКТЕРНЫЙ ЗВУК
+        // ============================================
+        static int markerCounter = 0;
+        static bool addMarker = false;
+        
+        // Каждые 2 секунды добавляем короткий "бип"
+        if (++markerCounter % (waveFormat->nSamplesPerSec * 2 / numFrames) == 0) {
+            addMarker = true;
+            OutputDebugStringA("[MARKER] Adding beep marker to verify processing\n");
+        }
+        
+        if (addMarker) {
+            // Добавляем характерный двухтональный сигнал (800Hz + 1200Hz)
+            for (size_t i = 0; i < std::min((size_t)1000, samples.size()); i++) {
+                float t = (float)i / waveFormat->nSamplesPerSec;
+                float beep = 0.1f * (sinf(2.0f * 3.14159f * 800.0f * t) + 
+                                    sinf(2.0f * 3.14159f * 1200.0f * t));
+                samples[i] += beep;
+            }
+            addMarker = false;
+        }
+
         // ПРОСТОЕ ПРИМЕНЕНИЕ ЭХОПОДАВЛЕНИЯ
         if (echoEnabled && !diagnosticMode) {
             // Если стерео - обрабатываем каждый канал
