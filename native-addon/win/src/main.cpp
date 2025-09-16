@@ -194,48 +194,55 @@ private:
         float bestCorrelation = 0;
         int bestDelay = 0;
         
-        // Проверяем задержки от 100мс до 2000мс с шагом 50мс
-        for (int delayMs = 100; delayMs <= 2000; delayMs += 50) {
+        // Используем переменный шаг в зависимости от задержки
+        int delayMs = 100;
+        while (delayMs <= 2000) {
             int delaySamples = (delayMs * SAMPLE_RATE) / 1000;
-            
-            if (delaySamples >= MAX_DELAY_SAMPLES) break;
-            
             float correlation = CalculateCorrelation(samples, delaySamples);
             
             if (correlation > bestCorrelation) {
                 bestCorrelation = correlation;
                 bestDelay = delaySamples;
             }
-        }
-        
-        // Обновляем историю корреляций
-        correlationHistory[searchCounter % correlationHistory.size()] = bestCorrelation;
-        
-        // Среднее значение корреляции
-        float avgCorrelation = 0;
-        for (float c : correlationHistory) {
-            avgCorrelation += c;
-        }
-        avgCorrelation /= correlationHistory.size();
-        
-        // Обновляем задержку если корреляция стабильно высокая
-        if (bestCorrelation > 0.3f && bestCorrelation > avgCorrelation * 0.8f) {
-            // Плавное обновление задержки
-            if (detectedDelay == 0) {
-                detectedDelay = bestDelay;
-            } else {
-                detectedDelay = (detectedDelay * 3 + bestDelay) / 4; // Сглаживание
-            }
             
-            // Автоподстройка силы эха
-            echoGain = bestCorrelation * 0.8f;
+            // Переменный шаг: меньше для малых задержек, больше для больших
+            if (delayMs < 500) {
+                delayMs += 25;  // Шаг 25мс для задержек < 500мс
+            } else if (delayMs < 1000) {
+                delayMs += 50;  // Шаг 50мс для задержек 500-1000мс
+            } else {
+                delayMs += 100; // Шаг 100мс для задержек > 1000мс
+            }
+        }
+        
+        // Уточняющий проход с шагом 1мс вокруг максимума
+        if (bestCorrelation > 0.25f) {
+            int centerMs = (bestDelay * 1000) / SAMPLE_RATE;
+            
+            for (int delta = -10; delta <= 10; delta++) {
+                int testMs = centerMs + delta;
+                if (testMs < 100 || testMs > 2000) continue;
+                
+                int delaySamples = (testMs * SAMPLE_RATE) / 1000;
+                float correlation = CalculateCorrelation(samples, delaySamples);
+                
+                if (correlation > bestCorrelation) {
+                    bestCorrelation = correlation;
+                    bestDelay = delaySamples;
+                }
+            }
+        }
+        
+        // Применяем результат
+        if (bestCorrelation > 0.3f) {
+            detectedDelay = bestDelay;
+            echoGain = std::min(0.9f, bestCorrelation);
             
             char log[256];
-            sprintf_s(log, "[ECHO] Detected delay: %dms (%.1f samples), correlation: %.3f, gain: %.3f\n", 
-                     (detectedDelay * 1000) / SAMPLE_RATE, 
-                     (float)detectedDelay, 
-                     bestCorrelation, 
-                     echoGain);
+            sprintf_s(log, "[ECHO] Precise delay: %d.%dms, correlation: %.3f\n", 
+                    (bestDelay * 1000) / SAMPLE_RATE,
+                    ((bestDelay * 10000) / SAMPLE_RATE) % 10,
+                    bestCorrelation);
             OutputDebugStringA(log);
         }
     }
