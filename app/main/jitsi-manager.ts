@@ -27,6 +27,17 @@ interface JitsiState {
   useNativeAudio: boolean;
 }
 
+enum AudioRoutingMode {
+  NORMAL = 'normal',           // Стандартная конференция
+  PRESENTER_MIX = 'presenter_mix'  // Демонстратор микширует все
+}
+
+interface ScreenShareState {
+  presenterId: string | null;
+  routingMode: AudioRoutingMode;
+  privateTracks: Map<string, any>; // Приватные треки от участников
+}
+
 // ===== ОПРЕДЕЛЕНИЕ ПРЕСЕТОВ КАЧЕСТВА ВИДЕО =====
 export interface VideoQualityPreset {
     name: string;
@@ -2899,6 +2910,80 @@ export class JitsiManager {
 
                         window.isNativeActive = false;
                         window.isScreenShareActive = false;
+
+                        class ParticipantAudioMixer {
+                            constructor(sampleRate = 48000) {
+                                this.sampleRate = sampleRate;
+                                this.participants = new Map();
+                                this.mixBuffer = new Float32Array(2048);
+                            }
+                            
+                            addParticipantAudio(participantId, audioData) {
+                                if (!this.participants.has(participantId)) {
+                                    this.participants.set(participantId, {
+                                        buffer: new RingBuffer(this.sampleRate),
+                                        volume: 1.0,
+                                        muted: false
+                                    });
+                                }
+                                
+                                const participant = this.participants.get(participantId);
+                                participant.buffer.write(audioData);
+                            }
+                            
+                            getMixedOutput(outputSize = 2048) {
+                                const output = new Float32Array(outputSize);
+                                
+                                // Микшируем все голоса участников
+                                this.participants.forEach(participant => {
+                                    if (!participant.muted && participant.buffer.availableSamples > 0) {
+                                        const temp = new Float32Array(outputSize);
+                                        participant.buffer.read(temp);
+                                        
+                                        for (let i = 0; i < outputSize; i++) {
+                                            output[i] += temp[i] * participant.volume;
+                                        }
+                                    }
+                                });
+                                
+                                // Нормализация чтобы избежать клиппинга
+                                const maxVal = Math.max(...output.map(Math.abs));
+                                if (maxVal > 1.0) {
+                                    const scale = 0.95 / maxVal;
+                                    for (let i = 0; i < output.length; i++) {
+                                        output[i] *= scale;
+                                    }
+                                }
+                                
+                                return output;
+                            }
+                            
+                            setParticipantVolume(participantId, volume) {
+                                if (this.participants.has(participantId)) {
+                                    this.participants.get(participantId).volume = volume;
+                                }
+                            }
+                            
+                            muteParticipant(participantId, muted) {
+                                if (this.participants.has(participantId)) {
+                                    this.participants.get(participantId).muted = muted;
+                                }
+                            }
+                            
+                            clear() {
+                                this.participants.forEach(participant => {
+                                    if (participant.buffer && participant.buffer.clear) {
+                                        participant.buffer.clear();
+                                    }
+                                });
+                                this.participants.clear();
+                            }
+                        }
+                        
+                        // Создаем глобальный микшер для участников
+                        window.participantAudioMixer = new ParticipantAudioMixer();
+                        console.log('[HYBRID] Participant audio mixer created');
+                        // ============ КОНЕЦ КЛАССА МИКШЕРА ============
                         
                         // 1. Получаем VIDEO от Electron
                         console.log('[HYBRID] Getting video stream...');
@@ -3001,16 +3086,30 @@ export class JitsiManager {
                         
                         // 4. Настраиваем обработку аудио
                         scriptProcessor.onaudioprocess = (event) => {
-                            // Используем флаг именно для демонстрации
                             if (!window.isScreenShareActive) {
                                 event.outputBuffer.getChannelData(0).fill(0);
                                 event.outputBuffer.getChannelData(1).fill(0);
                                 return;
                             }
                             
+                            const leftChannel = event.outputBuffer.getChannelData(0);
+                            const rightChannel = event.outputBuffer.getChannelData(1);
+                            
+                            // Сначала читаем системный звук
                             if (window.screenShareLeftBuffer && window.screenShareRightBuffer) {
-                                window.screenShareLeftBuffer.read(event.outputBuffer.getChannelData(0));
-                                window.screenShareRightBuffer.read(event.outputBuffer.getChannelData(1));
+                                window.screenShareLeftBuffer.read(leftChannel);
+                                window.screenShareRightBuffer.read(rightChannel);
+                            }
+                            
+                            // НОВОЕ: Микшируем голоса участников если есть
+                            if (window.participantAudioMixer && window.audioRoutingMode === 'presenter_mix') {
+                                const participantMix = window.participantAudioMixer.getMixedOutput(leftChannel.length);
+                                
+                                // Микшируем с системным звуком (70% системный, 30% голоса)
+                                for (let i = 0; i < leftChannel.length; i++) {
+                                    leftChannel[i] = leftChannel[i] * 0.7 + participantMix[i] * 0.3;
+                                    rightChannel[i] = rightChannel[i] * 0.7 + participantMix[i] * 0.3;
+                                }
                             }
                         };
                         
@@ -3051,6 +3150,13 @@ export class JitsiManager {
                         videoTrack.addEventListener('ended', async () => {
                             console.log('[HYBRID] Video track ended, cleaning up screen share...');
                             
+                            // Очищаем микшер участников
+                            if (window.participantAudioMixer) {
+                                window.participantAudioMixer.clear();
+                                window.participantAudioMixer = null;
+                            }
+
+
                             // Очищаем только ресурсы демонстрации
                             if (window.screenShareAudioContext) {
                                 try {
@@ -3096,6 +3202,12 @@ export class JitsiManager {
                         
                     } catch (error) {
                         console.error('[HYBRID] Error:', error);
+
+                        // Очистка при ошибке
+                        if (window.participantAudioMixer) {
+                            window.participantAudioMixer.clear();
+                            window.participantAudioMixer = null;
+                        }
                         
                         // Очистка при ошибке
                         if (window.screenShareAudioContext) {
@@ -3110,13 +3222,133 @@ export class JitsiManager {
                 })();
             `);
             
+            // НОВОЕ: Уведомление о начале демонстрации
+            await this.notifyScreenShareStart();
+            
+            // НОВОЕ: Настройка приватных каналов
+            await this.setupPrivateAudioChannels();
+
             log.info(`[STREAM-ELECTRON] Hybrid stream result:`, result);
+
+            // Только если поток создан успешно
+            if (result && result.success) {
+                // ИСПРАВЛЕННЫЙ код уведомления
+                await this.notifyScreenShareStart();
+            }
+
             return result;
             
         } catch (error: any) {
             log.error(`[STREAM-ELECTRON] createHybridStreamInJitsi ERROR: ${error.message}`);
             return { success: false, error: error.message };
         }
+    }
+
+    private async notifyScreenShareStart(): Promise<void> {
+        if (!this.state.window || this.state.window.isDestroyed()) return;
+        
+        try {
+            await this.state.window.webContents.executeJavaScript(`
+                (function() {
+                    if (window.APP?.conference?._room) {
+                        const room = window.APP.conference._room;
+                        
+                        // Получаем ID пользователя
+                        const myId = room.myUserId ? room.myUserId() : 'unknown';
+                        console.log('[PRESENTER] My user ID:', myId);
+                        
+                        // ИСПРАВЛЕНО: используем room.sendCommand вместо conference.sendCommand
+                        if (room.sendCommand) {
+                            room.sendCommand('SCREEN_SHARE_STARTED', {
+                                value: JSON.stringify({
+                                    presenterId: myId,
+                                    timestamp: Date.now(),
+                                    audioMode: 'system_capture'
+                                })
+                            });
+                            console.log('[PRESENTER] Command sent to all participants');
+                        } else {
+                            console.warn('[PRESENTER] sendCommand not available');
+                        }
+                        
+                        window.audioRoutingMode = 'presenter_mix';
+                        window.isPresenter = true;
+                    } else {
+                        console.warn('[PRESENTER] Conference room not available');
+                    }
+                    return true;
+                })();
+            `);
+        } catch (error: any) {
+            log.error(`[STREAM-ELECTRON] notifyScreenShareStart error: ${error.message}`);
+        }
+    }
+
+    private async setupPrivateAudioChannels(): Promise<void> {
+        if (!this.state.window || this.state.window.isDestroyed()) return;
+        
+        await this.state.window.webContents.executeJavaScript(`
+            (function() {
+                // ИСПРАВЛЕНО: используем правильные события через JitsiMeetJS.events
+                if (window.APP?.conference?._room && window.JitsiMeetJS?.events?.track) {
+                    const room = window.APP.conference._room;
+                    
+                    // Подписываемся на события треков
+                    room.on(
+                        window.JitsiMeetJS.events.track.TRACK_ADDED,
+                        (track) => {
+                            // Если мы демонстрируем и это аудио трек от участника
+                            if (window.audioRoutingMode === 'presenter_mix' && 
+                                track.getType() === 'audio' &&
+                                track.getParticipantId() !== room.myUserId()) {
+                                
+                                console.log('[PRESENTER] Participant audio track added:', track.getParticipantId());
+                                handleParticipantAudio(track);
+                            }
+                        }
+                    );
+                    
+                    console.log('[PRESENTER] Private audio channels handler installed');
+                } else {
+                    console.warn('[PRESENTER] Cannot setup audio channels - API not ready');
+                }
+                
+                function handleParticipantAudio(track) {
+                    const participantId = track.getParticipantId();
+                    console.log('[PRESENTER] Handling audio from participant:', participantId);
+                    
+                    // Создаем контекст для обработки аудио участника
+                    try {
+                        const stream = new MediaStream([track.track]);
+                        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                        const source = audioContext.createMediaStreamSource(stream);
+                        const processor = audioContext.createScriptProcessor(2048, 1, 1);
+                        
+                        source.connect(processor);
+                        processor.connect(audioContext.destination);
+                        
+                        processor.onaudioprocess = (e) => {
+                            if (window.participantAudioMixer && window.audioRoutingMode === 'presenter_mix') {
+                                const inputData = e.inputBuffer.getChannelData(0);
+                                window.participantAudioMixer.addParticipantAudio(participantId, inputData);
+                            }
+                        };
+                        
+                        // Сохраняем для управления
+                        window.privateAudioProcessors = window.privateAudioProcessors || new Map();
+                        window.privateAudioProcessors.set(participantId, {
+                            context: audioContext,
+                            processor: processor,
+                            source: source
+                        });
+                        
+                        console.log('[PRESENTER] Audio processor created for:', participantId);
+                    } catch (error) {
+                        console.error('[PRESENTER] Error handling participant audio:', error);
+                    }
+                }
+            })();
+        `);
     }
 
     getAvailableQualityPresets(): Array<{ key: string; name: string; description: string }> {
@@ -3216,13 +3448,102 @@ export class JitsiManager {
                 rightChannel, 
                 levels
             );
-            
+
+            if (this.state.window && !this.state.window.isDestroyed()) {
+                this.state.window.webContents.executeJavaScript(`
+                (function() {
+                    if (window.participantAudioMixer && window.audioRoutingMode === 'presenter_mix') {
+                    // Получаем смикшированные голоса участников
+                    const participantMix = window.participantAudioMixer.getMixedOutput();
+                    
+                    // Микшируем с системным звуком
+                    // Это происходит в sendAudioToJitsi
+                    window.pendingParticipantAudio = participantMix;
+                    }
+                })();
+                `).catch(() => {});
+            }
+                        
             // Отправляем в Jitsi
             this.sendAudioToJitsi(processedLeft, processedRight, samples);
-            
         } catch (error: any) {
             log.error(`[AUDIO] processNativeAudio ERROR: ${error.message}`);
         }
+    }
+
+    // Добавить обработчик команд для участников
+    private async setupParticipantHandlers(): Promise<void> {
+        await this.state.window.webContents.executeJavaScript(`
+            (function() {
+            // Слушаем команды от демонстратора
+            window.APP.conference.addCommandListener(
+                'SCREEN_SHARE_STARTED',
+                (data) => {
+                if (data.presenterId !== window.APP.conference.myUserId()) {
+                    // Мы не демонстратор - переключаемся в режим приватной передачи
+                    switchToPrivateAudioMode(data.presenterId);
+                }
+                }
+            );
+            
+            window.APP.conference.addCommandListener(
+                'SCREEN_SHARE_STOPPED', 
+                () => {
+                // Возвращаемся в обычный режим
+                restoreNormalAudioMode();
+                }
+            );
+            
+            function switchToPrivateAudioMode(presenterId) {
+                // Отключаем передачу в общий канал
+                const myAudioTrack = window.APP.conference.getLocalAudioTrack();
+                if (myAudioTrack) {
+                // Помечаем трек как приватный
+                myAudioTrack.setMetadata({ 
+                    privateFor: presenterId,
+                    routingMode: 'presenter_only' 
+                });
+                
+                // Альтернатива: используем P2P канал
+                establishP2PChannel(presenterId);
+                }
+            }
+            
+            function establishP2PChannel(presenterId) {
+                // Создаем прямое соединение с демонстратором
+                const pc = new RTCPeerConnection(window.APP.conference.options.p2p);
+                
+                // Добавляем только аудио трек
+                const localStream = new MediaStream([
+                window.APP.conference.getLocalAudioTrack().track
+                ]);
+                
+                localStream.getTracks().forEach(track => {
+                pc.addTrack(track, localStream);
+                });
+                
+                // Сохраняем для управления
+                window.p2pConnection = pc;
+            }
+            
+            function restoreNormalAudioMode() {
+                // Возвращаем обычную маршрутизацию
+                const myAudioTrack = window.APP.conference.getLocalAudioTrack();
+                if (myAudioTrack) {
+                myAudioTrack.setMetadata({ 
+                    privateFor: null,
+                    routingMode: 'normal' 
+                });
+                }
+                
+                // Закрываем P2P если есть
+                if (window.p2pConnection) {
+                window.p2pConnection.close();
+                window.p2pConnection = null;
+                }
+            }
+            })();
+        `);
     }
 
     private decodeWindowsAudio(
@@ -3407,6 +3728,18 @@ export class JitsiManager {
                         maxAmp = Math.max(maxAmp, Math.abs(leftData[i]), Math.abs(rightData[i]));
                     }
                     
+                    // НОВОЕ: Микшируем голоса участников если есть
+                    if (window.participantAudioMixer && window.audioRoutingMode === 'presenter_mix') {
+                        const participantMix = window.participantAudioMixer.getMixedOutput(${samples});
+                        
+                        // Микшируем с системным звуком
+                        for (let i = 0; i < ${samples}; i++) {
+                        leftData[i] = leftData[i] * 0.7 + participantMix[i] * 0.3;
+                        rightData[i] = rightData[i] * 0.7 + participantMix[i] * 0.3;
+                        }
+                    }
+                    
+                    // Записываем в буферы как обычно
                     window.leftRingBuffer.write(leftData);
                     window.rightRingBuffer.write(rightData);
                     
@@ -4343,25 +4676,61 @@ export class JitsiManager {
                                     
                                     // Ждем готовности потока
                                     let attempts = 0;
-                                    while (!window.jitsiNativeMediaStream?.getTracks?.().length && attempts++ < 20) {
+                                    const maxAttempts = 50; // Увеличиваем до 2.5 секунд
+                                    let streamReady = false;
+
+                                    while (attempts < maxAttempts) {
+                                        attempts++;
+                                        
+                                        // Проверяем наличие потока И его треков
+                                        if (window.jitsiNativeMediaStream && 
+                                            window.jitsiNativeMediaStream.getTracks && 
+                                            window.jitsiNativeMediaStream.getTracks().length > 0) {
+                                            
+                                            // Проверяем что треки активны
+                                            const tracks = window.jitsiNativeMediaStream.getTracks();
+                                            const allTracksLive = tracks.every(t => t.readyState === 'live');
+                                            
+                                            if (allTracksLive) {
+                                                streamReady = true;
+                                                console.log('[JitsiManager] Stream ready with', tracks.length, 'tracks');
+                                                break;
+                                            }
+                                        }
+                                        
                                         await new Promise(r => setTimeout(r, 50));
                                     }
                                     
-                                    if (!window.jitsiNativeMediaStream) {
-                                        console.error('[JitsiManager] Stream timeout');
+                                    if (!streamReady) {
+                                        console.error('[JitsiManager] Stream timeout after', attempts, 'attempts');
+                                        console.error('[JitsiManager] Stream state:', {
+                                            hasStream: !!window.jitsiNativeMediaStream,
+                                            hasTracks: window.jitsiNativeMediaStream?.getTracks?.()?.length || 0,
+                                            isActive: window.isNativeActive,
+                                            isScreenShare: window.isScreenShareActive
+                                        });
                                         window.__interceptorFlag = false;
                                         return;
                                     }
                                     
-                                    console.log('[JitsiManager] Native stream ready, calling callback');
+                                    console.log('[JitsiManager] Native stream confirmed ready');
                                     window.isScreenShareActive = true;
                                     
                                     // Вызываем callback для нативного режима
                                     if (callback) {
-                                        callback('native:' + selectedId, { 
-                                            audio: true, 
-                                            screenShareAudio: true 
-                                        });
+                                        // ВАЖНО: Даем небольшую задержку перед callback
+                                        setTimeout(() => {
+                                            console.log('[JitsiManager] Calling Jitsi callback');
+                                            callback('native:' + selectedId, { 
+                                                audio: true, 
+                                                screenShareAudio: true 
+                                            });
+                                            
+                                            // Сбрасываем флаг после успешного вызова
+                                            setTimeout(() => {
+                                                window.__interceptorFlag = false;
+                                            }, 1000);
+                                        }, 100);
                                     }
                                     
                                     // Восстановление микрофона после задержки
