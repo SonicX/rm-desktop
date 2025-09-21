@@ -18,37 +18,28 @@ export class ElectronSourcePicker {
   }
 
   private registerHandlers(): void {
-    // // Обработчик для выбора источника из диалога
-    // ipcMain.handle("source-picker:selected", async (event, sourceId: string) => {
-    //   if (this.pickerWindow && !this.pickerWindow.isDestroyed()) {
-    //     this.pickerWindow.close();
-    //   }
-    //   return sourceId;
-    // });
-
-    // // Обработчик для отмены выбора
-    // ipcMain.handle("source-picker:cancelled", async () => {
-    //   if (this.pickerWindow && !this.pickerWindow.isDestroyed()) {
-    //     this.pickerWindow.close();
-    //   }
-    //   return null;
-    // });
+    // Обработчики оставляем как были
   }
 
   async getSources(): Promise<DesktopSource[]> {
     try {
       const sources = await desktopCapturer.getSources({
         types: ['window', 'screen'],
-        thumbnailSize: { width: 300, height: 200 }
+        thumbnailSize: { width: 400, height: 300 }  // Увеличили размер для лучшего качества
       });
 
-      return sources.map(source => ({
-        id: source.id,
-        name: source.name,
-        thumbnail: source.thumbnail.toDataURL('image/jpeg', 0.8),
-        display_id: source.display_id,
-        type: source.id.startsWith('screen:') ? 'screen' : 'window'
-      }));
+      return sources.map(source => {
+        // Для экранов используем меньшее качество для ускорения загрузки
+        const quality = source.id.startsWith('screen:') ? 0.5 : 0.7;
+        
+        return {
+          id: source.id,
+          name: source.name,
+          thumbnail: source.thumbnail.toDataURL('image/jpeg', quality),
+          display_id: source.display_id,
+          type: source.id.startsWith('screen:') ? 'screen' : 'window'
+        };
+      });
     } catch (error: any) {
       log.error(`[SOURCE-PICKER] Error getting sources: ${error.message}`);
       return [];
@@ -57,10 +48,10 @@ export class ElectronSourcePicker {
 
   async showPicker(sources: DesktopSource[]): Promise<DesktopSource | null> {
     return new Promise((resolve) => {
-      // Создаем окно для выбора источника
+      // Создаем окно для выбора источника - увеличиваем высоту на 10%
       this.pickerWindow = new BrowserWindow({
         width: 900,
-        height: 600,
+        height: 660,  // Было 600, увеличили на 10%
         modal: false,
         alwaysOnTop: true,
         center: true,
@@ -72,12 +63,23 @@ export class ElectronSourcePicker {
           contextIsolation: false
         },
         backgroundColor: '#ffffff',
-        title: 'Выберите экран или окно для демонстрации'
+        title: 'Выберите экран или окно для демонстрации',
+        show: false  // Не показываем сразу
       });
 
       // HTML для окна выбора
       const html = this.generatePickerHTML(sources);
       this.pickerWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+
+      // Показываем окно после загрузки контента
+      this.pickerWindow.once('ready-to-show', () => {
+        // Даем небольшую задержку для загрузки изображений
+        setTimeout(() => {
+          if (this.pickerWindow && !this.pickerWindow.isDestroyed()) {
+            this.pickerWindow.show();
+          }
+        }, 100);
+      });
 
       // Обработчик закрытия окна
       this.pickerWindow.on('closed', () => {
@@ -124,15 +126,26 @@ export class ElectronSourcePicker {
           body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
             background: #f5f5f5;
-            padding: 20px;
+            margin: 0;
+            padding: 0;
             user-select: none;
+            height: 100vh;
+            overflow: hidden;
+          }
+          
+          .main-container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            padding: 20px;
           }
           
           h1 {
             color: #333;
             font-size: 24px;
-            margin-bottom: 20px;
+            margin: 0 0 20px 0;
             text-align: center;
+            flex-shrink: 0;
           }
           
           .tabs {
@@ -140,6 +153,7 @@ export class ElectronSourcePicker {
             gap: 10px;
             margin-bottom: 20px;
             border-bottom: 2px solid #e0e0e0;
+            flex-shrink: 0;
           }
           
           .tab {
@@ -163,8 +177,15 @@ export class ElectronSourcePicker {
             border-bottom-color: #2196F3;
           }
           
+          .content-area {
+            flex: 1;
+            overflow: hidden;
+            min-height: 0;
+          }
+          
           .tab-content {
             display: none;
+            height: 100%;
           }
           
           .tab-content.active {
@@ -181,9 +202,9 @@ export class ElectronSourcePicker {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
             gap: 20px;
-            margin-bottom: 20px;
-            max-height: 380px;
+            height: 100%;
             overflow-y: auto;
+            padding-bottom: 10px;
           }
           
           .source-item {
@@ -210,28 +231,51 @@ export class ElectronSourcePicker {
           .source-thumbnail {
             width: 100%;
             height: 140px;
-            object-fit: contain;
             border-radius: 8px;
             background: #f5f5f5;
             margin-bottom: 8px;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-size: contain;
+            background-repeat: no-repeat;
+            background-position: center;
+          }
+          
+          .source-thumbnail.loading {
+            background: #f5f5f5;
+          }
+          
+          .loading-spinner {
+            width: 30px;
+            height: 30px;
+            border: 3px solid #e0e0e0;
+            border-top-color: #2196F3;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+          }
+          
+          @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+          }
+          
+          .source-thumbnail:not(.loading) .loading-spinner {
+            display: none;
           }
           
           .source-name {
             font-size: 13px;
             color: #333;
             text-align: center;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-          }
-          
-          .source-type {
-            font-size: 10px;
-            color: #666;
-            text-align: center;
-            margin-top: 4px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
+            line-height: 1.3;
+            min-height: 32px;  /* Добавили минимальную высоту для двух строк */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            word-break: break-word;  /* Разрешаем перенос длинных слов */
+            padding: 0 4px;
           }
           
           .actions {
@@ -240,6 +284,7 @@ export class ElectronSourcePicker {
             gap: 12px;
             padding-top: 20px;
             border-top: 1px solid #e0e0e0;
+            flex-shrink: 0;
           }
           
           button {
@@ -295,51 +340,97 @@ export class ElectronSourcePicker {
         </style>
       </head>
       <body>
-        <h1>Выберите экран или окно для демонстрации</h1>
-        
-        <div class="tabs">
-          <button class="tab active" onclick="switchTab('screens')">
-            Экраны (${screens.length})
-          </button>
-          <button class="tab" onclick="switchTab('windows')">
-            Окна (${windows.length})
-          </button>
-        </div>
-        
-        <div id="screens-tab" class="tab-content active">
-          <div class="sources-grid">
-            ${screens.map(source => `
-              <div class="source-item" onclick="selectSource('${source.id}')" data-source-id="${source.id}">
-                <img class="source-thumbnail" src="${source.thumbnail}" alt="${source.name}">
-                <div class="source-name" title="${source.name}">${source.name}</div>
-                <div class="source-type">Экран</div>
-              </div>
-            `).join('')}
+        <div class="main-container">
+          <h1>Выберите экран или окно для демонстрации</h1>
+          
+          <div class="tabs">
+            <button class="tab active" onclick="switchTab('screens')">
+              Экраны (${screens.length})
+            </button>
+            <button class="tab" onclick="switchTab('windows')">
+              Окна (${windows.length})
+            </button>
           </div>
-        </div>
-        
-        <div id="windows-tab" class="tab-content">
-          <div class="sources-grid">
-            ${windows.map(source => `
-              <div class="source-item" onclick="selectSource('${source.id}')" data-source-id="${source.id}">
-                <img class="source-thumbnail" src="${source.thumbnail}" alt="${source.name}">
-                <div class="source-name" title="${source.name}">${source.name}</div>
-                <div class="source-type">Окно</div>
+          
+          <div class="content-area">
+            <div id="screens-tab" class="tab-content active">
+              <div class="sources-grid">
+                ${screens.map(source => `
+                  <div class="source-item" onclick="selectSource('${source.id}')" data-source-id="${source.id}">
+                    <img class="source-thumbnail" src="${source.thumbnail}" alt="${source.name}">
+                    <div class="source-name" title="${source.name}">${source.name}</div>
+                  </div>
+                `).join('')}
               </div>
-            `).join('')}
+            </div>
+            
+            <div id="windows-tab" class="tab-content">
+              <div class="sources-grid">
+                ${windows.map(source => `
+                  <div class="source-item" onclick="selectSource('${source.id}')" data-source-id="${source.id}">
+                    <img class="source-thumbnail" src="${source.thumbnail}" alt="${source.name}">
+                    <div class="source-name" title="${source.name}">${source.name}</div>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
           </div>
-        </div>
-        
-        <div class="actions">
-          <button class="btn-cancel" onclick="cancelSelection()">Отмена</button>
-          <button class="btn-share" id="share-btn" disabled onclick="confirmSelection()">
-            Поделиться
-          </button>
+          
+          <div class="actions">
+            <button class="btn-cancel" onclick="cancelSelection()">Отмена</button>
+            <button class="btn-share" id="share-btn" disabled onclick="confirmSelection()">
+              Поделиться
+            </button>
+          </div>
         </div>
         
         <script>
           const { ipcRenderer } = require('electron');
           let selectedSourceId = null;
+          
+          // Функция для загрузки изображений с задержкой для экранов
+          function loadThumbnails() {
+            const thumbnails = document.querySelectorAll('.source-thumbnail[data-src]');
+            
+            // Сначала загружаем окна (они обычно быстрее)
+            thumbnails.forEach(thumb => {
+              if (thumb.dataset.sourceType === 'window') {
+                const src = thumb.dataset.src;
+                thumb.style.backgroundImage = 'url("' + src + '")';
+                thumb.classList.remove('loading');
+              }
+            });
+            
+            // Затем загружаем экраны с небольшой задержкой
+            setTimeout(() => {
+              thumbnails.forEach(thumb => {
+                if (thumb.dataset.sourceType === 'screen') {
+                  const src = thumb.dataset.src;
+                  // Создаем новый Image для предзагрузки
+                  const img = new Image();
+                  img.onload = () => {
+                    thumb.style.backgroundImage = 'url("' + src + '")';
+                    thumb.classList.remove('loading');
+                  };
+                  img.onerror = () => {
+                    thumb.innerHTML = '<div style="color:#999;font-size:12px;">Ошибка загрузки</div>';
+                    thumb.classList.remove('loading');
+                  };
+                  img.src = src;
+                }
+              });
+            }, 50); // Небольшая задержка для экранов
+          }
+          
+          // Загружаем изображения при готовности DOM
+          window.addEventListener('DOMContentLoaded', () => {
+            // Даем время на полную инициализацию DOM
+            requestAnimationFrame(() => {
+              requestAnimationFrame(() => {
+                loadThumbnails();
+              });
+            });
+          });
           
           function switchTab(tabName) {
             // Переключаем вкладки
@@ -366,7 +457,7 @@ export class ElectronSourcePicker {
             });
             
             // Выделяем новый источник
-            const selectedItem = document.querySelector(\`[data-source-id="\${sourceId}"]\`);
+            const selectedItem = document.querySelector('[data-source-id="' + sourceId + '"]');
             if (selectedItem) {
               selectedItem.classList.add('selected');
               selectedSourceId = sourceId;
