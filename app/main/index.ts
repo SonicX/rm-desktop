@@ -42,6 +42,8 @@ const { setupScreenSharingMain } = require('@jitsi/electron-sdk');
 
 import { NativeCaptureManager } from './native-capture';
 import { JitsiManager } from './jitsi-manager';
+import { JitsiPureManager } from './jitsi-pure.js';
+import { JitsiSDKManager } from './jitsi-sdk-manager';
 
 import * as fs from 'fs';
 import * as https from 'https';
@@ -377,19 +379,23 @@ async function createMainWindow(): Promise<BrowserWindow> {
   app.disableHardwareAcceleration();
   await app.whenReady();
 
-  const nativeCaptureManager = new NativeCaptureManager();
-  const jitsiManager = new JitsiManager(
-    nativeCaptureManager,
-    bundlePath,
-    iconPath(),
-    {
-        videoQuality: 'MEDIUM',  // 720p для экономии ресурсов
-        useHybridMode: true,
-        enableDebugUI: true,
-        enablePerformanceMonitoring: true
-    }
-  );
+  // const nativeCaptureManager = new NativeCaptureManager();
+  // const jitsiManager = new JitsiManager(
+  //   nativeCaptureManager,
+  //   bundlePath,
+  //   iconPath(),
+  //   {
+  //       videoQuality: 'MEDIUM',  // 720p для экономии ресурсов
+  //       useHybridMode: true,
+  //       enableDebugUI: true,
+  //       enablePerformanceMonitoring: true
+  //   }
+  // );
 
+  // === НОВЫЙ КОД ===
+  const nativeCaptureManager = new NativeCaptureManager(); // Оставляем для других целей
+  //const jitsiPureManager = new JitsiPureManager(bundlePath, iconPath());
+  const jitsiSDKManager = new JitsiSDKManager(iconPath());
   
 
   // 2. ЗАТЕМ создаем сессию
@@ -567,12 +573,11 @@ async function createMainWindow(): Promise<BrowserWindow> {
 
 
   ipcMain.handle("jitsi-connect-with-zulip-config", async (event, options) => {
-    log.info("🎯[Jitsi] Connecting with Zulip config...");
-    log.info(`🎯[Jitsi] Options received: ${JSON.stringify(options)}`);
-
+    log.info("🎯[Jitsi] Connecting with Zulip config using SDK...");
+    
     try {
-        // Используем JitsiManager вместо createJitsiWindow
-        const result = await jitsiManager.createWindow({
+        // Используем SDK менеджер
+        const result = await jitsiSDKManager.createWindow({
             roomName: options.roomName || '',
             serverUrl: options.serverUrl || 'https://jitsi-connectrm.ru',
             displayName: options.userInfo?.displayName || 'Guest',
@@ -584,25 +589,45 @@ async function createMainWindow(): Promise<BrowserWindow> {
         });
         
         if (result.success) {
-            log.info(`🎯[Jitsi] Conference window created successfully`);
+            log.info(`🎯[Jitsi SDK] Conference window created successfully`);
             
-            // Отправляем подтверждение обратно в Zulip
-            setTimeout(() => {
-                sendEventToZulip('jitsi-conference-ready', {
-                    success: true,
-                    roomName: options.roomName
-                });
-            }, 1000);
+            // Отправляем событие в Zulip
+            sendEventToZulip('jitsi-conference-ready', {
+                success: true,
+                roomName: options.roomName
+            });
+            
+            return { 
+                success: true,
+                conferenceStarted: true
+            };
+        } else {
+            log.error(`🎯[Jitsi SDK] Failed to create window: ${result.error}`);
+            
+            dialog.showErrorBox(
+                'Ошибка подключения', 
+                `Не удалось подключиться к конференции: ${result.error}\n\nПроверьте интернет-соединение и попробуйте снова.`
+            );
+            
+            return { 
+                success: true,  // Чтобы Zulip не запускал iframe
+                conferenceStarted: false,
+                error: result.error
+            };
         }
         
-        return result;
-        
     } catch (error: any) {
-        log.error(`🎯[Jitsi] Error: ${error.message}`);
+        log.error(`🎯[Jitsi SDK] Error: ${error.message}`);
+        
+        dialog.showErrorBox(
+            'Ошибка подключения', 
+            `Не удалось запустить конференцию: ${error.message}`
+        );
+        
         return { 
-            success: false, 
-            error: error.message,
-            fallbackToBrowser: true
+            success: true,  // Чтобы Zulip не запускал iframe
+            conferenceStarted: false,
+            error: error.message
         };
     }
   });
@@ -633,10 +658,10 @@ async function createMainWindow(): Promise<BrowserWindow> {
             
             log.info(`🔍 Got ${sources.length} sources`);
             
-            // Отправляем в Jitsi окно если оно есть
-            const jitsiStatus = await jitsiManager.getStatus();
-            if (jitsiStatus.hasWindow) {
-                await jitsiManager.sendSourcesToWindow(sources);
+            // Проверяем статус SDK окна
+            const jitsiStatus = await jitsiSDKManager.getStatus();
+            if (jitsiStatus.hasWindow && jitsiStatus.isConnected) {
+                log.info('Jitsi SDK: Conference is active');
             }
             
         } catch (error: any) {

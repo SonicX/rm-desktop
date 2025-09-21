@@ -670,3 +670,4 @@ contextBridge.exposeInMainWorld("testUpdate", {
     });
   }
 });
+
