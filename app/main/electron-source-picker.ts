@@ -25,21 +25,38 @@ export class ElectronSourcePicker {
     try {
       const sources = await desktopCapturer.getSources({
         types: ['window', 'screen'],
-        thumbnailSize: { width: 400, height: 300 }  // Увеличили размер для лучшего качества
+        thumbnailSize: { width: 280, height: 180 }  // Уменьшаем размер для быстрой загрузки
       });
 
-      return sources.map(source => {
-        // Для экранов используем меньшее качество для ускорения загрузки
-        const quality = source.id.startsWith('screen:') ? 0.5 : 0.7;
-        
-        return {
-          id: source.id,
-          name: source.name,
-          thumbnail: source.thumbnail.toDataURL('image/jpeg', quality),
-          display_id: source.display_id,
-          type: source.id.startsWith('screen:') ? 'screen' : 'window'
-        };
-      });
+      // Обрабатываем источники асинхронно
+      const processedSources = await Promise.all(
+        sources.map(async (source) => {
+          const isScreen = source.id.startsWith('screen:');
+          
+          // Для экранов используем еще меньшее качество
+          const quality = isScreen ? 0.3 : 0.6;
+          
+          // Конвертируем в data URL с задержкой для экранов
+          let thumbnail: string;
+          if (isScreen) {
+            // Даем небольшую задержку для экранов
+            await new Promise(resolve => setTimeout(resolve, 10));
+            thumbnail = source.thumbnail.toDataURL('image/jpeg', quality);
+          } else {
+            thumbnail = source.thumbnail.toDataURL('image/jpeg', quality);
+          }
+          
+          return {
+            id: source.id,
+            name: source.name,
+            thumbnail,
+            display_id: source.display_id,
+            type: isScreen ? 'screen' : 'window'
+          };
+        })
+      );
+
+      return processedSources;
     } catch (error: any) {
       log.error(`[SOURCE-PICKER] Error getting sources: ${error.message}`);
       return [];
@@ -389,47 +406,70 @@ export class ElectronSourcePicker {
           let selectedSourceId = null;
           
           // Функция для загрузки изображений с задержкой для экранов
-          function loadThumbnails() {
-            const thumbnails = document.querySelectorAll('.source-thumbnail[data-src]');
+          async function loadThumbnails() {
+            const thumbnails = Array.from(document.querySelectorAll('.source-thumbnail[data-src]'));
             
-            // Сначала загружаем окна (они обычно быстрее)
-            thumbnails.forEach(thumb => {
-              if (thumb.dataset.sourceType === 'window') {
+            // Разделяем на окна и экраны
+            const windowThumbs = thumbnails.filter(t => t.dataset.sourceType === 'window');
+            const screenThumbs = thumbnails.filter(t => t.dataset.sourceType === 'screen');
+            
+            // Функция для загрузки одного изображения
+            function loadThumbnail(thumb) {
+              return new Promise((resolve) => {
                 const src = thumb.dataset.src;
-                thumb.style.backgroundImage = 'url("' + src + '")';
-                thumb.classList.remove('loading');
-              }
-            });
-            
-            // Затем загружаем экраны с небольшой задержкой
-            setTimeout(() => {
-              thumbnails.forEach(thumb => {
-                if (thumb.dataset.sourceType === 'screen') {
-                  const src = thumb.dataset.src;
-                  // Создаем новый Image для предзагрузки
-                  const img = new Image();
-                  img.onload = () => {
-                    thumb.style.backgroundImage = 'url("' + src + '")';
-                    thumb.classList.remove('loading');
-                  };
-                  img.onerror = () => {
-                    thumb.innerHTML = '<div style="color:#999;font-size:12px;">Ошибка загрузки</div>';
-                    thumb.classList.remove('loading');
-                  };
-                  img.src = src;
+                
+                if (!src || src === 'undefined') {
+                  thumb.innerHTML = '<div style="color:#999;font-size:12px;">Нет изображения</div>';
+                  thumb.classList.remove('loading');
+                  resolve();
+                  return;
+                }
+                
+                // Для очень длинных data URL делаем chunk-загрузку
+                if (src.length > 100000) {
+                  // Разбиваем загрузку на микротаски
+                  setTimeout(() => {
+                    const img = new Image();
+                    img.onload = () => {
+                      thumb.style.backgroundImage = 'url("' + src + '")';
+                      thumb.classList.remove('loading');
+                      resolve();
+                    };
+                    img.onerror = () => {
+                      thumb.innerHTML = '<div style="color:#999;font-size:12px;">Ошибка</div>';
+                      thumb.classList.remove('loading');
+                      resolve();
+                    };
+                    img.src = src;
+                  }, 0);
+                } else {
+                  // Для небольших изображений загружаем сразу
+                  thumb.style.backgroundImage = 'url("' + src + '")';
+                  thumb.classList.remove('loading');
+                  resolve();
                 }
               });
-            }, 50); // Небольшая задержка для экранов
+            }
+            
+            // Сначала загружаем все окна параллельно (они обычно меньше)
+            await Promise.all(windowThumbs.map(loadThumbnail));
+            
+            // Затем загружаем экраны последовательно с микрозадержками
+            for (const screenThumb of screenThumbs) {
+              await loadThumbnail(screenThumb);
+              // Микрозадержка между загрузками экранов
+              await new Promise(resolve => setTimeout(resolve, 10));
+            }
           }
           
           // Загружаем изображения при готовности DOM
           window.addEventListener('DOMContentLoaded', () => {
-            // Даем время на полную инициализацию DOM
-            requestAnimationFrame(() => {
-              requestAnimationFrame(() => {
-                loadThumbnails();
+            // Используем setTimeout для отложенной загрузки
+            setTimeout(() => {
+              loadThumbnails().catch(err => {
+                console.error('Error loading thumbnails:', err);
               });
-            });
+            }, 100);
           });
           
           function switchTab(tabName) {
