@@ -30,6 +30,9 @@ export class JitsiSDKManager {
 
   private iconPath: string;
   private isClosing: boolean = false;
+  private sessionCounter: number = 0; // Счетчик для уникальных сессий
+  private isCreatingWindow: boolean = false; // Флаг для предотвращения множественного создания окон
+  private currentRoomName: string | null = null; // Текущая комната
 
   constructor(iconPath: string) {
     this.iconPath = iconPath;
@@ -100,8 +103,28 @@ export class JitsiSDKManager {
 
   async createWindow(options: JitsiOptions): Promise<{ success: boolean; error?: string }> {
     try {
-      // Закрываем предыдущее окно если есть
-      if (this.state.window && !this.state.window.isDestroyed()) {
+      const roomName = options.roomName.replace(/[^a-zA-Z0-9-_]/g, '');
+      
+      // Проверяем, не создается ли уже окно для этой же комнаты
+      if (this.isCreatingWindow && this.currentRoomName === roomName) {
+        log.info(`[JITSI-SDK] Already creating window for room: ${roomName}, ignoring duplicate request`);
+        return { success: true }; // Возвращаем успех чтобы не показывать ошибку
+      }
+      
+      // Проверяем, не открыто ли уже окно для этой же комнаты
+      if (this.state.window && !this.state.window.isDestroyed() && this.currentRoomName === roomName) {
+        log.info(`[JITSI-SDK] Window already exists for room: ${roomName}, focusing existing window`);
+        this.state.window.focus();
+        return { success: true };
+      }
+      
+      // Устанавливаем флаг что начинаем создание окна
+      this.isCreatingWindow = true;
+      this.currentRoomName = roomName;
+      
+      // Закрываем предыдущее окно если это другая комната
+      if (this.state.window && !this.state.window.isDestroyed() && this.currentRoomName !== roomName) {
+        log.info(`[JITSI-SDK] Closing previous window for different room`);
         await this.closeWindow();
         // Ждем пока окно закроется
         await new Promise(resolve => setTimeout(resolve, 500));
@@ -111,7 +134,6 @@ export class JitsiSDKManager {
       this.isClosing = false;
 
       const server = options.serverUrl || 'https://meet.jit.si';
-      const roomName = options.roomName.replace(/[^a-zA-Z0-9-_]/g, '');
       const displayName = options.displayName || 'Guest';
       const topic = options.topic || '';
       const stream = options.stream || '';
@@ -164,10 +186,17 @@ export class JitsiSDKManager {
       log.info("[JITSI-SDK] Conference window created successfully");
       this.state.isConnected = true;
       
+      // Сбрасываем флаг создания окна
+      this.isCreatingWindow = false;
+      
       return { success: true };
 
     } catch (error: any) {
       log.error(`[JITSI-SDK] Failed to create window: ${error.message}`);
+      
+      // Сбрасываем флаги при ошибке
+      this.isCreatingWindow = false;
+      this.currentRoomName = null;
       
       if (this.state.window && !this.state.window.isDestroyed()) {
         this.state.window.close();
@@ -200,6 +229,7 @@ export class JitsiSDKManager {
 
     // Флаг для предотвращения множественных закрытий
     let closeHandled = false;
+    let blockAllNavigation = false; // Флаг для блокировки всей навигации после начала закрытия
 
     // Обработчик закрытия
     this.state.window.on('close', async (event) => {
@@ -209,6 +239,7 @@ export class JitsiSDKManager {
       
       event.preventDefault();
       closeHandled = true;
+      blockAllNavigation = true; // Начинаем блокировать навигацию
       
       log.info("[JITSI-SDK] Window close requested");
       
@@ -236,17 +267,37 @@ export class JitsiSDKManager {
     this.state.window.webContents.on('will-navigate', (event, url) => {
       log.info(`[JITSI-SDK] Navigation attempt to: ${url}`);
       
-      // Если это не наша конференция - блокируем навигацию
-      if (this.state.conferenceUrl && !url.includes(this.state.conferenceUrl.split('#')[0])) {
+      // Если начался процесс закрытия - блокируем ЛЮБУЮ навигацию
+      if (blockAllNavigation) {
+        log.info("[JITSI-SDK] Blocking ALL navigation - closing in progress");
+        event.preventDefault();
+        return;
+      }
+      
+      // Если это попытка перейти на главную страницу (без roomName) - блокируем и начинаем закрытие
+      if (this.state.conferenceUrl && !url.includes('464604561496819')) {
         log.info("[JITSI-SDK] Blocking navigation to different page");
         event.preventDefault();
+        blockAllNavigation = true; // Блокируем дальнейшую навигацию
         
-        // Показываем экран закрытия и закрываем окно
-        this.showClosingScreen().then(() => {
+        // Показываем постоянный экран закрытия
+        this.showPermanentClosingScreen();
+        
+        // Закрываем окно через 2 секунды
+        if (!this.isClosing) {
           setTimeout(() => {
             this.closeWindow();
           }, 2000);
-        });
+        }
+      }
+    });
+
+    // Блокируем навигацию через did-start-navigation тоже
+    this.state.window.webContents.on('did-start-navigation', (event, url) => {
+      if (blockAllNavigation) {
+        log.info("[JITSI-SDK] Blocking navigation in did-start-navigation");
+        // Показываем оверлей еще раз если нужно
+        this.showPermanentClosingScreen();
       }
     });
 
@@ -254,16 +305,26 @@ export class JitsiSDKManager {
     this.state.window.webContents.on('dom-ready', () => {
       log.info('[JITSI-SDK] DOM ready');
       // Инжектируем скрипты после загрузки DOM
-      this.injectLoadingOverlay();
+      if (!this.isClosing && !blockAllNavigation) {
+        this.injectLoadingOverlay();
+      } else if (blockAllNavigation) {
+        // Если идет закрытие - показываем экран закрытия
+        this.showPermanentClosingScreen();
+      }
     });
 
     // Страница загружена
     this.state.window.webContents.on('did-finish-load', () => {
       log.info('[JITSI-SDK] Page loaded');
       // Скрываем загрузчик когда страница загрузилась
-      setTimeout(() => {
-        this.hideLoadingOverlay();
-      }, 1000);
+      if (!this.isClosing && !blockAllNavigation) {
+        setTimeout(() => {
+          this.hideLoadingOverlay();
+        }, 1000);
+      } else if (blockAllNavigation) {
+        // Если идет закрытие - показываем экран закрытия
+        this.showPermanentClosingScreen();
+      }
     });
 
     // Логирование консоли
@@ -272,6 +333,69 @@ export class JitsiSDKManager {
         log.info(`Jitsi Console: ${message}`);
       }
     });
+  }
+
+  // Новый метод для показа постоянного экрана закрытия
+  private async showPermanentClosingScreen(): Promise<void> {
+    if (!this.state.window || this.state.window.isDestroyed()) return;
+    
+    try {
+      await this.state.window.webContents.executeJavaScript(`
+        (function() {
+          // Если уже есть постоянный оверлей - не создаем новый
+          if (document.getElementById('electron-permanent-closing')) return;
+          
+          // Удаляем все содержимое body
+          document.body.innerHTML = '';
+          
+          // Создаем новый оверлей как единственный элемент
+          const overlay = document.createElement('div');
+          overlay.id = 'electron-permanent-closing';
+          overlay.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;background:linear-gradient(135deg,#1a1a2e 0%,#0f0f1e 100%);display:flex;justify-content:center;align-items:center;z-index:2147483647;';
+          
+          overlay.innerHTML = \`
+            <div style="text-align:center;">
+              <div style="width:80px;height:80px;margin:0 auto 30px;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);border-radius:20px;display:flex;align-items:center;justify-content:center;">
+                <svg viewBox="0 0 24 24" style="width:50px;height:50px;fill:white;">
+                  <path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/>
+                </svg>
+              </div>
+              <div style="color:#ffffff;font-size:20px;font-weight:500;margin-bottom:15px;">Завершение конференции</div>
+              <div style="color:rgba(255,255,255,0.7);font-size:16px;">Спасибо за участие</div>
+            </div>
+          \`;
+          
+          document.body.appendChild(overlay);
+          
+          // Блокируем любые попытки изменить страницу
+          const blockAll = function(e) {
+            e.stopImmediatePropagation();
+            e.preventDefault();
+            return false;
+          };
+          
+          // Блокируем все события
+          window.addEventListener('beforeunload', blockAll, true);
+          window.addEventListener('unload', blockAll, true);
+          document.addEventListener('DOMContentLoaded', blockAll, true);
+          
+          // Перезаписываем методы навигации
+          window.location.href = '#';
+          window.location.replace = function() {};
+          window.location.assign = function() {};
+          window.location.reload = function() {};
+          history.pushState = function() {};
+          history.replaceState = function() {};
+          history.back = function() {};
+          history.forward = function() {};
+          history.go = function() {};
+        })();
+      `);
+      
+      log.info('[JITSI-SDK] Permanent closing screen shown');
+    } catch (error: any) {
+      log.error(`[JITSI-SDK] Failed to show permanent closing screen: ${error.message}`);
+    }
   }
 
   private buildConferenceUrl(server: string, roomName: string, options: JitsiOptions): string {
@@ -483,17 +607,17 @@ export class JitsiSDKManager {
           
           let isClosing = false;
           
-          // Функция для немедленного показа экрана закрытия и блокировки навигации
+          // Функция для показа экрана закрытия
           function showClosingAndExit() {
             if (isClosing) return;
             isClosing = true;
             
             console.log('[JITSI] Initiating conference close');
             
-            // Создаем оверлей закрытия
+            // Создаем оверлей закрытия с максимальным z-index
             const overlay = document.createElement('div');
             overlay.id = 'electron-closing-overlay';
-            overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:linear-gradient(135deg,#1a1a2e 0%,#0f0f1e 100%);display:flex;justify-content:center;align-items:center;z-index:2147483647;';
+            overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:linear-gradient(135deg,#1a1a2e 0%,#0f0f1e 100%);display:flex;justify-content:center;align-items:center;z-index:2147483647 !important;pointer-events:all;';
             
             overlay.innerHTML = \`
               <div style="text-align:center;">
@@ -509,20 +633,96 @@ export class JitsiSDKManager {
             
             document.body.appendChild(overlay);
             
+            // ВАЖНО: Защищаем оверлей от удаления
+            // Перехватываем попытки удаления или скрытия оверлея
+            const observer = new MutationObserver(function(mutations) {
+              mutations.forEach(function(mutation) {
+                // Если оверлей был удален - восстанавливаем его
+                if (mutation.type === 'childList' && mutation.removedNodes.length > 0) {
+                  for (let node of mutation.removedNodes) {
+                    if (node.id === 'electron-closing-overlay') {
+                      console.log('[JITSI] Overlay was removed, restoring...');
+                      document.body.appendChild(node);
+                      return;
+                    }
+                  }
+                }
+                // Если оверлей был скрыт - показываем его снова
+                const overlayCheck = document.getElementById('electron-closing-overlay');
+                if (overlayCheck && (overlayCheck.style.display === 'none' || overlayCheck.style.visibility === 'hidden')) {
+                  overlayCheck.style.display = 'flex';
+                  overlayCheck.style.visibility = 'visible';
+                }
+              });
+            });
+            
+            // Наблюдаем за изменениями в body
+            observer.observe(document.body, {
+              childList: true,
+              subtree: true,
+              attributes: true,
+              attributeFilter: ['style', 'class']
+            });
+            
+            // Периодическая проверка видимости оверлея
+            const protectInterval = setInterval(() => {
+              const overlay = document.getElementById('electron-closing-overlay');
+              if (overlay) {
+                overlay.style.zIndex = '2147483647';
+                overlay.style.display = 'flex';
+                overlay.style.visibility = 'visible';
+                overlay.style.position = 'fixed';
+                overlay.style.top = '0';
+                overlay.style.left = '0';
+                overlay.style.width = '100%';
+                overlay.style.height = '100%';
+              }
+            }, 100);
+            
             // Скрываем все остальное содержимое
             const allElements = document.querySelectorAll('body > *:not(#electron-closing-overlay)');
             allElements.forEach(el => { 
-              el.style.display = 'none'; 
+              if (el.id !== 'electron-closing-overlay') {
+                el.style.display = 'none !important'; 
+              }
             });
+            
+            // Вызываем оригинальный hangup для корректного выхода
+            setTimeout(() => {
+              if (window.APP && window.APP.conference) {
+                if (window.APP.conference._originalHangup) {
+                  console.log('[JITSI] Calling original hangup for proper leave');
+                  try {
+                    window.APP.conference._originalHangup();
+                  } catch(e) {
+                    console.error('[JITSI] Error calling original hangup:', e);
+                  }
+                } else if (window.APP.conference._originalLeave) {
+                  console.log('[JITSI] Calling original leave for proper leave');
+                  try {
+                    window.APP.conference._originalLeave();
+                  } catch(e) {
+                    console.error('[JITSI] Error calling original leave:', e);
+                  }
+                }
+              }
+            }, 100);
             
             // Блокируем навигацию
             window.addEventListener('beforeunload', function(e) {
-              e.preventDefault();
-              e.returnValue = '';
+              // Держим оверлей видимым
+              const overlay = document.getElementById('electron-closing-overlay');
+              if (overlay) {
+                overlay.style.display = 'flex';
+                overlay.style.zIndex = '2147483647';
+              }
             });
             
             // Закрываем окно через 2 секунды
             setTimeout(() => {
+              // Очищаем интервал защиты перед закрытием
+              clearInterval(protectInterval);
+              observer.disconnect();
               window.close();
             }, 2000);
           }
@@ -554,28 +754,29 @@ export class JitsiSDKManager {
             if (window.APP && window.APP.conference) {
               clearInterval(checkInterval);
               
-              // Перехватываем метод hangup
-              const originalHangup = window.APP.conference.hangup;
-              if (originalHangup && !originalHangup._intercepted) {
+              // Сохраняем оригинальные методы
+              if (window.APP.conference.hangup && !window.APP.conference._originalHangup) {
+                window.APP.conference._originalHangup = window.APP.conference.hangup;
+                
+                // Перехватываем метод hangup
                 window.APP.conference.hangup = function(...args) {
                   console.log('[JITSI] Hangup intercepted');
                   showClosingAndExit();
-                  // НЕ вызываем оригинальный hangup чтобы предотвратить переход на главную
+                  // Не блокируем вызов, он будет вызван в showClosingAndExit
                   return Promise.resolve();
                 };
-                window.APP.conference.hangup._intercepted = true;
               }
               
-              // Перехватываем метод leave
-              const originalLeave = window.APP.conference.leave;
-              if (originalLeave && !originalLeave._intercepted) {
+              if (window.APP.conference.leave && !window.APP.conference._originalLeave) {
+                window.APP.conference._originalLeave = window.APP.conference.leave;
+                
+                // Перехватываем метод leave
                 window.APP.conference.leave = function(...args) {
                   console.log('[JITSI] Leave intercepted');
                   showClosingAndExit();
-                  // НЕ вызываем оригинальный leave
+                  // Не блокируем вызов, он будет вызван в showClosingAndExit
                   return Promise.resolve();
                 };
-                window.APP.conference.leave._intercepted = true;
               }
               
               console.log('[JITSI] Conference methods intercepted');
@@ -604,6 +805,8 @@ export class JitsiSDKManager {
     if (!this.state.window || this.state.window.isDestroyed()) {
       log.info('[JITSI-SDK] Window already closed');
       this.isClosing = false;
+      this.isCreatingWindow = false; // Сбрасываем флаг создания при закрытии
+      this.currentRoomName = null; // Сбрасываем текущую комнату
       return;
     }
 
@@ -617,27 +820,11 @@ export class JitsiSDKManager {
       this.state.window = null;
       this.state.isConnected = false;
       this.state.conferenceUrl = null;
+      this.currentRoomName = null; // Сбрасываем текущую комнату
 
-      // Пытаемся корректно выйти из конференции
-      try {
-        await windowToClose.webContents.executeJavaScript(`
-          (function() {
-            if (window.APP && window.APP.conference) {
-              if (window.APP.conference.leave) {
-                window.APP.conference.leave();
-              } else if (window.APP.conference.hangup) {
-                window.APP.conference.hangup();
-              }
-            }
-          })();
-        `);
-        
-        // Небольшая задержка для завершения
-        await new Promise(resolve => setTimeout(resolve, 300));
-      } catch (e) {
-        // Игнорируем ошибки выхода
-      }
-
+      // НЕ вызываем hangup здесь - он уже был вызван в UI
+      // Просто закрываем окно без дополнительных действий
+      
       // Закрываем окно
       windowToClose.removeAllListeners();
       windowToClose.webContents.removeAllListeners();
@@ -655,8 +842,10 @@ export class JitsiSDKManager {
       
       this.state.window = null;
       this.state.isConnected = false;
+      this.currentRoomName = null;
     } finally {
       this.isClosing = false;
+      this.isCreatingWindow = false; // Сбрасываем флаг создания при закрытии
     }
   }
 
