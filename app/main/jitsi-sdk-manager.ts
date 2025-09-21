@@ -2,6 +2,7 @@
 import { BrowserWindow, ipcMain } from "electron";
 import * as path from "path";
 import log from "electron-log";
+import { ElectronSourcePicker } from "./electron-source-picker";
 
 // Интерфейсы
 interface JitsiOptions {
@@ -13,6 +14,8 @@ interface JitsiOptions {
   jwt?: string;
   topic?: string;
   stream?: string;
+  enableScreenPicker?: boolean;
+  selectedSourceId?: string;
 }
 
 interface JitsiSDKState {
@@ -33,9 +36,11 @@ export class JitsiSDKManager {
   private sessionCounter: number = 0; // Счетчик для уникальных сессий
   private isCreatingWindow: boolean = false; // Флаг для предотвращения множественного создания окон
   private currentRoomName: string | null = null; // Текущая комната
+  private sourcePicker: ElectronSourcePicker; // Добавляем экземпляр пикера
 
   constructor(iconPath: string) {
     this.iconPath = iconPath;
+    this.sourcePicker = new ElectronSourcePicker(); // Инициализируем пикер
     
     // Инициализируем SDK при создании менеджера
     this.initializeSDK();
@@ -46,6 +51,74 @@ export class JitsiSDKManager {
     log.info("[JITSI-SDK] Manager created");
   }
 
+  private setupJitsiIPC(): void {
+    if (!this.state.window) return;
+    
+    // Слушаем запросы от Jitsi на показ диалога выбора экрана
+    this.state.window.webContents.on('ipc-message', async (event, channel, ...args) => {
+      log.info(`[JITSI-SDK] IPC message from Jitsi: ${channel}`);
+      
+      if (channel === 'show-screen-picker') {
+        await this.handleScreenPickerRequest();
+      }
+    });
+  }
+  
+  private async handleScreenPickerRequest(): Promise<void> {
+    log.info("[JITSI-SDK] Handling screen picker request from Jitsi");
+    
+    if (!this.state.window || this.state.window.isDestroyed()) {
+      log.warn("[JITSI-SDK] No window available for picker");
+      return;
+    }
+    
+    try {
+      // Получаем список источников
+      const sources = await this.sourcePicker.getSources();
+      log.info(`[JITSI-SDK] Got ${sources.length} sources for picker`);
+      
+      if (sources.length === 0) {
+        log.warn("[JITSI-SDK] No sources available");
+        
+        // Сообщаем об отмене
+        await this.state.window.webContents.executeJavaScript(`
+          window.pickerCancelled = true;
+        `);
+        return;
+      }
+      
+      // Показываем диалог выбора
+      const selectedSource = await this.sourcePicker.showPicker(sources);
+      
+      if (selectedSource) {
+        log.info(`[JITSI-SDK] User selected: ${selectedSource.name} (${selectedSource.id})`);
+        
+        // Передаем выбранный источник в Jitsi
+        await this.state.window.webContents.executeJavaScript(`
+          (function() {
+            window.selectedSourceId = '${selectedSource.id}';
+            console.log('[JITSI] Source selected:', window.selectedSourceId);
+          })();
+        `);
+      } else {
+        log.info("[JITSI-SDK] User cancelled screen selection");
+        
+        // Сообщаем об отмене
+        await this.state.window.webContents.executeJavaScript(`
+          window.pickerCancelled = true;
+        `);
+      }
+      
+    } catch (error: any) {
+      log.error(`[JITSI-SDK] Error in screen picker: ${error.message}`);
+      
+      // Сообщаем об ошибке как об отмене
+      await this.state.window.webContents.executeJavaScript(`
+        window.pickerCancelled = true;
+      `);
+    }
+  }
+
   private initializeSDK(): void {
     try {
       // Загружаем модуль SDK
@@ -53,24 +126,26 @@ export class JitsiSDKManager {
       
       // Инициализируем вспомогательные функции SDK
       // Они нужны для работы screen sharing и других функций
-      if (jitsiSDK.setupScreenSharingMain) {
-        // Оборачиваем в try-catch так как может требовать окна
+      
+      // setupScreenSharingMain требует окна, поэтому отложим его инициализацию
+      // Он будет вызван позже, когда создастся окно
+      
+      if (jitsiSDK.setupAlwaysOnTopMain) {
         try {
-          jitsiSDK.setupScreenSharingMain();
-          log.info("[JITSI-SDK] Screen sharing initialized");
-        } catch (e) {
-          // Это нормально - будет инициализировано когда создастся окно
+          jitsiSDK.setupAlwaysOnTopMain();
+          log.info("[JITSI-SDK] Always on top initialized");
+        } catch (e: any) {
+          log.warn(`[JITSI-SDK] Failed to setup always on top: ${e.message}`);
         }
       }
       
-      if (jitsiSDK.setupAlwaysOnTopMain) {
-        jitsiSDK.setupAlwaysOnTopMain();
-        log.info("[JITSI-SDK] Always on top initialized");
-      }
-      
       if (jitsiSDK.setupPowerMonitorMain) {
-        jitsiSDK.setupPowerMonitorMain();
-        log.info("[JITSI-SDK] Power monitor initialized");
+        try {
+          jitsiSDK.setupPowerMonitorMain();
+          log.info("[JITSI-SDK] Power monitor initialized");
+        } catch (e: any) {
+          log.warn(`[JITSI-SDK] Failed to setup power monitor: ${e.message}`);
+        }
       }
       
       log.info("[JITSI-SDK] SDK helper functions initialized");
@@ -78,6 +153,28 @@ export class JitsiSDKManager {
     } catch (error: any) {
       log.warn(`[JITSI-SDK] SDK not available or failed to initialize: ${error.message}`);
       // Продолжаем работу - будем использовать обычное окно
+    }
+  }
+  
+  private initializeSDKScreenSharing(): void {
+    // Этот метод вызывается после создания окна
+    if (!this.state.window || this.state.window.isDestroyed()) return;
+    
+    try {
+      const jitsiSDK = require('@jitsi/electron-sdk');
+      
+      if (jitsiSDK.setupScreenSharingMain) {
+        try {
+          jitsiSDK.setupScreenSharingMain(this.state.window.webContents, {
+            // Можно добавить опции если нужно
+          });
+          log.info("[JITSI-SDK] Screen sharing initialized with window");
+        } catch (e: any) {
+          log.warn(`[JITSI-SDK] Failed to setup screen sharing: ${e.message}`);
+        }
+      }
+    } catch (error: any) {
+      log.warn(`[JITSI-SDK] Failed to initialize screen sharing: ${error.message}`);
     }
   }
 
@@ -116,6 +213,44 @@ export class JitsiSDKManager {
         log.info(`[JITSI-SDK] Window already exists for room: ${roomName}, focusing existing window`);
         this.state.window.focus();
         return { success: true };
+      }
+      
+      // Если опция включена, показываем диалог выбора источника экрана
+      if (options.enableScreenPicker) {
+        log.info(`[JITSI-SDK] Screen picker enabled, getting sources...`);
+        
+        try {
+          const sources = await this.sourcePicker.getSources();
+          log.info(`[JITSI-SDK] Got ${sources.length} sources for screen picker`);
+          
+          if (sources.length === 0) {
+            log.warn(`[JITSI-SDK] No sources available for screen sharing`);
+          } else {
+            // Логируем первые несколько источников для отладки
+            sources.slice(0, 3).forEach((s, i) => {
+              log.info(`[JITSI-SDK] Source ${i}: ${s.name} (${s.id}, type: ${s.type})`);
+            });
+            
+            log.info(`[JITSI-SDK] Opening picker dialog...`);
+            const selectedSource = await this.sourcePicker.showPicker(sources);
+            
+            if (selectedSource) {
+              log.info(`[JITSI-SDK] User selected source: ${selectedSource.name} (${selectedSource.id})`);
+              options.selectedSourceId = selectedSource.id;
+              
+              // Сохраняем выбранный источник в глобальном состоянии для доступа из Jitsi
+              global.selectedScreenSource = selectedSource;
+            } else {
+              log.info(`[JITSI-SDK] User cancelled screen selection or dialog closed`);
+              // Пользователь отменил выбор - продолжаем без демонстрации экрана
+            }
+          }
+        } catch (error: any) {
+          log.error(`[JITSI-SDK] Error in screen picker: ${error.message}`);
+          // Продолжаем без выбора экрана в случае ошибки
+        }
+      } else {
+        log.info(`[JITSI-SDK] Screen picker disabled, proceeding without screen selection`);
       }
       
       // Устанавливаем флаг что начинаем создание окна
@@ -164,6 +299,12 @@ export class JitsiSDKManager {
 
       // Настраиваем обработчики окна
       this.setupWindowHandlers();
+      
+      // Инициализируем SDK screen sharing после создания окна
+      this.initializeSDKScreenSharing();
+      
+      // Добавляем обработчик IPC для окна Jitsi
+      this.setupJitsiIPC();
 
       // Формируем URL с конфигурацией
       const conferenceUrl = this.buildConferenceUrl(server, roomName, options);
@@ -261,6 +402,46 @@ export class JitsiSDKManager {
     // Предотвращаем изменение заголовка
     this.state.window.on('page-title-updated', (event) => {
       event.preventDefault();
+    });
+    
+    // Перехватываем изменение title для обработки запросов на показ диалога
+    this.state.window.webContents.on('page-title-updated', async (event, title) => {
+      if (title === '__SHOW_CUSTOM_PICKER__') {
+        event.preventDefault();
+        log.info(`[JITSI-SDK] Custom picker requested via title change`);
+        
+        // Показываем диалог выбора экрана
+        await this.handleScreenPickerRequest();
+      }
+    });
+    
+    // Периодически проверяем window.name для перехвата запросов
+    const checkWindowName = setInterval(async () => {
+      if (!this.state.window || this.state.window.isDestroyed()) {
+        clearInterval(checkWindowName);
+        return;
+      }
+      
+      try {
+        const windowName = await this.state.window.webContents.executeJavaScript('window.name');
+        
+        if (windowName && windowName.startsWith('__SCREEN_PICKER_REQUEST__:')) {
+          log.info(`[JITSI-SDK] Screen picker requested via window.name: ${windowName}`);
+          
+          // Сбрасываем window.name
+          await this.state.window.webContents.executeJavaScript('window.name = ""');
+          
+          // Показываем диалог
+          await this.handleScreenPickerRequest();
+        }
+      } catch (error) {
+        // Игнорируем ошибки
+      }
+    }, 200);
+    
+    // Останавливаем проверку при закрытии окна
+    this.state.window.on('closed', () => {
+      clearInterval(checkWindowName);
     });
 
     // Блокируем навигацию на главную страницу Jitsi после выхода
@@ -605,6 +786,112 @@ export class JitsiSDKManager {
         (function() {
           console.log('[JITSI] Setting up conference handlers...');
           
+          // Ждем пока загрузится JitsiMeetScreenObtainer
+          const waitForScreenObtainer = setInterval(() => {
+            if (window.JitsiMeetScreenObtainer) {
+              clearInterval(waitForScreenObtainer);
+              
+              console.log('[JITSI] Found JitsiMeetScreenObtainer, overriding openDesktopPicker');
+              
+              // Перехватываем метод открытия диалога выбора экрана
+              window.JitsiMeetScreenObtainer.openDesktopPicker = function(options, onSourceChoose) {
+                console.log('[JITSI] openDesktopPicker intercepted, showing custom picker');
+                
+                // Сигнализируем main процессу о необходимости показать диалог
+                const originalTitle = document.title;
+                document.title = '__SHOW_CUSTOM_PICKER__';
+                
+                // Сохраняем callback для последующего вызова
+                window.desktopPickerCallback = onSourceChoose;
+                
+                // Восстанавливаем title через 100мс
+                setTimeout(() => {
+                  document.title = originalTitle;
+                }, 100);
+                
+                // Ждем выбора источника и вызываем callback
+                const checkForSelection = setInterval(() => {
+                  if (window.selectedSourceId) {
+                    clearInterval(checkForSelection);
+                    
+                    const sourceId = window.selectedSourceId;
+                    window.selectedSourceId = null;
+                    
+                    console.log('[JITSI] Source selected:', sourceId);
+                    
+                    // Вызываем callback с выбранным источником
+                    if (window.desktopPickerCallback) {
+                      window.desktopPickerCallback(sourceId, 'desktop');
+                      window.desktopPickerCallback = null;
+                    }
+                  }
+                  
+                  if (window.pickerCancelled) {
+                    clearInterval(checkForSelection);
+                    window.pickerCancelled = false;
+                    
+                    console.log('[JITSI] Picker cancelled');
+                    
+                    // Вызываем callback без источника (отмена)
+                    if (window.desktopPickerCallback) {
+                      window.desktopPickerCallback(null);
+                      window.desktopPickerCallback = null;
+                    }
+                  }
+                }, 100);
+                
+                // Таймаут 30 секунд
+                setTimeout(() => {
+                  clearInterval(checkForSelection);
+                  if (window.desktopPickerCallback) {
+                    window.desktopPickerCallback(null);
+                    window.desktopPickerCallback = null;
+                  }
+                }, 30000);
+              };
+              
+              // Также перехватываем isSupported чтобы Jitsi думал что desktop picker поддерживается
+              window.JitsiMeetScreenObtainer.isSupported = function() {
+                return true;
+              };
+            }
+          }, 100);
+          
+          // Останавливаем проверку через 5 секунд
+          setTimeout(() => clearInterval(waitForScreenObtainer), 5000);
+          
+          // Также перехватываем JitsiMeetElectron если он есть
+          if (window.JitsiMeetElectron) {
+            console.log('[JITSI] Overriding JitsiMeetElectron methods');
+            
+            // Переопределяем obtainDesktopSources чтобы возвращать фиктивные источники
+            if (window.JitsiMeetElectron.obtainDesktopSources) {
+              window.JitsiMeetElectron.obtainDesktopSources = function(options, callback) {
+                console.log('[JITSI] obtainDesktopSources called, returning dummy sources');
+                
+                // Возвращаем минимальный набор источников чтобы избежать ошибки
+                const sources = [{
+                  id: 'screen:0:0',
+                  name: 'Screen',
+                  thumbnail: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
+                }];
+                
+                const result = {
+                  screen: sources,
+                  window: []
+                };
+                
+                if (callback) {
+                  callback(null, sources, result);
+                }
+                
+                return Promise.resolve(sources);
+              };
+            }
+          }
+          
+          console.log('[JITSI] Conference handlers installed');
+          
           let isClosing = false;
           
           // Функция для показа экрана закрытия
@@ -821,6 +1108,11 @@ export class JitsiSDKManager {
       this.state.isConnected = false;
       this.state.conferenceUrl = null;
       this.currentRoomName = null; // Сбрасываем текущую комнату
+      
+      // Очищаем глобальную переменную с выбранным источником
+      if (global.selectedScreenSource) {
+        delete global.selectedScreenSource;
+      }
 
       // НЕ вызываем hangup здесь - он уже был вызван в UI
       // Просто закрываем окно без дополнительных действий
@@ -843,6 +1135,10 @@ export class JitsiSDKManager {
       this.state.window = null;
       this.state.isConnected = false;
       this.currentRoomName = null;
+      
+      if (global.selectedScreenSource) {
+        delete global.selectedScreenSource;
+      }
     } finally {
       this.isClosing = false;
       this.isCreatingWindow = false; // Сбрасываем флаг создания при закрытии
@@ -855,6 +1151,49 @@ export class JitsiSDKManager {
       isConnected: this.state.isConnected,
       conferenceUrl: this.state.conferenceUrl
     };
+  }
+
+  // Дополнительный метод для программного запуска демонстрации экрана
+  async startScreenShare(sourceId?: string): Promise<boolean> {
+    if (!this.state.window || this.state.window.isDestroyed()) {
+      log.warn('[JITSI-SDK] Cannot start screen share - no window');
+      return false;
+    }
+
+    try {
+      const result = await this.state.window.webContents.executeJavaScript(`
+        (function() {
+          try {
+            // Пытаемся найти и нажать кнопку демонстрации экрана
+            const desktopButton = document.querySelector('[aria-label*="desktop"], [aria-label*="screen"], [data-testid*="desktop"], .toolbox-button-desktop');
+            if (desktopButton) {
+              desktopButton.click();
+              console.log('[JITSI-SDK] Screen share button clicked');
+              return true;
+            }
+            
+            // Альтернативный способ через API
+            if (window.APP && window.APP.conference && window.APP.conference.toggleScreenSharing) {
+              window.APP.conference.toggleScreenSharing();
+              console.log('[JITSI-SDK] Screen sharing toggled via API');
+              return true;
+            }
+            
+            return false;
+          } catch (error) {
+            console.error('[JITSI-SDK] Error starting screen share:', error);
+            return false;
+          }
+        })();
+      `);
+      
+      log.info(`[JITSI-SDK] Screen share start result: ${result}`);
+      return result;
+      
+    } catch (error: any) {
+      log.error(`[JITSI-SDK] Failed to start screen share: ${error.message}`);
+      return false;
+    }
   }
 }
 

@@ -569,13 +569,20 @@ async function createMainWindow(): Promise<BrowserWindow> {
         log.error(`🎯[NativeCapture] Error: ${error.message}`);
         return [];
     }
-    });
+  });
 
 
   ipcMain.handle("jitsi-connect-with-zulip-config", async (event, options) => {
     log.info("🎯[Jitsi] Connecting with Zulip config using SDK...");
+    log.info(`🎯[Jitsi] Options received: ${JSON.stringify(options)}`);
     
     try {
+        // НЕ показываем диалог выбора экрана при старте
+        // Он будет показан только когда пользователь нажмет кнопку демонстрации
+        const enableScreenPicker = false; // Отключаем предварительный выбор
+        
+        log.info(`🎯[Jitsi] Starting conference without pre-selection`);
+        
         // Используем SDK менеджер
         const result = await jitsiSDKManager.createWindow({
             roomName: options.roomName || '',
@@ -585,7 +592,8 @@ async function createMainWindow(): Promise<BrowserWindow> {
             avatarUrl: options.userInfo?.avatarUrl || '',
             jwt: options.jwt || '',
             topic: options.topic || '',
-            stream: options.stream || ''
+            stream: options.stream || '',
+            enableScreenPicker: enableScreenPicker // Отключен предварительный выбор
         });
         
         if (result.success) {

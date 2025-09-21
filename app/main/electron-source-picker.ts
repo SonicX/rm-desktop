@@ -18,21 +18,21 @@ export class ElectronSourcePicker {
   }
 
   private registerHandlers(): void {
-    // Обработчик для выбора источника из диалога
-    ipcMain.handle("source-picker:selected", async (event, sourceId: string) => {
-      if (this.pickerWindow && !this.pickerWindow.isDestroyed()) {
-        this.pickerWindow.close();
-      }
-      return sourceId;
-    });
+    // // Обработчик для выбора источника из диалога
+    // ipcMain.handle("source-picker:selected", async (event, sourceId: string) => {
+    //   if (this.pickerWindow && !this.pickerWindow.isDestroyed()) {
+    //     this.pickerWindow.close();
+    //   }
+    //   return sourceId;
+    // });
 
-    // Обработчик для отмены выбора
-    ipcMain.handle("source-picker:cancelled", async () => {
-      if (this.pickerWindow && !this.pickerWindow.isDestroyed()) {
-        this.pickerWindow.close();
-      }
-      return null;
-    });
+    // // Обработчик для отмены выбора
+    // ipcMain.handle("source-picker:cancelled", async () => {
+    //   if (this.pickerWindow && !this.pickerWindow.isDestroyed()) {
+    //     this.pickerWindow.close();
+    //   }
+    //   return null;
+    // });
   }
 
   async getSources(): Promise<DesktopSource[]> {
