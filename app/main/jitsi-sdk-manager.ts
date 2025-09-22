@@ -610,8 +610,26 @@ export class JitsiSDKManager {
     hashParams.append('interfaceConfig.SHOW_BRAND_WATERMARK', 'false');
     hashParams.append('interfaceConfig.HIDE_INVITE_MORE_HEADER', 'true');
     hashParams.append('interfaceConfig.MOBILE_APP_PROMO', 'false');
+
+    hashParams.append('interfaceConfig.SHOW_MEETING_NAME', 'false');
+    hashParams.append('interfaceConfig.DISPLAY_WELCOME_PAGE_CONTENT', 'false');
+    hashParams.append('interfaceConfig.APP_NAME', options.topic || 'Конференция');
+    hashParams.append('interfaceConfig.NATIVE_APP_NAME', options.topic || 'Конференция');
+
+    hashParams.append('config.requireDisplayName', 'false');
+    hashParams.append('config.hideConferenceSubject', 'true');
+    hashParams.append('config.hideConferenceTimer', 'false');
+    hashParams.append('config.hideDominantSpeakerBadge', 'false');
     
-    const toolbarButtons = ['camera', 'desktop', 'microphone', 'participants', 'chat', 'settings', 'fullscreen', 'hangup'];
+    // Отключаем отображение темы
+    hashParams.append('interfaceConfig.SHOW_CONFERENCE_SUBJECT', 'false');
+    hashParams.append('interfaceConfig.HIDE_CONFERENCE_SUBJECT', 'true');
+    
+    // Пустая тема вместо названия комнаты
+    hashParams.append('config.subject', ' '); // пробел вместо пустой строки
+    
+    
+    const toolbarButtons = ['camera', 'desktop', 'microphone', 'participants', 'settings', 'fullscreen', 'hangup'];
     hashParams.append('interfaceConfig.TOOLBAR_BUTTONS', JSON.stringify(toolbarButtons));
     
     if (options.displayName) {
@@ -619,6 +637,9 @@ export class JitsiSDKManager {
     }
     if (options.email) {
       hashParams.append('userInfo.email', options.email);
+    }
+    if (options.topic) {
+        hashParams.append('config.subject', options.topic);
     }
     if (options.avatarUrl) {
       hashParams.append('userInfo.avatarURL', options.avatarUrl);
