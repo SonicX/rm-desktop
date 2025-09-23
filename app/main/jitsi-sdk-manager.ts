@@ -191,7 +191,7 @@ export class JitsiSDKManager {
       }
       
       if (options.enableScreenPicker) {
-        log.info(`[JITSI-SDK] Screen picker enabled, getting sources...`);
+        log.info(`[JITSI-SDK] Screen picker enabled, getting sources....`);
         
         try {
           const sources = await this.sourcePicker.getSources();
