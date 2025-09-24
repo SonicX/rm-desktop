@@ -124,6 +124,11 @@ if [ ! -d "$ELECTRON_HEADERS_DIR/include/node" ]; then
         echo "❌ Failed to download Electron headers"
         exit 1
     fi
+    
+    if [ ! -f "$ELECTRON_HEADERS_DIR/include/node/node.h" ]; then
+        echo "❌ Electron headers are incomplete or corrupted"
+        exit 1
+    fi
     echo "✅ Electron headers downloaded"
 else
     echo "✅ Using cached Electron headers"
@@ -206,7 +211,7 @@ compile_swift_for_arch() {
 # Функция для компиляции C++ для конкретной архитектуры
 compile_cpp_for_arch() {
     local arch=$1
-    echo "🔨 Compiling C++ for $arch (Electron ${ELECTRON_VERSION}, ABI ${ELECTRON_ABI})..."
+    echo "🔨 Compiling C++ for $arch..."
     
     local clang_arch=$arch
     if [ "$arch" = "x86_64" ]; then
@@ -215,8 +220,6 @@ compile_cpp_for_arch() {
         clang_arch="arm64"
     fi
     
-    # КРИТИЧЕСКОЕ ИЗМЕНЕНИЕ: используем Electron headers вместо системных!
-    # НЕ передаем NODE_MODULE_VERSION через -D, так как он уже в headers
     clang++ -c \
         -arch $clang_arch \
         -std=c++20 \
@@ -227,24 +230,24 @@ compile_cpp_for_arch() {
         -O3 \
         -I"$NODE_ADDON_API" \
         -I"$ELECTRON_HEADERS_DIR/include/node" \
+        -I"$ELECTRON_HEADERS_DIR/src" \
+        -I"$NODE_ADDON_API" \
         -DNAPI_DISABLE_CPP_EXCEPTIONS \
-        -DBUILDING_NODE_EXTENSION \
         -o webrtc_wrapper-$arch.o \
         "$CPP_FILE"
     
     if [ ! -f "webrtc_wrapper-$arch.o" ]; then
         echo "❌ C++ compilation failed for $arch"
-        echo "   Check that Electron headers are properly downloaded"
         return 1
     fi
-    echo "✅ C++ compiled for $arch with Electron ABI ${ELECTRON_ABI}"
+    echo "✅ C++ compiled for $arch"
     return 0
 }
 
 # Функция для линковки для конкретной архитектуры
 link_for_arch() {
     local arch=$1
-    echo "🔗 Linking for $arch (Electron ${ELECTRON_VERSION})..."
+    echo "🔗 Linking for $arch..."
     
     local clang_arch=$arch
     if [ "$arch" = "x86_64" ]; then
@@ -273,7 +276,7 @@ link_for_arch() {
         echo "❌ Linking failed for $arch"
         return 1
     fi
-    echo "✅ Linked for $arch (Electron ABI ${ELECTRON_ABI})"
+    echo "✅ Linked for $arch"
     return 0
 }
 
@@ -311,9 +314,7 @@ if [ "$HAVE_X86" = true ] && [ "$HAVE_ARM64" = true ]; then
         echo "📋 Universal Binary info:"
         lipo -info addon.node
         echo ""
-        echo "📊 Build details:"
-        echo "   Electron version: ${ELECTRON_VERSION}"
-        echo "   Node ABI version: ${ELECTRON_ABI}"
+        echo "📊 File details:"
         file addon.node
         ls -lh addon.node
         
@@ -343,32 +344,68 @@ rm -f addon-*.node
 rm -f *.swiftmodule *.swiftdoc *.swiftsourceinfo
 
 echo ""
-echo "✨ Build complete for Electron ${ELECTRON_VERSION} (ABI ${ELECTRON_ABI})!"
+echo "✨ Build complete!"
 
 # Финальная проверка
 if [ -f "addon.node" ]; then
     echo ""
-    echo "🎉 SUCCESS! Your addon.node is ready for Electron ${ELECTRON_VERSION}:"
+    echo "🎉 SUCCESS! Your addon.node is ready:"
     if lipo -info addon.node 2>/dev/null | grep -q "x86_64 arm64"; then
         echo "   ✅ Universal Binary (Intel + Apple Silicon)"
-        echo "   📊 Electron version: ${ELECTRON_VERSION}"
-        echo "   📊 Node ABI version: ${ELECTRON_ABI}"
     elif lipo -info addon.node 2>/dev/null | grep -q "x86_64"; then
         echo "   ⚠️ Intel only (x86_64)"
-        echo "   📊 Electron version: ${ELECTRON_VERSION}"
-        echo "   📊 Node ABI version: ${ELECTRON_ABI}"
     elif lipo -info addon.node 2>/dev/null | grep -q "arm64"; then
         echo "   ⚠️ Apple Silicon only (arm64)"
-        echo "   📊 Electron version: ${ELECTRON_VERSION}"
-        echo "   📊 Node ABI version: ${ELECTRON_ABI}"
     else
         echo "   ℹ️ Single architecture"
     fi
-    
-    echo ""
-    echo "📝 To verify this addon works with your Electron:"
-    echo "   cd .. && npm start"
 else
     echo "❌ Build failed - addon.node not created"
+    exit 1
+fi
+
+
+# ========================================
+# 🧪 ФИНАЛЬНАЯ ПРОВЕРКА: ЗАГРУЗКА АДДОНА В ELECTRON (совместимо с Electron 37.x)
+# ========================================
+
+echo ""
+echo "🧪 FINAL TEST: Loading addon in Electron runtime..."
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+# Убедимся, что бинарник можно запускать
+if [ ! -x "$ELECTRON_BIN" ]; then
+    echo "🔧 Fixing permissions for Electron binary..."
+    chmod +x "$ELECTRON_BIN" || {
+        echo "❌ Cannot make Electron binary executable"
+        exit 1
+    }
+fi
+
+if [ -f "addon.node" ]; then
+    echo "📁 Testing in: $(pwd)"
+    echo "🔍 Electron: $ELECTRON_BIN (v$ELECTRON_VERSION, ABI $ELECTRON_ABI)"
+
+    # Создаём временный скрипт для теста
+    TEST_SCRIPT="test-addon.js"
+    cat > "$TEST_SCRIPT" << 'EOF'
+require('./addon.node');
+console.log('✅ SUCCESS: Addon loaded correctly in Electron ' + process.versions.electron + ' (ABI ' + process.versions.modules + ')');
+process.exit(0);
+EOF
+
+    # Запускаем Electron с этим скриптом
+    if "$ELECTRON_BIN" "$TEST_SCRIPT" 2>&1; then
+        echo "🎉 CONGRATS! Your native addon is ready for Electron ${ELECTRON_VERSION}."
+        rm -f "$TEST_SCRIPT"  # Удаляем временный файл
+    else
+        echo "❌ FAILURE: Addon could not be loaded. Check errors above."
+        rm -f "$TEST_SCRIPT"
+        exit 1
+    fi
+else
+    echo "❌ addon.node not found. Build failed or incomplete."
     exit 1
 fi

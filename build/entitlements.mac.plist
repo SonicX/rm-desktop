@@ -21,6 +21,8 @@
     <!-- 🎤 Сеть -->
     <key>com.apple.security.network.client</key>
     <true/>
+    <key>com.apple.security.network.server</key>
+    <true/>
 
     <!-- 📷 Камера -->
     <key>com.apple.security.device.camera</key>

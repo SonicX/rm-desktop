@@ -34,6 +34,12 @@ export interface InvokeData {
   requestId: string;
 }
 
+export interface RemoteUpdateInfo {
+    version: string;
+    downloadUrl: string;
+    releaseNotes?: string;
+  }
+
 export interface ZulipConnect {
   zulipFound: boolean;
   currentUserName: string;
@@ -46,8 +52,11 @@ export interface ZulipConnect {
 }
 
 export type MainMessage = {
+  "install-update": () => void;
+  "reset-update-button": () => void;
   "preload-log": (message: string) => void;
   "clear-app-settings": () => void;
+  "restart-app-test": () => void;
   "walkie-talkie-status": (data: { enabled: boolean; key: string }) => void;
   "configure-spell-checker": () => void;
   "fetch-user-agent": () => string;
@@ -76,9 +85,14 @@ export type MainMessage = {
   "jitsi-conference-left": () => void;
   "electron-bridge-event": (data: any) => void;
   "ipc-invoke": (data: InvokeData) => void;
+  "show-update-button": (updateInfo: RemoteUpdateInfo) => void;
+  "start-update": (updateInfo: RemoteUpdateInfo) => void;
 };
 
 export type MainCall = {
+  "get-app-version": () => string
+  "handle-zulip-update": (updateInfo: RemoteUpdateInfo) => Promise<{ success: boolean; action?: string }>;
+  "download-update": (updateInfo: RemoteUpdateInfo) => Promise<{ success: Boolean, action?: String  }>;
   "get-server-settings": (domain: string) => ServerConfig;
   "is-online": (url: string) => boolean;
   "poll-clipboard": (key: Uint8Array, sig: Uint8Array) => string | undefined;
