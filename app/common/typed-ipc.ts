@@ -155,6 +155,6 @@ export type RendererMessage = {
   "update_progress": (percent: number) => void;
   "update_downloaded": () => void;
   "update_error": (message: string) => void;
-  "quit-app": () => void; // Добавляем quit-app в RendererMessage
+  "quit-app": () => void;
   "create-native-stream-for-jitsi": () => void;
 };
