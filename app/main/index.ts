@@ -17,6 +17,7 @@ import path from "node:path";
 import process from "node:process";
 import { autoUpdater } from "electron-updater";
 import log from "electron-log";
+import { initializeTrayManager } from './trayManager.js';
 
 
 import { GlobalKeyboardListener, IGlobalKeyDownMap, IGlobalKeyEvent } from 'node-global-key-listener';
@@ -30,7 +31,6 @@ import * as t from "../common/translation-util.js";
 import type { MenuProperties } from "../common/types.js";
 import type { RendererMessage, DesktopSource, JitsiLogData, WalkieTalkieStatus } from "../common/typed-ipc.js";
 
-import { appUpdater, shouldQuitForUpdate } from "./autoupdater.js";
 import * as BadgeSettings from "./badge-settings.js";
 import handleExternalLink from "./handle-external-link.js";
 import * as AppMenu from "./menu.js";
@@ -318,7 +318,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
         app.quit();
     }
 
-    if (!isQuitting && !shouldQuitForUpdate()) {
+    if (!isQuitting) {
       event.preventDefault();
 
       if (process.platform === "darwin") {
@@ -1339,7 +1339,15 @@ async function createMainWindow(): Promise<BrowserWindow> {
   
 
   mainWindow = await createMainWindow();
+  initializeTrayManager(mainWindow);
   console.log("✅ Окно создано!");
+
+  if (process.platform !== "darwin") {
+    const shouldHideMenu = ConfigUtil.getConfigItem("autoHideMenubar", false);
+    mainWindow.autoHideMenuBar = shouldHideMenu;
+    mainWindow.setMenuBarVisibility(!shouldHideMenu);
+  }
+
 
   if (process.platform !== "darwin") {
     const shouldHideMenu = ConfigUtil.getConfigItem("autoHideMenubar", false);
@@ -1356,15 +1364,6 @@ async function createMainWindow(): Promise<BrowserWindow> {
       mainWindow.show();
     }
   });
-
-  page.once("did-frame-finish-load", () => {
-    if (ConfigUtil.getConfigItem("autoUpdate", true)) {
-      appUpdater().catch((error) => {
-        log.error("Ошибка при проверке обновлений:", error);
-      });
-    }
-  });
-
 })();
 
 

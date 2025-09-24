@@ -15,7 +15,6 @@ import * as t from "../common/translation-util.js";
 import type {RendererMessage} from "../common/typed-ipc.js";
 import type {MenuProperties, TabData} from "../common/types.js";
 
-import {appUpdater} from "./autoupdater.js";
 import {send} from "./typed-ipc-main.js";
 
 const appName = app.name;
@@ -312,10 +311,6 @@ function sendAction<Channel extends keyof RendererMessage>(
   }
 
   send(win.webContents, channel, ...arguments_);
-}
-
-async function checkForUpdate(): Promise<void> {
-  await appUpdater();
 }
 
 function getNextServer(tabs: TabData[], activeTabIndex: number): number {
