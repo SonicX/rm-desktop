@@ -1,8 +1,8 @@
 {
   "name": "RMConnect",
-  "version": "5.27.0",
   "productName": "Связь РМ",
-  "main": "./dist-electron",
+  "version": "5.26.2",
+  "main": "./dist-electron/index.js",
   "description": "Приложение Связь РМ",
   "license": "Apache-2.0",
   "copyright": "Цифровые технологии РМ",
@@ -12,7 +12,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://gitverse.ru/tsifrovye_tekhnologii_rm/rm-desktop.git"
+    "url": "https://github.com/sg12/zulip-desktop.git"
   },
   "engines": {
     "node": ">=18"
@@ -22,63 +22,94 @@
     "start-debug": "ELECTRON_ENABLE_LOGGING=1 vite 2>&1 | tee log.txt",
     "start-win": "set ELECTRON_ENABLE_LOGGING=1 && vite 2>&1 | tee log.txt",
     "build-only": "vite build && npm run copy-addon",
-    "copy-addon": "cp native/mac/native-addon.node dist-electron/native-addon.node",
+    "copy-addon": "cp native-addon/addon.node dist-electron/native-addon.node",
     "copy-addon-for-win": "cp native-addon/win/capture.node dist-electron/native-addon.node",
     "build-and-run": "rimraf dist dist-electron && vite build && tsc -p tsconfig.json --skipLibCheck || echo 'TypeScript compilation errors ignored' && copy \"C:\\Users\\Admin\\Documents\\GitHub\\zulip-desktop\\native-addon\\capture.node\" \"dist-electron\\native-addon.node\" && electron dist-electron/index.js",
-    "build-for-win": "vite build && npm run copy-addon-for-win",
-    "rebuild": "electron-rebuild -f -w native/mac/native-addon.node",
-    "dist-win": "npm run build-for-win && electron-builder --windows --config.win.target=nsis",
+    "build-for-win": "vite build && cp native-addon/win/capture.node dist-electron/native-addon.node",
+    "electron-build-win": "electron-builder --win --x64 --dir",
+    "dist-win": "npm run build-for-win && npm run electron-build-win && npm run post-build-win",
+    "post-build-win": "mkdir -p dist/win-unpacked/resources/app/app/renderer && cp app/renderer/*.html dist/win-unpacked/resources/app/app/renderer/ && mv dist/win-unpacked/resources/native-addon.node dist/win-unpacked/resources/app/dist-electron/native-addon.node 2>/dev/null || true",
+    "post-build-win-node": "node -e \"const fs=require('fs'),path=require('path');const mkdirp=(dir)=>{if(!fs.existsSync(dir))fs.mkdirSync(dir,{recursive:true})};const copyFiles=(src,dest)=>{mkdirp(path.dirname(dest));fs.readdirSync(src).forEach(f=>{if(f.endsWith('.html'))fs.copyFileSync(path.join(src,f),path.join(dest,f))})};copyFiles('app/renderer','dist/win-unpacked/resources/app/app/renderer');try{fs.renameSync('dist/win-unpacked/resources/native-addon.node','dist/win-unpacked/resources/app/dist-electron/native-addon.node')}catch(e){}\"",
+    "build-win-complete": "vite build && cp native-addon/win/capture.node dist-electron/native-addon.node && electron-builder --win --x64 --dir && npm run post-build-win-node",
+    "build-win-nosign": "npm run build-for-win && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --win --x64 --dir && npm run post-build-win",
     "watch-ts": "tsc -w",
-    "sign-mac-key-server": "node scripts/sign-mac-key-server.js",
     "reinstall": "rimraf node_modules && npm install",
     "postinstall": "electron-builder install-app-deps",
     "lint-css": "stylelint \"app/**/*.css\"",
     "lint-html": "htmlhint \"app/**/*.html\"",
     "lint-js": "xo",
-    "lint": "eslint \"**/*.{ts,tsx,js,jsx}\" --max-warnings 0",
     "prettier-non-js": "prettier --check --log-level=warn . \"!**/*.{js,ts}\"",
     "test": "tsc && npm run lint-html && npm run lint-css && npm run lint-js && npm run prettier-non-js",
     "test-e2e": "vite build && tape \"tests/**/*.js\"",
-    "pack": "vite build && electron-builder --mac pkg",
-    "dist": "vite build && electron-builder --windows --config.win.target=nsis",
+    "pack": "vite build && electron-builder --dir",
+    "dist": "vite build && electron-builder --mac",
     "publish": "vite build && electron-builder --publish always",
-    "mas": "vite build && electron-builder --windows --config.win.target=nsis",
-    "store": "vite build && npm run copy-addon && electron-builder  --mac --universal"
+    "mas": "vite build && electron-builder --mac"
   },
   "pre-commit": [
     "test"
   ],
   "build": {
-    "buildVersion": 16.12,
     "appId": "org.rm.rm-electron",
     "copyright": "©Цифровые технологии РМ",
     "npmRebuild": false,
     "buildDependenciesFromSource": false,
-    "afterSign": "scripts/notarize.js",
     "publish": [
       {
-        "provider": "generic",
-        "url": "https://gitverse.ru/tsifrovye_tekhnologii_rm/rm-desktop/releases"
+        "provider": "github",
+        "owner": "sg12",
+        "repo": "zulip-desktop",
+        "releaseType": "release"
+      }
+    ],
+    "asar": false,
+    "afterPack": "./afterpack.js",
+    "files": [
+      "dist-electron/**/*",
+      "app/renderer/**/*.html",
+      "dist-electron/**/*.node",
+      "!dist-electron/**/*.map"
+    ],
+    "extraFiles": [
+      {
+        "from": "dist-electron/native-addon.node",
+        "to": "app/dist-electron/native-addon.node"
+      }
+    ],
+    "extraResources": [
+      {
+        "from": "dist-electron/native-addon.node",
+        "to": "native-addon.node"
+      },
+      {
+        "from": "bin/WinKeyServer.exe",
+        "to": "bin/WinKeyServer.exe"
       }
     ],
     "mac": {
-      "asar": false,
-      "asarUnpack": [
-        "dist-electron/native-addon.node"
-      ],
-      "target": "mas",
-      "minimumSystemVersion": "12.0",
-      "hardenedRuntime": true,
-      "gatekeeperAssess": false,
-      "entitlements": "build/entitlements.mac.plist",
-      "entitlementsInherit": "build/macEntitlements.plist",
-      "provisioningProfile": "build/Storermelectron.provisionprofile",
       "category": "public.app-category.productivity",
+      "target": [
+        {
+          "target": "default",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "pkg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "darkModeSupport": true,
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
       "icon": "build/icon.icns",
-      "notarize": true,
-      "identity": "Yuriy Tereshchenko (U95EM6ZJRW)",
-      "type": "distribution",
-      "x64ArchFiles": "**/dist-electron/native-addon.node"
+      "notarize": {
+        "teamId": ""
+      }
     },
     "linux": {
       "category": "Chat;GNOME;GTK;Network;InstantMessaging",
@@ -107,20 +138,29 @@
       "synopsis": "RM Desktop App"
     },
     "dmg": {
-      "background": "build/dmg-background.icns",
+      "background": "build/dmg-background.tiff",
       "icon": "build/dmg-icon.icns"
     },
     "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
       "icon": "build/icon.ico",
-      "publisherName": "ООО Цифровые Технологии Рм",
-      "sign": "scripts/sign.js"
+      "publisherName": [
+        "ООО Цифровые Технологии Рм"
+      ]
     },
     "nsis": {
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "shortcutName": "Связь РМ",
+      "shortcutName": "RM connect",
       "installerIcon": "build/installer-icon.ico"
     }
   },
@@ -133,7 +173,6 @@
     "InstantMessaging"
   ],
   "dependencies": {
-    "@electron/rebuild": "^4.0.1",
     "@jitsi/electron-sdk": "^7.0.9",
     "@jitsi/js-utils": "^2.4.6",
     "node-global-key-listener": "^0.3.0",
@@ -148,7 +187,6 @@
     "@types/backoff": "^2.5.2",
     "@types/i18n": "^0.13.1",
     "@types/node": "^20.11.30",
-    "@types/pg": "^8.15.5",
     "@types/requestidlecallback": "^0.3.4",
     "@types/semver": "^7.5.8",
     "@types/yaireo__tagify": "^4.3.2",
@@ -159,7 +197,6 @@
     "electron": "^37.3.1",
     "electron-builder": "^24.6.4",
     "electron-log": "^5.3.3",
-    "electron-notarize": "^1.2.2",
     "electron-updater": "^6.3.4",
     "electron-window-state": "^5.0.3",
     "escape-goat": "^4.0.0",
@@ -168,8 +205,6 @@
     "i18next-scanner": "^4.6.0",
     "medium": "^1.2.0",
     "node-json-db": "^1.3.0",
-    "node-loader": "^2.1.0",
-    "pg": "^8.16.3",
     "playwright-core": "^1.41.0-alpha-jan-9-2024",
     "pre-commit": "^1.2.2",
     "prettier": "^3.0.3",

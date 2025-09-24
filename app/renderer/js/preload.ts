@@ -88,7 +88,7 @@ contextBridge.exposeInMainWorld('screenCapture', {
         frameRate: number;
     }) => {
         try {
-            const response = await ipcRenderer.invoke('screen-capture-start', options);
+            const response = await ipcRenderer.invoke("screen-capture-start", options);
             if (response.success) {
                 return response.result;
             } else {
@@ -101,7 +101,7 @@ contextBridge.exposeInMainWorld('screenCapture', {
     
     stopCapture: async () => {
         try {
-            const response = await ipcRenderer.invoke('screen-capture-stop');
+            const response = await ipcRenderer.invoke("screen-capture-stop");
             if (!response.success) {
                 throw new Error(response.error);
             }
@@ -112,7 +112,7 @@ contextBridge.exposeInMainWorld('screenCapture', {
     
     testMethod: async () => {
         try {
-            const response = await ipcRenderer.invoke('screen-capture-test');
+            const response = await ipcRenderer.invoke("screen-capture-test");
             if (response.success) {
                 return response.result;
             } else {
@@ -318,7 +318,7 @@ contextBridge.exposeInMainWorld('nativeStream', {
 });
 
 // Слушаем команду от main процесса
-ipcRenderer.on('create-native-stream-for-jitsi', () => {
+ipcRenderer.on("create-native-stream-for-jitsi", () => {
     ipcRenderer.send("preload-log", "🎯 Preload: Received create-native-stream-for-jitsi");
     
     // Создаем MediaStream в контексте webview
@@ -337,12 +337,13 @@ ipcRenderer.on('create-native-stream-for-jitsi', () => {
         
         function animate() {
             if (!animationActive) return;
-            if (!ctx) throw new Error('Failed to get canvas context');
+            
             frame++;
+            
             // Градиентный фон
             const gradient = ctx.createRadialGradient(960, 540, 0, 960, 540, 600);
-            gradient?.addColorStop(0, `hsl(${frame % 360}, 70%, 50%)`);
-            gradient?.addColorStop(1, `hsl(${(frame + 180) % 360}, 60%, 30%)`);
+            gradient.addColorStop(0, `hsl(${frame % 360}, 70%, 50%)`);
+            gradient.addColorStop(1, `hsl(${(frame + 180) % 360}, 60%, 30%)`);
             ctx.fillStyle = gradient;
             ctx.fillRect(0, 0, canvas.width, canvas.height);
             
@@ -423,7 +424,7 @@ electron_bridge.on_event("create-and-share-native-stream", async () => {
         
         // Анимированный контент
         let frame = 0;
-        let animationId: number | null = null;
+        let animationId = null;
         
         const animate = () => {
             frame++;
@@ -475,7 +476,7 @@ electron_bridge.on_event("create-and-share-native-stream", async () => {
         
         return { success: true, streamId: stream.id };
         
-    } catch (error: any) {
+    } catch (error) {
         ipcRenderer.send("preload-log", `❌ Preload: Error creating stream: ${error.message}`);
         electron_bridge.send_event("native-stream-error", { error: error.message });
         return { success: false, error: error.message };
@@ -518,8 +519,6 @@ function createNativeStreamForJitsi() {
         let frame = 0;
         function animate() {
             frame++;
-            if (ctx == null) throw new Error('Failed to get canvas context');
-
             const gradient = ctx.createRadialGradient(960, 540, 0, 960, 540, 600);
             gradient.addColorStop(0, `hsl(${frame % 360}, 70%, 50%)`);
             gradient.addColorStop(1, `hsl(${(frame + 180) % 360}, 60%, 30%)`);
@@ -543,7 +542,7 @@ function createNativeStreamForJitsi() {
         
         // Пробуем найти и нажать кнопку
         setTimeout(() => {
-            const btn = document.querySelector('button[onclick*="shareNativeStream"]') as HTMLButtonElement | null;
+            const btn = document.querySelector('button[onclick*="shareNativeStream"]');
             if (btn) {
                 ipcRenderer.send("preload-log", "✅ Found shareNativeStream button, clicking...");
                 btn.click();
@@ -561,17 +560,17 @@ function createNativeStreamForJitsi() {
             ipcRenderer.send("preload-log", "✅ Sent use-native-stream-in-jitsi event");
         }
         
-    } catch (error: any) {
+    } catch (error) {
         ipcRenderer.send("preload-log", `❌ Error: ${error.message}`);
     }
 }
 
-electron_bridge.on_event('jitsi-conference-started', async (data: {
+electron_bridge.on_event("jitsi-conference-started", async (data: {
     roomName: string;
     jwt?: string;
     userInfo?: {
-        displayName?: string;
-        email?: string;
+        displayName: string;
+        email: string;
         avatarUrl: string;
     }
 }) => {
@@ -579,7 +578,7 @@ electron_bridge.on_event('jitsi-conference-started', async (data: {
 
     const fullRoomUrl = `https://jitsi-connectrm.ru/${data.roomName}`;
     
-    const result = await ipcRenderer.invoke('create-jitsi-sdk-from-zulip', {
+    const result = await ipcRenderer.invoke("create-jitsi-sdk-from-zulip", {
         roomUrl: fullRoomUrl,
         roomName: data.roomName,      // передаём всегда
         jwt: data.jwt || "",
@@ -588,3 +587,87 @@ electron_bridge.on_event('jitsi-conference-started', async (data: {
 
     ipcRenderer.send("preload-log", `🎯 Conference window created: ${result.success}`);
 });
+
+electron_bridge.on_event("zulip-update-available", async (data: {
+  version: string;
+  downloadUrl: string;
+  releaseNotes?: string;
+}) => {
+  ipcRenderer.send("preload-log", `📦 Update available: v${data.version}`);
+  
+  const result = await ipcRenderer.invoke("handle-zulip-update", {
+    version: data.version,
+    downloadUrl: data.downloadUrl,
+    releaseNotes: data.releaseNotes
+  });
+  
+  electron_bridge.send_event("update-response", result);
+});
+
+// Обработчик запроса версии от Zulip
+// В preload.ts
+electron_bridge.on_event("request-electron-version", () => {
+    ipcRenderer.send("preload-log", "📦 Zulip requested Electron version");
+    
+    // Пробуем получить версию через remote
+    try {
+        const { app } = require('@electron/remote');
+        const version = app.getVersion();
+        
+        electron_bridge.send_event("electron-version", { 
+            version: version 
+        });
+        
+        ipcRenderer.send("preload-log", `📦 Sent version back to Zulip: ${version}`);
+    } catch (error) {
+        // Если remote недоступен, запрашиваем у main процесса
+        ipcRenderer.invoke('get-app-version').then(version => {
+            electron_bridge.send_event("electron-version", { 
+                version: version 
+            });
+            ipcRenderer.send("preload-log", `📦 Sent version back to Zulip via IPC: ${version}`);
+        }).catch(err => {
+            // Крайний случай - отправляем версию по умолчанию
+            electron_bridge.send_event("electron-version", { 
+                version: "5.26.1" 
+            });
+            ipcRenderer.send("preload-log", `📦 Error getting version, sent default: 5.26.1`);
+        });
+    }
+});
+
+// Слушаем событие об обновлении от сервера
+electron_bridge.on_event("show-update-available", (data: {
+    version: string;
+    downloadUrl: string;
+    releaseNotes?: string;
+}) => {
+    ipcRenderer.send("preload-log", `📦 Update available from Zulip: v${data.version}`);
+    
+    // Отправляем напрямую в main процесс
+    ipcRenderer.send("show-update-button", data);
+});
+
+electron_bridge.on_event("trigger-update", (updateInfo: any) => {
+    ipcRenderer.send("preload-log", `📦 Triggering update for version ${updateInfo.version}`);
+    
+    ipcRenderer.invoke("handle-zulip-update", updateInfo).then(result => {
+        ipcRenderer.send("preload-log", `📦 Update result: ${JSON.stringify(result)}`);
+        
+        // Если пользователь отменил, сбрасываем состояние кнопки
+        if (result.action === 'postponed') {
+            ipcRenderer.send("reset-update-button");
+        }
+    });
+});
+
+contextBridge.exposeInMainWorld("testUpdate", {
+  triggerUpdate: () => {
+    electron_bridge.emit_event("zulip-update-available", {
+      version: "5.27.0",
+      downloadUrl: "https://storage.yandexcloud.net/rm-electron-desktop-win/Rm-Connectte.zip",
+      releaseNotes: "Тестовое обновление"
+    });
+  }
+});
+

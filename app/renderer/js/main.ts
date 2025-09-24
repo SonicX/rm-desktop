@@ -91,6 +91,10 @@ export class ServerManagerView {
   // Элементы для кнопки обновления
   $updateButton: HTMLButtonElement;
   $updateTooltip: HTMLElement;
+  $updateProgress: HTMLElement;
+  updateInfo: any = null;
+  isUpdateReady: boolean = false;
+  isDownloading: boolean = false;
 
   constructor() {
     this.$tabsContainer = document.querySelector("#tabs-container")!;
@@ -106,6 +110,7 @@ export class ServerManagerView {
     // Инициализация кнопки обновления
     this.$updateButton = $actionsContainer.querySelector("#update-action")!;
     this.$updateTooltip = $actionsContainer.querySelector("#update-tooltip")!;
+    this.$updateProgress = $actionsContainer.querySelector("#update-progress")!;
 
     this.$addServerTooltip = document.querySelector("#add-server-tooltip")!;
     this.$reloadTooltip = $actionsContainer.querySelector("#reload-tooltip")!;
@@ -161,6 +166,20 @@ export class ServerManagerView {
     // Скрываем индикатор загрузки
     if (loadingIndicator) {
       loadingIndicator.style.display = "none";
+    }
+
+    this.checkPendingUpdate();
+  }
+
+  checkPendingUpdate(): void {
+    const pendingUpdate = ConfigUtil.getConfigItem("pendingUpdate", null);
+    if (pendingUpdate) {
+      this.updateInfo = pendingUpdate;
+      this.showUpdateReady();
+      // Автоматически показываем алерт при следующем заходе
+      setTimeout(() => {
+        this.showUpdateDialog();
+      }, 2000);
     }
   }
 
@@ -269,7 +288,7 @@ export class ServerManagerView {
 
   async initTabs(): Promise<void> {
     const server = {
-      url: "https://connectrm-svz.ru/",
+      url: "https://joinrm-svz.ru/",
       alias: "Цифровые технологии РМ",
       icon: "https://disk.yandex.ru/i/m2aj56OOhsJfyw",
       zulipVersion: app.getVersion()
@@ -354,6 +373,171 @@ export class ServerManagerView {
     this.initDndButton();
     this.initServerActions();
     this.initLeftSidebarEvents();
+    this.initUpdateButton();
+  }
+
+  // main.ts - обновленный метод initUpdateButton
+  initUpdateButton(): void {
+    if (this.$updateButton) {
+      // Изначально кнопка скрыта и неактивна
+      this.$updateButton.classList.add("inactive", "hidden");
+      
+      // Добавляем элемент для прогресса
+      this.$updateProgress = document.createElement("span");
+      this.$updateProgress.id = "update-progress";
+      this.$updateProgress.style.display = "none";
+      this.$updateButton.appendChild(this.$updateProgress);
+      
+      this.$updateButton.addEventListener("click", async () => {
+        if (this.updateInfo && !this.isDownloading) {
+          await this.startUpdateDownload();
+        }
+      });
+      
+      this.sidebarHoverEvent(this.$updateButton, this.$updateTooltip);
+    }
+  }
+
+  async startUpdateDownload(): Promise<void> {
+    if (!this.updateInfo || this.isDownloading) return;
+    
+    this.isDownloading = true;
+    this.$updateButton.classList.remove("inactive");
+    this.$updateButton.classList.add("downloading");
+    this.$updateProgress.style.display = "block";
+    this.$updateProgress.textContent = "0%";
+    
+    // Используем существующий обработчик
+    const result = await ipcRenderer.invoke("handle-zulip-update", {
+      version: this.updateInfo.version,
+      downloadUrl: this.updateInfo.download_url || "https://storage.yandexcloud.net/rm-electron-desktop-win/Rm-Connectte.zip",
+      releaseNotes: this.updateInfo.release_notes
+    });
+    
+    if (result.success) {
+      if (result.action === 'updated') {
+        // Обновление установлено, приложение перезапустится
+        this.resetUpdateButton();
+      } else if (result.action === 'postponed') {
+        // Пользователь отложил, кнопка становится яркой
+        this.showUpdateReady();
+        // Сохраняем для повторного показа
+        ConfigUtil.setConfigItem("postponedUpdate", this.updateInfo);
+      }
+    } else {
+      this.showUpdateError(result.error);
+    }
+    
+    this.isDownloading = false;
+  }
+
+  async checkForUpdates(): Promise<void> {
+    try {
+      // Здесь должна быть проверка обновлений с сервера
+      const response = await fetch('https://your-update-server.com/check-version');
+      const data = await response.json();
+      
+      const currentVersion = app.getVersion();
+      if (this.isNewerVersion(data.version, currentVersion)) {
+        this.updateInfo = data;
+        this.showUpdateAvailable();
+      }
+    } catch (error) {
+      console.error('Ошибка проверки обновлений:', error);
+    }
+  }
+
+  isNewerVersion(newVersion: string, currentVersion: string): boolean {
+    const newParts = newVersion.split('.').map(Number);
+    const currentParts = currentVersion.split('.').map(Number);
+    
+    for (let i = 0; i < Math.max(newParts.length, currentParts.length); i++) {
+      const newPart = newParts[i] || 0;
+      const currentPart = currentParts[i] || 0;
+      if (newPart > currentPart) return true;
+      if (newPart < currentPart) return false;
+    }
+    return false;
+  }
+
+  showUpdateAvailable(info: any): void {
+    this.updateInfo = info;
+    this.$updateButton.classList.remove("hidden", "inactive");
+    this.$updateButton.classList.add("available");
+    this.$updateTooltip.innerText = `Доступна версия ${info.version}`;
+  }
+
+  resetUpdateButton(): void {
+    this.$updateButton.classList.add("hidden");
+    this.$updateButton.classList.remove("available", "downloading", "ready", "error");
+    this.$updateProgress.style.display = "none";
+    this.updateInfo = null;
+    this.isUpdateReady = false;
+    ConfigUtil.removeConfigItem("postponedUpdate");
+  }
+
+  async downloadUpdate(): Promise<void> {
+    this.$updateButton.classList.remove("available");
+    this.$updateButton.classList.add("downloading");
+    this.$updateProgress.style.display = "block";
+    
+    try {
+      const result = await ipcRenderer.invoke("download-update", this.updateInfo);
+      
+      if (result.success) {
+        this.showUpdateReady();
+        // Сохраняем информацию об обновлении
+        ConfigUtil.setConfigItem("pendingUpdate", this.updateInfo);
+      } else {
+        this.showUpdateError(result.error);
+      }
+    } catch (error) {
+      this.showUpdateError(error.message);
+    }
+  }
+
+  showUpdateReady(): void {
+    this.isUpdateReady = true;
+    this.$updateButton.classList.remove("downloading", "inactive");
+    this.$updateButton.classList.add("ready");
+    this.$updateProgress.style.display = "none";
+    this.$updateTooltip.innerText = "Готово к установке! Нажмите для установки";
+  }
+
+  showUpdateError(error: string): void {
+    this.$updateButton.classList.remove("downloading");
+    this.$updateButton.classList.add("error");
+    this.$updateProgress.style.display = "none";
+    this.$updateTooltip.innerText = `Ошибка: ${error}`;
+  }
+
+  async showUpdateDialog(): Promise<void> {
+    const choice = await dialog.showMessageBox({
+      type: 'info',
+      title: 'Обновление готово',
+      message: `Версия ${this.updateInfo.version} готова к установке`,
+      detail: this.updateInfo.releaseNotes || 'Рекомендуется установить обновление для получения новых функций и исправлений.',
+      buttons: ['Установить сейчас', 'Позже'],
+      defaultId: 0,
+      cancelId: 1
+    });
+
+    if (choice.response === 0) {
+      // Устанавливаем обновление
+      await this.installUpdate();
+    } else {
+      // Отложили обновление
+      this.updateDismissed = true;
+      this.$updateTooltip.innerText = "Нажмите для установки";
+    }
+  }
+
+  async installUpdate(): Promise<void> {
+    // Удаляем сохраненную информацию об обновлении
+    ConfigUtil.removeConfigItem("pendingUpdate");
+    
+    // Запускаем установку
+    ipcRenderer.send("install-update");
   }
 
   initServerActions(): void {
@@ -832,7 +1016,7 @@ export class ServerManagerView {
         context.ellipse(64, 64, 64, 64, 0, 0, 2 * Math.PI);
         context.fill();
         context.textAlign = "center";
-        context.fillStyle = "#FFF";
+        context.fillStyle = "white";
         if (messageCount > 99) {
           context.font = "65px Helvetica";
           context.fillText("99+", 64, 85);
@@ -861,7 +1045,10 @@ export class ServerManagerView {
     ipcRenderer.on("open-network-settings", async () => { await this.openSettings("Network"); });
     ipcRenderer.on("play-ding-sound", async () => { await dingSound.play(); });
 
-    // Обработчики для автообновления
+    ipcRenderer.on("server-update-available", (event, updateInfo) => {
+      this.showUpdateAvailable(updateInfo);
+    });
+
     ipcRenderer.on("update_available", (event, version: string) => {
       this.$updateTooltip.innerText = `Доступно: v${version}`;
       this.$updateButton.classList.remove("hidden");
@@ -881,6 +1068,44 @@ export class ServerManagerView {
       this.$updateTooltip.innerText = `Ошибка: ${message}`;
       this.$updateButton.classList.remove("hidden");
     });
+
+    ipcRenderer.on("update-available", (event, info) => {
+      this.updateInfo = info;
+      this.showUpdateAvailable();
+    });
+
+    ipcRenderer.on("update-download-progress", (event, progress) => {
+      if (this.$updateProgress && this.isDownloading) {
+        this.$updateProgress.textContent = `${Math.round(progress)}%`;
+      }
+    });
+
+    ipcRenderer.on("update-downloaded", () => {
+      this.showUpdateReady();
+      ConfigUtil.setConfigItem("pendingUpdate", this.updateInfo);
+      
+      // Показываем диалог сразу после загрузки
+      if (!this.updateDismissed) {
+        setTimeout(() => {
+          this.showUpdateDialog();
+        }, 1000);
+      }
+    });
+
+    ipcRenderer.on("update-error", (event, error) => {
+      this.showUpdateError(error);
+    });
+
+    const postponedUpdate = ConfigUtil.getConfigItem("postponedUpdate", null);
+    if (postponedUpdate) {
+      this.updateInfo = postponedUpdate;
+      this.showUpdateReady();
+      
+      // Автоматически показываем диалог через 3 секунды
+      setTimeout(() => {
+        this.startUpdateDownload();
+      }, 3000);
+    }
   }
 }
 
@@ -895,6 +1120,72 @@ window.addEventListener("load", async () => {
         color: white;
         opacity: 0.25;
         margin-left: 7px;
+      }
+      
+      /* Стили для кнопки обновления */
+      #update-action {
+        position: relative;
+        overflow: hidden;
+      }
+      
+      #update-progress-bar {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        height: 3px;
+        background: linear-gradient(90deg, #4CAF50, #8BC34A);
+        transition: width 0.3s ease;
+        width: 0%;
+      }
+      
+      #update-progress-text {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        font-size: 14px;
+        font-weight: bold;
+        color: white;
+        text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+        z-index: 10;
+      }
+      
+      #update-action.downloading i {
+        opacity: 0.1;
+        animation: pulse 1s infinite;
+      }
+
+      #update-tooltip,
+      #reload-tooltip,
+      #loading-tooltip,
+      #setting-tooltip,
+      #back-tooltip,
+      #dnd-tooltip {
+        color: white !important;
+        background: rgba(0, 0, 0, 0.9);
+        padding: 5px 10px;
+        border-radius: 4px;
+        font-size: 12px;
+        white-space: nowrap;
+        pointer-events: none;
+        z-index: 1000;
+      }
+      
+      /* Для темной темы */
+      body.dark-theme #update-tooltip,
+      body.dark-theme [id$="-tooltip"] {
+        color: white !important;
+        background: rgba(0, 0, 0, 0.9);
+      }
+      
+      /* Прогресс текст всегда белый */
+      #update-progress-text {
+        color: white !important;
+      }
+      
+      @keyframes pulse {
+        0%, 100% { opacity: 0.1; }
+        50% { opacity: 0.3; }
       }
     </style>
     <div id="content">
@@ -926,9 +1217,9 @@ window.addEventListener("load", async () => {
             <i class="material-icons md-48">settings</i>
             <span id="setting-tooltip" style="display: none">${t.__("Настройки")}</span>
           </div>
-          <div class="action-button hidden" id="update-action">
-            <i class="material-icons md-48">update</i>
-            <span id="update-tooltip" style="display: none">${t.__("Обновить")}</span>
+          <div class="action-button" id="update-action">
+            <i class="material-icons md-48">system_update_alt</i>
+            <span id="update-tooltip" style="display: none">Тест: Перезапуск</span>
           </div>
           <div class="version-label">${appVersion}</div>
         </div>

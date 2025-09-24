@@ -1,3 +1,4 @@
+#define NOMINMAX  // Предотвращаем конфликт с макросами min/max из Windows
 #include <node_api.h>
 #include <windows.h>
 #include <d3d11.h>
@@ -61,6 +62,10 @@ static napi_threadsafe_function g_audio_tsfn = nullptr;
 static std::atomic<uint64_t> g_video_frame_count{0};
 static std::atomic<uint64_t> g_audio_frame_count{0};
 static std::atomic<bool> g_capture_active{false};
+
+// НОВАЯ ГЛОБАЛЬНАЯ ПЕРЕМЕННАЯ ДЛЯ УПРАВЛЕНИЯ ГРОМКОСТЬЮ
+static std::atomic<float> g_participants_volume{0.20f};
+static std::mutex g_volume_mutex;
 
 // Структуры для передачи данных
 struct VideoFrameData {
@@ -148,6 +153,435 @@ static SimpleSyncManager g_syncManager;
 double GetTimestamp() {
     return g_syncManager.GetTimestamp();
 }
+
+class UniversalEchoCanceller {
+private:
+    static constexpr int SAMPLE_RATE = 48000;
+    static constexpr int MAX_DELAY_MS = 2000; // До 2 секунд
+    static constexpr int MAX_DELAY_SAMPLES = (MAX_DELAY_MS * SAMPLE_RATE) / 1000;
+    
+    std::vector<float> ringBuffer;
+    int writeIndex = 0;
+    
+    // Адаптивные параметры
+    int detectedDelay = 0;
+    float echoGain = 0.5f;
+    int searchCounter = 0;
+    
+    // Статистика для автоопределения
+    std::vector<float> correlationHistory;
+    
+public:
+    UniversalEchoCanceller() {
+        ringBuffer.resize(MAX_DELAY_SAMPLES, 0.0f);
+        correlationHistory.resize(20, 0.0f); // История последних 20 измерений
+    }
+    
+    void ProcessBuffer(std::vector<float>& samples) {
+        // Автоматический поиск задержки каждые 50 фреймов
+        if (++searchCounter % 50 == 0) {
+            DetectEchoDelay(samples);
+        }
+        
+        // Применяем подавление с найденной задержкой
+        if (detectedDelay > 0) {
+            ApplyEchoCancellation(samples);
+        }
+    }
+    
+private:
+    void DetectEchoDelay(const std::vector<float>& samples) {
+        float bestCorrelation = 0;
+        int bestDelay = 0;
+        
+        // Используем переменный шаг в зависимости от задержки
+        int delayMs = 100;
+        while (delayMs <= 2000) {
+            int delaySamples = (delayMs * SAMPLE_RATE) / 1000;
+            float correlation = CalculateCorrelation(samples, delaySamples);
+            
+            if (correlation > bestCorrelation) {
+                bestCorrelation = correlation;
+                bestDelay = delaySamples;
+            }
+            
+            // Переменный шаг: меньше для малых задержек, больше для больших
+            if (delayMs < 500) {
+                delayMs += 25;  // Шаг 25мс для задержек < 500мс
+            } else if (delayMs < 1000) {
+                delayMs += 50;  // Шаг 50мс для задержек 500-1000мс
+            } else {
+                delayMs += 100; // Шаг 100мс для задержек > 1000мс
+            }
+        }
+        
+        // Уточняющий проход с шагом 1мс вокруг максимума
+        if (bestCorrelation > 0.25f) {
+            int centerMs = (bestDelay * 1000) / SAMPLE_RATE;
+            
+            for (int delta = -10; delta <= 10; delta++) {
+                int testMs = centerMs + delta;
+                if (testMs < 100 || testMs > 2000) continue;
+                
+                int delaySamples = (testMs * SAMPLE_RATE) / 1000;
+                float correlation = CalculateCorrelation(samples, delaySamples);
+                
+                if (correlation > bestCorrelation) {
+                    bestCorrelation = correlation;
+                    bestDelay = delaySamples;
+                }
+            }
+        }
+        
+        // Применяем результат
+        if (bestCorrelation > 0.3f) {
+            detectedDelay = bestDelay;
+            echoGain = std::min(0.9f, bestCorrelation);
+            
+            char log[256];
+            sprintf_s(log, "[ECHO] Precise delay: %d.%dms, correlation: %.3f\n", 
+                    (bestDelay * 1000) / SAMPLE_RATE,
+                    ((bestDelay * 10000) / SAMPLE_RATE) % 10,
+                    bestCorrelation);
+            OutputDebugStringA(log);
+        }
+    }
+    
+    float CalculateCorrelation(const std::vector<float>& samples, int delaySamples) {
+        // Используем последние 2000 сэмплов для анализа
+        int analyzeLength = std::min(2000, (int)samples.size());
+        if (analyzeLength < 100) return 0;
+        
+        float correlation = 0;
+        float energy1 = 0;
+        float energy2 = 0;
+        
+        for (int i = 0; i < analyzeLength; i++) {
+            int currentIdx = samples.size() - analyzeLength + i;
+            int delayedIdx = (writeIndex - delaySamples - analyzeLength + i + MAX_DELAY_SAMPLES) % MAX_DELAY_SAMPLES;
+            
+            float current = samples[currentIdx];
+            float delayed = ringBuffer[delayedIdx];
+            
+            correlation += current * delayed;
+            energy1 += current * current;
+            energy2 += delayed * delayed;
+        }
+        
+        if (energy1 > 0.0001f && energy2 > 0.0001f) {
+            return fabs(correlation) / (sqrt(energy1) * sqrt(energy2));
+        }
+        
+        return 0;
+    }
+    
+    void ApplyEchoCancellation(std::vector<float>& samples) {
+        for (size_t i = 0; i < samples.size(); i++) {
+            // Сохраняем текущий сэмпл
+            ringBuffer[writeIndex] = samples[i];
+            
+            // Получаем задержанный сэмпл
+            int echoIdx = (writeIndex - detectedDelay + MAX_DELAY_SAMPLES) % MAX_DELAY_SAMPLES;
+            float echoSample = ringBuffer[echoIdx];
+            
+            // Адаптивное вычитание
+            float cleaned = samples[i] - (echoSample * echoGain);
+            
+            // Ограничитель для предотвращения искажений
+            float inputLevel = fabs(samples[i]);
+            float outputLevel = fabs(cleaned);
+            
+            // Если после вычитания сигнал стал громче - что-то не так
+            if (outputLevel > inputLevel * 1.5f) {
+                // Уменьшаем агрессивность
+                cleaned = samples[i] - (echoSample * echoGain * 0.5f);
+                echoGain *= 0.95f; // Адаптивно уменьшаем
+            }
+            
+            // Noise gate для остаточного эха
+            if (outputLevel < inputLevel * 0.1f) {
+                cleaned *= 0.5f;
+            }
+            
+            samples[i] = cleaned;
+            writeIndex = (writeIndex + 1) % MAX_DELAY_SAMPLES;
+        }
+    }
+};
+
+class EchoTestAndCancel {
+private:
+    static constexpr int SAMPLE_RATE = 48000;
+    
+    // Тестовый сигнал: двухтональный маркер
+    void GenerateTestTone(std::vector<float>& samples, int position) {
+        int toneLength = std::min(960, (int)samples.size() - position); // 20мс
+        
+        for (int i = 0; i < toneLength; i++) {
+            float t = (float)i / SAMPLE_RATE;
+            // Двухтональный сигнал: 880Hz + 1320Hz (уникальная комбинация)
+            float tone = 0.15f * (sinf(2.0f * 3.14159f * 880.0f * t) +
+                                  sinf(2.0f * 3.14159f * 1320.0f * t));
+            samples[position + i] += tone;
+        }
+    }
+    
+    // Детектор двухтонального сигнала
+    bool DetectTestTone(const std::vector<float>& samples, int position) {
+        if (position + 960 > samples.size()) return false;
+        
+        float energy880 = 0, energy1320 = 0;
+        
+        // Простой частотный анализ (Goertzel algorithm)
+        for (int i = 0; i < 960; i++) {
+            float t = (float)i / SAMPLE_RATE;
+            energy880 += samples[position + i] * sinf(2.0f * 3.14159f * 880.0f * t);
+            energy1320 += samples[position + i] * sinf(2.0f * 3.14159f * 1320.0f * t);
+        }
+        
+        energy880 = fabs(energy880) / 960;
+        energy1320 = fabs(energy1320) / 960;
+        
+        // Если обе частоты присутствуют - это наш маркер
+        return (energy880 > 0.05f && energy1320 > 0.05f);
+    }
+    
+public:
+    void ProcessAndTest(std::vector<float>& samples) {
+        static int testCounter = 0;
+        static std::vector<int> echoPositions;
+        
+        // Каждые 50 фреймов добавляем тестовый тон
+        if (++testCounter % 50 == 0) {
+            GenerateTestTone(samples, 0);
+            OutputDebugStringA("[TEST] Injected test tone\n");
+        }
+        
+        // Сканируем весь буфер на наличие тестовых тонов
+        int detectCount = 0;
+        for (size_t pos = 0; pos < samples.size() - 960; pos += 480) {
+            if (DetectTestTone(samples, pos)) {
+                detectCount++;
+                
+                // МОДИФИЦИРУЕМ найденное эхо
+                for (int i = 0; i < 960; i++) {
+                    // Создаем "рваный" звук для явной идентификации
+                    if ((i / 48) % 2 == 0) {
+                        samples[pos + i] *= 0.1f;  // Заглушаем
+                    } else {
+                        samples[pos + i] *= 2.0f;   // Усиливаем
+                    }
+                }
+                
+                // Запоминаем позицию для анализа задержки
+                echoPositions.push_back(pos);
+                
+                char log[256];
+                sprintf_s(log, "[ECHO-FOUND] Test tone detected at sample %zu (%.1fms from start)\n", 
+                         pos, (float)pos * 1000.0f / SAMPLE_RATE);
+                OutputDebugStringA(log);
+            }
+        }
+        
+        if (detectCount > 0) {
+            OutputDebugStringA("[SUCCESS] Echo cancellation is working! Modified echoes will sound distorted.\n");
+        }
+    }
+};
+
+// Класс для управления громкостью других приложений
+class VolumeController {
+private:
+    IMMDeviceEnumerator* deviceEnumerator = nullptr;
+    IMMDevice* device = nullptr;
+    IAudioSessionManager2* sessionManager = nullptr;
+    DWORD currentProcessId = 0;
+    std::thread volumeThread;
+    std::atomic<bool> isRunning{false};
+    
+public:
+    bool Initialize() {
+        currentProcessId = GetCurrentProcessId();
+        
+        HRESULT hr = CoCreateInstance(
+            __uuidof(MMDeviceEnumerator),
+            nullptr,
+            CLSCTX_ALL,
+            __uuidof(IMMDeviceEnumerator),
+            (void**)&deviceEnumerator
+        );
+        
+        if (FAILED(hr)) return false;
+        
+        hr = deviceEnumerator->GetDefaultAudioEndpoint(
+            eRender,
+            eConsole,
+            &device
+        );
+        
+        if (FAILED(hr)) return false;
+        
+        hr = device->Activate(
+            __uuidof(IAudioSessionManager2),
+            CLSCTX_ALL,
+            nullptr,
+            (void**)&sessionManager
+        );
+        
+        return SUCCEEDED(hr);
+    }
+    
+    void StartVolumeControl() {
+        if (isRunning) return;
+        
+        isRunning = true;
+        volumeThread = std::thread([this]() {
+            CoInitialize(nullptr);
+            
+            while (isRunning) {
+                UpdateVolumes();
+                Sleep(100); // Обновляем каждые 100мс
+            }
+            
+            CoUninitialize();
+        });
+    }
+    
+    void UpdateVolumes() {
+        if (!sessionManager) return;
+        
+        IAudioSessionEnumerator* sessionEnumerator = nullptr;
+        HRESULT hr = sessionManager->GetSessionEnumerator(&sessionEnumerator);
+        if (FAILED(hr)) return;
+        
+        int sessionCount = 0;
+        sessionEnumerator->GetCount(&sessionCount);
+        
+        float targetVolume = g_participants_volume.load();
+        
+        for (int i = 0; i < sessionCount; i++) {
+            IAudioSessionControl* sessionControl = nullptr;
+            hr = sessionEnumerator->GetSession(i, &sessionControl);
+            if (FAILED(hr)) continue;
+            
+            IAudioSessionControl2* sessionControl2 = nullptr;
+            hr = sessionControl->QueryInterface(__uuidof(IAudioSessionControl2), (void**)&sessionControl2);
+            
+            if (SUCCEEDED(hr)) {
+                DWORD processId = 0;
+                hr = sessionControl2->GetProcessId(&processId);
+                
+                // Применяем громкость только к другим процессам (не к нашему Electron)
+                if (SUCCEEDED(hr) && processId != currentProcessId && processId != 0) {
+                    
+                    // Проверяем, является ли это браузером или коммуникационным приложением
+                    HANDLE hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, processId);
+                    if (hProcess) {
+                        wchar_t exePath[MAX_PATH];
+                        DWORD pathLen = MAX_PATH;
+                        if (QueryFullProcessImageNameW(hProcess, 0, exePath, &pathLen)) {
+                            std::wstring fullPath(exePath);
+                            
+                            // Проверяем, является ли это браузером или VoIP приложением
+                            if (fullPath.find(L"chrome.exe") != std::wstring::npos ||
+                                fullPath.find(L"firefox.exe") != std::wstring::npos ||
+                                fullPath.find(L"msedge.exe") != std::wstring::npos ||
+                                fullPath.find(L"opera.exe") != std::wstring::npos ||
+                                fullPath.find(L"brave.exe") != std::wstring::npos ||
+                                fullPath.find(L"teams.exe") != std::wstring::npos ||
+                                fullPath.find(L"zoom.exe") != std::wstring::npos ||
+                                fullPath.find(L"skype.exe") != std::wstring::npos) {
+                                
+                                ISimpleAudioVolume* simpleVolume = nullptr;
+                                hr = sessionControl->QueryInterface(__uuidof(ISimpleAudioVolume), (void**)&simpleVolume);
+                                
+                                if (SUCCEEDED(hr)) {
+                                    // Устанавливаем громкость
+                                    simpleVolume->SetMasterVolume(targetVolume, nullptr);
+                                    simpleVolume->Release();
+                                    
+                                    char log[256];
+                                    sprintf_s(log, "Volume set to %.2f for PID: %lu\n", targetVolume, processId);
+                                    OutputDebugStringA(log);
+                                }
+                            }
+                        }
+                        CloseHandle(hProcess);
+                    }
+                }
+                
+                sessionControl2->Release();
+            }
+            
+            sessionControl->Release();
+        }
+        
+        sessionEnumerator->Release();
+    }
+    
+    void StopVolumeControl() {
+        isRunning = false;
+        if (volumeThread.joinable()) {
+            volumeThread.join();
+        }
+        
+        // Восстанавливаем громкость всех приложений на 100%
+        if (sessionManager) {
+            RestoreVolumes();
+        }
+    }
+    
+    void RestoreVolumes() {
+        IAudioSessionEnumerator* sessionEnumerator = nullptr;
+        HRESULT hr = sessionManager->GetSessionEnumerator(&sessionEnumerator);
+        if (FAILED(hr)) return;
+        
+        int sessionCount = 0;
+        sessionEnumerator->GetCount(&sessionCount);
+        
+        for (int i = 0; i < sessionCount; i++) {
+            IAudioSessionControl* sessionControl = nullptr;
+            hr = sessionEnumerator->GetSession(i, &sessionControl);
+            if (FAILED(hr)) continue;
+            
+            ISimpleAudioVolume* simpleVolume = nullptr;
+            hr = sessionControl->QueryInterface(__uuidof(ISimpleAudioVolume), (void**)&simpleVolume);
+            
+            if (SUCCEEDED(hr)) {
+                simpleVolume->SetMasterVolume(1.0f, nullptr);
+                simpleVolume->Release();
+            }
+            
+            sessionControl->Release();
+        }
+        
+        sessionEnumerator->Release();
+    }
+    
+    ~VolumeController() {
+        StopVolumeControl();
+        
+        // Правильная очистка COM объектов
+        if (sessionManager) {
+            sessionManager->Release();
+            sessionManager = nullptr;
+        }
+        if (device) {
+            device->Release();
+            device = nullptr;
+        }
+        if (deviceEnumerator) {
+            deviceEnumerator->Release();
+            deviceEnumerator = nullptr;
+        }
+        
+        // Деинициализация COM для основного потока
+        CoUninitialize();
+    }
+};
+
+// Глобальный экземпляр контроллера громкости
+static std::unique_ptr<VolumeController> g_volumeController;
 
 // Класс для захвата экрана через DXGI
 class DXGIScreenCapture {
@@ -400,6 +834,13 @@ private:
     IAudioSessionManager2* sessionManager = nullptr;
     WAVEFORMATEX* waveFormat = nullptr;
     
+    UniversalEchoCanceller echoCanceller;
+    bool echoEnabled = true;
+
+    EchoTestAndCancel echoTester;  // Добавляем тестер
+    bool testMode = true;  // Включаем тестовый режим
+
+
     std::atomic<bool> isCapturing{false};
     std::thread captureThread;
     std::vector<float> accumulationBuffer;
@@ -645,6 +1086,13 @@ public:
         
         return SUCCEEDED(hr);
     }
+
+    void EnableEchoCancellation(bool enable) {
+        echoEnabled = enable;
+        OutputDebugStringA(enable ? 
+            "Echo cancellation ENABLED\n" : 
+            "Echo cancellation DISABLED\n");
+    }
     
     void StartCapture() {
         if (!audioClient) return;
@@ -710,7 +1158,9 @@ public:
         static int debugCounter = 0;
         debugCounter++;
         
-        // Конвертируем в float (существующий код)
+        // ============================================
+        // КОНВЕРТАЦИЯ В FLOAT
+        // ============================================
         bool hasNonZero = false;
         
         if (waveFormat->wFormatTag == WAVE_FORMAT_IEEE_FLOAT) {
@@ -768,83 +1218,76 @@ public:
         }
         
         // ============================================
-        // ТЕСТОВЫЙ РЕЖИМ: Генерация тестового сигнала
+        // РЕЖИМ ТЕСТИРОВАНИЯ ЭХОПОДАВЛЕНИЯ
         // ============================================
-        if (diagnosticMode) {
-            diagnosticFrameCount++;
+        if (testMode) {
+            // В тестовом режиме ТОЛЬКО тестируем эхо
+            echoTester.ProcessAndTest(samples);
             
-            // Первые 5 секунд - генерируем тестовый сигнал
-            // Следующие 5 секунд - реальный захват
-            // Потом снова тестовый и т.д.
-            int cyclePosition = (diagnosticFrameCount / 100) % 2; // Меняем каждые ~2 секунды при 48kHz
+            // Логируем что мы в тестовом режиме
+            static int testLogCounter = 0;
+            if (++testLogCounter % 100 == 0) {
+                OutputDebugStringA("[TEST-MODE] Echo test active, listening for echoes...\n");
+            }
+        } 
+        else if (echoEnabled && !diagnosticMode) {
+            // ============================================
+            // ОБЫЧНОЕ ЭХОПОДАВЛЕНИЕ (когда не в тесте)
+            // ============================================
             
-            if (cyclePosition == 0) {
-                // ГЕНЕРИРУЕМ ТЕСТОВЫЙ СИГНАЛ (синусоида 440 Гц)
-                float omega = 2.0f * 3.14159265f * testSignalFrequency / waveFormat->nSamplesPerSec;
+            // Если стерео - обрабатываем каждый канал
+            if (waveFormat->nChannels == 2) {
+                std::vector<float> leftChannel;
+                std::vector<float> rightChannel;
                 
-                for (size_t i = 0; i < numFrames; i++) {
-                    float sampleValue = testSignalAmplitude * sinf(omega * testSignalPhase);
-                    testSignalPhase++;
-                    
-                    // Записываем во все каналы
-                    for (UINT ch = 0; ch < waveFormat->nChannels; ch++) {
-                        samples[i * waveFormat->nChannels + ch] = sampleValue;
-                    }
+                // Разделяем каналы
+                for (size_t i = 0; i < samples.size(); i += 2) {
+                    leftChannel.push_back(samples[i]);
+                    rightChannel.push_back(samples[i + 1]);
                 }
                 
-                // Логируем переключение на тестовый сигнал
-                if (diagnosticFrameCount % 100 == 1) {
-                    char log[256];
-                    sprintf_s(log, "[TEST-SIGNAL] Frame %d: Generating 440Hz sine wave, amplitude=%.2f\n",
-                            diagnosticFrameCount, testSignalAmplitude);
-                    OutputDebugStringA(log);
-                }
+                // Обрабатываем каждый канал
+                echoCanceller.ProcessBuffer(leftChannel);
+                echoCanceller.ProcessBuffer(rightChannel);
                 
-                hasNonZero = true; // Гарантируем что есть данные
+                // Объединяем обратно
+                for (size_t i = 0; i < leftChannel.size(); i++) {
+                    samples[i * 2] = leftChannel[i];
+                    samples[i * 2 + 1] = rightChannel[i];
+                }
             } else {
-                // РЕАЛЬНЫЙ ЗАХВАТ - добавляем маркер для идентификации
-                // Добавляем очень тихий пилот-тон 1kHz чтобы отличить от тишины
-                float pilotFreq = 1000.0f;
-                float pilotAmp = 0.001f; // Очень тихий
-                float omega = 2.0f * 3.14159265f * pilotFreq / waveFormat->nSamplesPerSec;
-                
-                for (size_t i = 0; i < sampleCount; i++) {
-                    samples[i] += pilotAmp * sinf(omega * (testSignalPhase + i));
-                }
-                testSignalPhase += sampleCount;
-                
-                if (diagnosticFrameCount % 100 == 51) {
-                    char log[256];
-                    sprintf_s(log, "[REAL-CAPTURE] Frame %d: Real audio + pilot tone, hasData=%s\n",
-                            diagnosticFrameCount, hasNonZero ? "YES" : "NO");
-                    OutputDebugStringA(log);
-                }
+                // Моно - обрабатываем напрямую
+                echoCanceller.ProcessBuffer(samples);
             }
         }
         
         // ============================================
-        // ДЕТАЛЬНАЯ ДИАГНОСТИКА
+        // ДИАГНОСТИКА (только если не в тесте)
         // ============================================
-        if (debugCounter <= 10 || debugCounter % 100 == 0) {
-            // Вычисляем RMS (среднеквадратичное) для оценки громкости
+        if (!testMode && (debugCounter <= 10 || debugCounter % 100 == 0)) {
             float rms = 0;
             float maxSample = 0;
             for (size_t i = 0; i < sampleCount && i < 1000; i++) {
                 rms += samples[i] * samples[i];
                 if (fabs(samples[i]) > maxSample) maxSample = fabs(samples[i]);
             }
-            rms = sqrt(rms / min(sampleCount, (size_t)1000));
+            size_t divisor = sampleCount < 1000 ? sampleCount : 1000;
+            rms = sqrt(rms / divisor);
             
             char log[512];
-            sprintf_s(log, "[AUDIO-DIAG] Frame %d: Format=0x%X, Bits=%d, Ch=%d, Samples=%u, RMS=%.6f, Max=%.6f, Mode=%s\n",
-                    debugCounter, waveFormat->wFormatTag, waveFormat->wBitsPerSample,
-                    waveFormat->nChannels, numFrames, rms, maxSample,
-                    diagnosticMode ? (diagnosticFrameCount/100 % 2 == 0 ? "TEST_SIGNAL" : "REAL+PILOT") : "NORMAL");
+            sprintf_s(log, "[AUDIO-DIAG] Frame %d: RMS=%.6f, Max=%.6f, TestMode=%s, EchoEnabled=%s\n",
+                    debugCounter, rms, maxSample,
+                    testMode ? "ON" : "OFF",
+                    echoEnabled ? "ON" : "OFF");
             OutputDebugStringA(log);
         }
         
-        // НЕ применяем фильтрацию в режиме диагностики
-        if (!diagnosticMode && targetProcessId != 0) {
+        // ============================================
+        // ФИНАЛЬНАЯ ОБРАБОТКА И ОТПРАВКА
+        // ============================================
+        
+        // Применяем фильтрацию процесса (если нужно)
+        if (!diagnosticMode && !testMode && targetProcessId != 0 && !echoEnabled) {
             ApplyProcessFilter(samples);
         }
         
@@ -857,7 +1300,7 @@ public:
         
         SendBufferedFrames();
     }
-    
+        
     void ApplyProcessFilter(std::vector<float>& samples) {
         // ВРЕМЕННО ОТКЛЮЧЕНО для отладки
         return;
@@ -1002,7 +1445,57 @@ static CaptureSource g_currentSource;
 // Тестовый метод
 napi_value TestMethod(napi_env env, napi_callback_info info) {
     napi_value result;
-    napi_create_string_utf8(env, "Windows Native Module v1.0 - Application Audio Support", NAPI_AUTO_LENGTH, &result);
+    napi_create_string_utf8(env, "Windows Native Module v1.0 - Application Audio Support with Volume Control", NAPI_AUTO_LENGTH, &result);
+    return result;
+}
+
+napi_value SetParticipantsVolume(napi_env env, napi_callback_info info) {
+    size_t argc = 1;
+    napi_value argv[1];
+    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+    
+    float volume = 0.20f; // Значение по умолчанию
+    
+    if (argc >= 1) {
+        double inputVolume;
+        napi_status status = napi_get_value_double(env, argv[0], &inputVolume);
+        
+        if (status == napi_ok) {
+            // Ограничиваем значение от 0 до 1
+            volume = (float)std::max(0.0, std::min(1.0, inputVolume));
+        }
+    }
+    
+    // Устанавливаем новое значение громкости
+    {
+        std::lock_guard<std::mutex> lock(g_volume_mutex);
+        g_participants_volume = volume;
+    }
+    
+    char log[128];
+    sprintf_s(log, "Participants volume set to: %.2f\n", volume);
+    OutputDebugStringA(log);
+    
+    napi_value result;
+    napi_create_object(env, &result);
+    
+    napi_value success, volumeSet;
+    napi_get_boolean(env, true, &success);
+    napi_create_double(env, volume, &volumeSet);
+    
+    napi_set_named_property(env, result, "success", success);
+    napi_set_named_property(env, result, "volume", volumeSet);
+    
+    return result;
+}
+
+// НОВАЯ ФУНКЦИЯ: Получение текущей громкости участников
+napi_value GetParticipantsVolume(napi_env env, napi_callback_info info) {
+    float currentVolume = g_participants_volume.load();
+    
+    napi_value result;
+    napi_create_double(env, currentVolume, &result);
+    
     return result;
 }
 
@@ -1223,6 +1716,19 @@ napi_value StartCapture(napi_env env, napi_callback_info info) {
     g_syncManager.Reset();
     OutputDebugStringA("Sync manager initialized\n");
     
+    // Инициализируем и запускаем контроллер громкости
+    if (!g_volumeController) {
+        CoInitialize(nullptr); // Инициализация COM для главного потока
+        g_volumeController = std::make_unique<VolumeController>();
+        if (g_volumeController->Initialize()) {
+            g_volumeController->StartVolumeControl();
+            OutputDebugStringA("Volume controller started\n");
+        } else {
+            OutputDebugStringA("Failed to initialize volume controller\n");
+            g_volumeController.reset(); // Очищаем если не удалось инициализировать
+        }
+    }
+    
     if (g_screenCapture) {
         g_screenCapture->StopCapture();
         g_screenCapture.reset();
@@ -1309,6 +1815,15 @@ napi_value StartCapture(napi_env env, napi_callback_info info) {
 // Остановка захвата
 napi_value StopCapture(napi_env env, napi_callback_info info) {
     g_capture_active = false;
+    
+    // Останавливаем контроллер громкости
+    if (g_volumeController) {
+        g_volumeController->StopVolumeControl();
+        g_volumeController.reset();
+        CoUninitialize(); // Деинициализация COM
+        OutputDebugStringA("Volume controller stopped and cleaned up\n");
+    }
+
     
     if (g_screenCapture) {
         g_screenCapture->StopCapture();
@@ -1501,7 +2016,9 @@ napi_value Init(napi_env env, napi_value exports) {
         {"setCaptureQuality", nullptr, SetCaptureQuality, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"setCaptureSource", nullptr, SetCaptureSource, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"setWebRTCVideoCallback", nullptr, SetWebRTCVideoCallback, nullptr, nullptr, nullptr, napi_default, nullptr},
-        {"setWebRTCAudioCallback", nullptr, SetWebRTCAudioCallback, nullptr, nullptr, nullptr, napi_default, nullptr}
+        {"setWebRTCAudioCallback", nullptr, SetWebRTCAudioCallback, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"setParticipantsVolume", nullptr, SetParticipantsVolume, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"getParticipantsVolume", nullptr, GetParticipantsVolume, nullptr, nullptr, nullptr, napi_default, nullptr}
     };
     
     napi_define_properties(env, exports, sizeof(desc) / sizeof(desc[0]), desc);
