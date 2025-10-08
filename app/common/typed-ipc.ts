@@ -27,6 +27,10 @@ export interface WalkieTalkieStatus {
   enabled: boolean;
   key: string;
 }
+export interface GlobalVolumeHotkeyStatus {
+  enabled: boolean;
+  key: string;
+}
 
 export interface InvokeData {
   channel: string;
@@ -58,6 +62,7 @@ export type MainMessage = {
   "clear-app-settings": () => void;
   "restart-app-test": () => void;
   "walkie-talkie-status": (data: { enabled: boolean; key: string }) => void;
+  "global-volume-hotkey": (data: { enabled: boolean; key: string }) => void;
   "configure-spell-checker": () => void;
   "fetch-user-agent": () => string;
   "focus-app": () => void;
@@ -113,11 +118,11 @@ export type MainCall = {
 export type RendererMessage = {
   back: () => void;
   "walkie-talkie-status": (status: WalkieTalkieStatus) => void;
+  "global-volume-hotkey": (status: GlobalVolumeHotkeyStatus) => void;
   "desktop-sources-response": (response: DesktopSourcesResponse) => void;
   "trigger-open-desktop-picker": () => void;
   "requestDesktopSources": () => void;
   "forward-message": (channel: string) => void;
-  "toggle-walkie-talkie": (isMuted: boolean ) => void;
   "copy-rm-url": () => void;
   destroytray: () => void;
   "enter-fullscreen": () => void;

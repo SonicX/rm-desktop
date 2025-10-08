@@ -29,6 +29,7 @@
     "build-for-win": "vite build && npm run copy-addon-for-win",
     "rebuild": "electron-rebuild -f -w dist-electron/native-addon.node",
     "rebuild-dev": "electron-rebuild -f -w dist-electron/native-addon.node",
+    "rebuild-native": "electron-rebuild --all",
     "dist-win": "npm run build-for-win && electron-builder --windows --config.win.target=nsis",
     "watch-ts": "tsc -w",
     "sign-mac-key-server": "node scripts/sign-mac-key-server.js",

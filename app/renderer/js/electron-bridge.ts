@@ -5,7 +5,7 @@ import {
   ClipboardDecrypterImplementation,
 } from "./clipboard-decrypter.js";
 import { type NotificationData, newNotification } from "./notification/index.js";
-import { WalkieTalkieStatus } from "../../common/typed-ipc.js";
+import { WalkieTalkieStatus, GlobalVolumeHotkeyStatus } from "../../common/typed-ipc.js";
 
 type ListenerType = (...arguments_: any[]) => void;
 
@@ -43,6 +43,16 @@ const electron_bridge: ElectronBridge = {
         return false;
       }
       ipcRenderer.send("walkie-talkie-status", status as WalkieTalkieStatus);
+      return true;
+    }
+    if (String(eventName) === "global-volume-hotkey") {
+      // Проверяем, что аргумент соответствует GlobalVolumeHotkeyStatus
+      const [status] = arguments_;
+      if (typeof status !== "object" || status === null || !("key" in status)) {
+        ipcRenderer.send("preload-log", `Bridge: Некорректный формат global-volume-hotkey: ${JSON.stringify(status)}`);
+        return false;
+      }
+      ipcRenderer.send("global-volume-hotkey", status as GlobalVolumeHotkeyStatus);
       return true;
     }
     return bridgeEvents.emit(eventName, ...arguments_);

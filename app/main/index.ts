@@ -1,4 +1,3 @@
-import { clipboard } from "electron/common";
 import {
   BrowserWindow,
   globalShortcut,
@@ -11,6 +10,7 @@ import {
   webContents,
   desktopCapturer,
 } from "electron/main";
+import Store from 'electron-store';
 import { Buffer } from "node:buffer";
 import crypto from "node:crypto";
 import path from "node:path";
@@ -117,34 +117,197 @@ let badgeCount: number;
 let isQuitting = false;
 
 // Переменные для управления горячей клавишей микрофона
-let currentHotkey: string | null = null;
-let originalMuteState: boolean | null = null;
+let currentVolumeHotkey: string | null = null;
+let currentVolumeHotkeyPressed: boolean = false;
+let volumeHotkeyWasPressed = false;
+let currentMicHotkey: string | null = null;
+let currentMicHotkeyPressed: boolean = false;
 
 type KeyName = 
+  // Латинские буквы (A–Z)
   | 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | 'H' | 'I' | 'J' | 'K' | 'L' | 'M'
   | 'N' | 'O' | 'P' | 'Q' | 'R' | 'S' | 'T' | 'U' | 'V' | 'W' | 'X' | 'Y' | 'Z'
-  | '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | 'DOT' | 'FORWARD SLASH'
-  | 'SPACE';
+  // Цифры (0–9)
+  | '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9'
+  // Основные символы
+  | 'DOT' | 'FORWARD SLASH' | 'BACKSLASH' | 'SEMICOLON' | 'COMMA' | 'EQUALS' | 'MINUS' | 'QUOTE' |'SPACE'
+  // Модификаторы
+  | 'LEFT SHIFT' | 'RIGHT SHIFT' | 'LEFT CTRL' | 'LEFT ALT' | 'CAPS LOCK'
+  // Control клавиши
+  | 'TAB' | 'ESCAPE' | 'BACKSPACE' | 'DELETE' | 'UP ARROW' | 'DOWN ARROW' | 'LEFT ARROW' | 'RIGHT ARROW' | 'PAGE UP' | 'PAGE DOWN' | 'HOME' | 'END'
 
-const vKeyToName: { [key: number]: KeyName } = {
-  // Латинские буквы (A–Z, соответствуют a–z)
+// Map для Windows: VK Code (decimal) → KeyName
+const winVKToName: { [key: number]: KeyName } = {
+  // Латинские буквы (A=65, B=66, ..., Z=90)
+  65: 'A',
   66: 'B',
+  67: 'C',
+  68: 'D',
+  69: 'E',
+  70: 'F',
+  71: 'G',
+  72: 'H',
+  73: 'I',
+  74: 'J',
+  75: 'K',
+  76: 'L',
+  77: 'M',
   78: 'N',
+  79: 'O',
+  80: 'P',
+  81: 'Q',
+  82: 'R',
+  83: 'S',
+  84: 'T',
+  85: 'U',
+  86: 'V',
+  87: 'W',
   88: 'X',
+  89: 'Y',
   90: 'Z',
-  // Дополнительные клавиши
-  32: 'SPACE', // Пробел
-  190: 'DOT',
-  191: 'FORWARD SLASH'
+
+  // Цифры (0=48, 1=49, ..., 9=57)
+  48: '0',
+  49: '1',
+  50: '2',
+  51: '3',
+  52: '4',
+  53: '5',
+  54: '6',
+  55: '7',
+  56: '8',
+  57: '9',
+
+  // Основные символы
+  190: 'DOT',  // VK_OEM_PERIOD
+  191: 'FORWARD SLASH',  // VK_OEM_2
+  220: 'BACKSLASH',  // VK_OEM_5
+  186: 'SEMICOLON',  // VK_OEM_1
+  188: 'COMMA',  // VK_OEM_COMMA
+  187: 'EQUALS',  // VK_OEM_PLUS
+  189: 'MINUS',  // VK_OEM_MINUS
+  222: 'QUOTE',  // VK_OEM_7
+  32: 'SPACE',  // VK_SPACE
+
+  // Модификаторы
+  160: 'LEFT SHIFT',  // VK_LSHIFT
+  161: 'RIGHT SHIFT',  // VK_RSHIFT
+  162: 'LEFT CTRL',  // VK_LCONTROL
+  164: 'LEFT ALT',  // VK_LMENU
+  20: 'CAPS LOCK',  // VK_CAPITAL
+
+  // Control клавиши
+  9:  'TAB',
+  27: 'ESCAPE',  // VK_ESCAPE
+  8:  'BACKSPACE',  // VK_BACK
+  46: 'DELETE',  // VK_DELETE
+  38: 'UP ARROW',  // VK_UP
+  40: 'DOWN ARROW',  // VK_DOWN
+  37: 'LEFT ARROW',  // VK_LEFT
+  39: 'RIGHT ARROW',  // VK_RIGHT
+  33: 'PAGE UP',  // VK_PRIOR
+  34: 'PAGE DOWN',  // VK_NEXT
+  36: 'HOME',  // VK_HOME
+  35: 'END'
 };
 
+// Map для macOS: CGKeyCode (decimal) → KeyName (Apple Carbon Codes)
+const macKeyCodeToName: { [key: number]: KeyName } = {
+  // Латинские буквы (unique codes)
+  0: 'A',      // A
+  11: 'B',     // B
+  8: 'C',      // C
+  2: 'D',      // D
+  14: 'E',     // E
+  3: 'F',      // F
+  5: 'G',      // G
+  4: 'H',      // H
+  34: 'I',     // I
+  38: 'J',     // J
+  40: 'K',     // K
+  37: 'L',     // L
+  46: 'M',     // M
+  45: 'N',     // N
+  31: 'O',     // O
+  35: 'P',     // P
+  12: 'Q',     // Q
+  13: 'W',     // W (было 19? Ошибка, W=13)
+  15: 'R',     // R
+  16: 'Y',     // Y
+  17: 'T',     // T
+  32: 'U',     // U
+  9: 'V',      // V
+  7: 'X',      // X (было 25? Ошибка, X=7)
+  6: 'Z',      // Z
+  1: 'S',      // S
+
+  // Цифры (top row, unique codes)
+  29: '0',     // 0
+  18: '1',     // 1
+  19: '2',     // 2
+  20: '3',     // 3
+  21: '4',     // 4
+  23: '5',     // 5
+  22: '6',     // 6
+  26: '7',     // 7
+  28: '8',     // 8
+  25: '9',     // 9
+
+  // Основные символы (unique)
+  47: 'DOT',        // . (period)
+  44: 'FORWARD SLASH',  // / 
+  42: 'BACKSLASH',  // \ 
+  41: 'SEMICOLON',   // ; 
+  43: 'COMMA',       // , 
+  24: 'EQUALS',       // = 
+  27: 'MINUS',       // - 
+  39: 'QUOTE',       // '
+  49: 'SPACE'       // Space
+};
+
+const store = new Store();
+
 class CustomKeyboardListener extends GlobalKeyboardListener {
+  constructor() {
+    // macOS-specific custom config
+    let customConfig: any = {};
+    if (process.platform === 'darwin') {
+      const libPackageJson = require.resolve('node-global-key-listener/package.json');
+      const libBinPath = path.join(path.dirname(libPackageJson), 'bin', 'MacKeyServer');
+      
+      customConfig.mac = {
+        serverPath: libBinPath,  // Абсолютный путь к lib binary (обходит project bin)
+        // Дополнительно: onError, onInfo если нужно
+      };
+      
+      log.info(`🔧 Custom config for mac: serverPath = ${libBinPath}`);
+      
+      // Проверяем и chmod lib binary (профилактика)
+      if (fs.existsSync(libBinPath)) {
+        try {
+          child_process.execSync(`chmod +x "${libBinPath}"`, { stdio: 'ignore' });
+          log.info(`✅ Lib binary chmod: ${libBinPath}`);
+        } catch (err: any) {
+          log.warn(`⚠️ Lib chmod ignored: ${err.message}`);  // Уже +x
+        }
+      } else {
+        log.error(`❌ Lib binary missing: ${libBinPath}`);
+      }
+    } else {
+      log.info(`🔧 Default config for ${process.platform}`);
+    }
+    
+    // Передаём customConfig в super — keyServer создастся с ним
+    super(customConfig);
+  }
+
   public startListener(): Promise<void> {
-    return this.start(); // Вызываем защищённый метод start
+    log.info(`🔧 Starting listener with custom config`);
+    return this.start();  // Родительский start (keyServer уже с правильным path)
   }
 
   public stopListener(): void {
-    this.stop(); // Вызываем защищённый метод stop
+    this.stop();
   }
 }
 
@@ -196,7 +359,8 @@ function normalizeKey(key: string): string {
 const mainUrl = new URL("app/renderer/main.html", bundleUrl).href;
 
 // Создаём маппинг keycode → имя клавиши
-const keyboard = new CustomKeyboardListener();
+const keyboardVolume = new CustomKeyboardListener();
+const keyboardMic = new CustomKeyboardListener();
 
 const permissionCallbacks = new Map<number, (grant: boolean) => void>();
 let nextPermissionCallbackId = 0;
@@ -598,7 +762,17 @@ async function createMainWindow(): Promise<BrowserWindow> {
         
         if (result.success) {
             log.info(`🎯[Jitsi SDK] Conference window created successfully`);
-            
+
+            const soundHotkey = store.get('currentVolumeHotkey', '');
+            const micHotkey = store.get('currentMicHotkey', '');
+
+            if (soundHotkey != null) {
+              setupAudio(soundHotkey as string)
+            }
+            if (micHotkey != null) {
+              setupMic(micHotkey as string)
+            }
+
             // Отправляем событие в Zulip
             sendEventToZulip('jitsi-conference-ready', {
                 success: true,
@@ -855,105 +1029,131 @@ async function createMainWindow(): Promise<BrowserWindow> {
   });
 
   // Обработчик для установки горячей клавиши микрофона
+  ipcMain.on("global-volume-hotkey", (event, status: unknown) => {
+    log.info(`Main: Получено новое событие global-volume-hotkey: ${JSON.stringify(status)}`);
+    if (typeof status !== "object" || status === null ||!("key" in status)) {
+      log.error(`Main: Некорректный формат данных для walkie-talkie-status: ${JSON.stringify(status)}`);
+      return;
+    }
+
+    const { key: rawKey } = status as WalkieTalkieStatus
+    setupAudio(rawKey)
+  });
+
   ipcMain.on("walkie-talkie-status", (event, status: unknown) => {
-    log.info(`Main: Получено событие walkie-talkie-status: ${JSON.stringify(status)}`);
-    if (typeof status !== "object" || status === null || !("enabled" in status) || !("key" in status)) {
+    log.info(`Main: Получено новое событие walkie-talkie-status: ${JSON.stringify(status)}`);
+    if (typeof status !== "object" || status === null ||!("key" in status)) {
       log.error(`Main: Некорректный формат данных для walkie-talkie-status: ${JSON.stringify(status)}`);
       return;
     }
   
-    const { enabled, key: rawKey } = status as WalkieTalkieStatus;
-    if (typeof enabled !== "boolean" || typeof rawKey !== "string") {
-      log.error(`Main: Некорректные типы в walkie-talkie-status: enabled=${typeof enabled}, key=${typeof rawKey}`);
-      return;
+    const { key: rawKey } = status as WalkieTalkieStatus
+    setupMic(rawKey);
+  });
+
+  function setupAudio(rawKey: string) {
+    // 🔊 Регистрируем горячую клавишу для управления громкостью
+    if (currentVolumeHotkey || rawKey == '') {
+      keyboardVolume.stopListener();
+      log.info(`Main: Остановлен предыдущий слушатель: ${currentVolumeHotkey}`);
+    
     }
-  
-    // Игнорируем пустые или некорректные ключи
-    if (!rawKey || rawKey.trim() === '') {
-      log.warn(`Main: Пустой или некорректный ключ: ${rawKey}`);
-      return;
+
+    if (rawKey == '') { 
+      currentVolumeHotkey = '';
+      store.set('currentVolumeHotkey', '');
+      return; 
     }
-  
-    if (currentHotkey) {
-      keyboard.stopListener();
-      log.info(`Main: Остановлен node-global-key-listener для предыдущей клавиши: ${currentHotkey}`);
-    }
-  
+
     const key = normalizeKey(rawKey);
-    log.info(`Main: Преобразован ключ из ${rawKey} в ${key}`);
-  
-    const validAccelerators = /^[a-z0-9]+$/;
-    const validCombo = /^((ctrl|alt|shift|meta)\+)+[a-z0-9]+$/i;
-    if (!validAccelerators.test(key) && !validCombo.test(key)) {
-      log.error(`Main: Некорректный формат горячей клавиши: ${key}`);
-      return;
-    }
-  
-    currentHotkey = key;
-    log.info(`Main: Установка горячей клавиши микрофона: ${key}`);
-  
-    keyboard.startListener().then(() => {
-      log.info(`Main: node-global-key-listener запущен для клавиши: ${key}`);
-    }).catch(err => {
-      log.error(`Main: Ошибка запуска node-global-key-listener: ${err}`);
-    });
-  
-    keyboard.addListener((e: IGlobalKeyEvent, down: IGlobalKeyDownMap) => {
+
+    currentVolumeHotkey = key;
+    store.set('currentVolumeHotkey', key);
+
+    keyboardVolume.startListener().catch(err => log.error(`Main: Ошибка запуска слушателя: ${err}`));
+
+    keyboardVolume.addListener((e: IGlobalKeyEvent, down: IGlobalKeyDownMap) => {
       const parts = key.split('+').map(p => p.toLowerCase());
       const mainKey = parts.pop()!;
       
-      log.info(`Main: символ: ${e.name}`);
-      log.info(`Main: код: ${e.vKey}`);
-      const pressedKeyName = vKeyToName[e.vKey] || '';
-  
-      // Проверяем, является ли pressedKeyName допустимым ключом
-      if (!(pressedKeyName in down)) {
-        return;
+      let pressedKeyName = '';
+      if (process.platform === 'darwin') {
+        pressedKeyName = macKeyCodeToName[e.vKey] || '';
+      } else {
+        pressedKeyName = winVKToName[e.vKey] || '';
       }
-  
-      // Преобразуем mainKey в верхний регистр для соответствия IGlobalKeyDownMap
       const normalizedMainKey = mainKey.toUpperCase() as KeyName;
-  
+
+      // Проверяем, что нажата именно нужная клавиша
       if (pressedKeyName !== normalizedMainKey) {
         return;
       }
-      log.info(`Main: проверка: ${down[pressedKeyName]}`);
-      if (down[pressedKeyName]) {
-        log.info(`Main: Нажата горячая клавиша: ${key}`);
-  
-        const allWebContents = webContents.getAllWebContents();
-        const activeWebContents = allWebContents.find((content) => {
-          const url = content.getURL();
-          log.info(`Main: Проверка WebContents URL: ${url}, ID: ${content.id}`);
-          return url.includes("connectrm-svz.ru") || url.includes("joinrm-svz.ru");
-        });
-  
-        if (!activeWebContents) {
-          log.warn("Main: Не найден WebContents с URL connectrm-svz.ru или joinrm-svz.ru");
-          return;
-        }
-  
-        log.info(`Main: Выбран WebContents ID: ${activeWebContents.id}, URL: ${activeWebContents.getURL()}`);
-        log.info(`Main: Микрофон переключен в состояние: ${true}`);
-        activeWebContents.send("toggle-walkie-talkie", true);
-      } else {
-        log.info(`Main: Отпущена горячая клавиша: ${key}`);
-        const allWebContents = webContents.getAllWebContents();
-          const activeWebContents = allWebContents.find((content) => {
-            const url = content.getURL();
-            log.info(`Main: Проверка WebContents URL (отпускание): ${url}, ID: ${content.id}`);
-            return url.includes("connectrm-svz.ru") || url.includes("joinrm-svz.ru");
-          });
-  
-          if (!activeWebContents) {
-            log.warn("Main: Не найден WebContents с URL connectrm-svz.ru или joinrm-svz.ru (отпускание)");
-            return;
-          }
-          log.info(`Main: Микрофон восстановлен в состояние: ${false}`);
-          activeWebContents.send("toggle-walkie-talkie", false);
+
+      // Если клавиша нажата И ранее не была зажата — это новое нажатие!
+      if (down[pressedKeyName] && !volumeHotkeyWasPressed) {
+        volumeHotkeyWasPressed = true; // помечаем, что клавиша уже обработана
+
+        log.info(`Main: Полное нажатие клавиши громкости — переключаем звук`);
+        
+        // Переключаем состояние: если был выключен — включаем, и наоборот
+        const newMutedState = !currentVolumeHotkeyPressed;
+        jitsiSDKManager.setLocalAudioMuted(newMutedState);
+        currentVolumeHotkeyPressed = newMutedState;
+      }
+
+      // Если клавиша отпущена — сбрасываем флаг
+      if (!down[pressedKeyName] && volumeHotkeyWasPressed) {
+        volumeHotkeyWasPressed = false;
       }
     });
-  });
+  }
+
+  function setupMic(rawKey: string) {
+    // 🔊 Регистрируем горячую клавишу для управления микрофоном
+    if (currentMicHotkey || rawKey == '') {
+      keyboardMic.stopListener();
+      log.info(`Main: Остановлен node-global-key-listener для предыдущей клавиши: ${currentMicHotkey}`);
+    }
+    
+    if (rawKey == '') { 
+      currentMicHotkey = '';
+      store.set('currentMicHotkey', '');
+      return; 
+    }
+
+    const key = normalizeKey(rawKey);
+
+    currentMicHotkey = key;
+    store.set('currentMicHotkey', key);
+  
+    keyboardMic.startListener().catch(err => log.error(`Main: Ошибка запуска слушателя: ${err}`));
+  
+    keyboardMic.addListener((e: IGlobalKeyEvent, down: IGlobalKeyDownMap) => {
+      const parts = key.split('+').map(p => p.toLowerCase());
+      const mainKey = parts.pop()!;
+      var pressedKeyName = '';
+      if (process.platform === 'darwin') {
+        pressedKeyName = macKeyCodeToName[e.vKey] || ''
+      } else {
+        pressedKeyName = winVKToName[e.vKey] || ''
+      }
+      const normalizedMainKey = mainKey.toUpperCase() as KeyName;
+
+      if (pressedKeyName !== normalizedMainKey) { return; }
+
+      if (down[pressedKeyName] && !currentMicHotkeyPressed) {
+        log.info(`Main: Нажата клавиша микрофона — включаем микрофон`);
+        jitsiSDKManager.setLocalMicMuted(false); // включить вывод звук
+        currentMicHotkeyPressed = true;
+      } else if (down[pressedKeyName] && currentMicHotkeyPressed) {
+        return;
+      } else {
+        log.info(`Main: Отпущена клавиша микрофона — выключаем микрофон`);
+        jitsiSDKManager.setLocalMicMuted(true); // выключить вывод звук
+        currentMicHotkeyPressed = false
+      }
+    });
+  }
 
   ipcMain.on("restart-app-test", () => {
     log.info("Test restart requested");
@@ -1370,9 +1570,13 @@ async function createMainWindow(): Promise<BrowserWindow> {
 app.on("before-quit", () => {
   isQuitting = true;
   // Очищаем горячую клавишу при выходе
-  if (currentHotkey) {
-    keyboard.stopListener();
-    log.info(`Main: Горячая клавиша ${currentHotkey} удалена при выходе`);
+  if (currentVolumeHotkey) {
+    keyboardVolume.stopListener();
+    log.info(`Main: Горячая клавиша ${currentVolumeHotkey} удалена при выходе`);
+  }
+  if (currentMicHotkey) {
+    keyboardMic.stopListener();
+    log.info(`Main: Горячая клавиша ${currentMicHotkey} удалена при выходе`);
   }
 });
 

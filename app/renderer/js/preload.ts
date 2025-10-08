@@ -58,24 +58,16 @@ electron_bridge.on_event("requestDesktopSources", async () => {
     }
 });
 
-
-// === ОСТАЛЬНЫЕ ОБРАБОТЧИКИ ===
-
-// Walkie-talkie
-ipcRenderer.on("toggle-walkie-talkie", (event, isMuted: boolean) => {
-    ipcRenderer.send("preload-log", `Preload: toggle-walkie-talkie: isMuted=${isMuted}`);
-    bridgeEvents.emit("toggle-walkie-talkie", isMuted);
-});
-
 // Expose electron_bridge
 contextBridge.exposeInMainWorld("electron_bridge", {
     ...electron_bridge,
     setMicHotkey: (enabled: boolean, hotkey: string) => {
-        ipcRenderer.send("preload-log", `Preload: Установка горячей клавиши: ${hotkey}`);
+        ipcRenderer.send("preload-log", `Preload: Установка горячей клавиши на микрофон: ${hotkey}`);
         ipcRenderer.send("walkie-talkie-status", { enabled: enabled, key: hotkey });
     },
-    onMicStateChanged: (callback: (data: boolean) => void) => {
-        bridgeEvents.on("toggle-walkie-talkie", callback);
+    setSoundHotkey: (enabled: boolean, hotkey: string) => {
+        ipcRenderer.send("preload-log", `Preload: Установка горячей клавиши на звук: ${hotkey}`);
+        ipcRenderer.send("global-volume-hotkey", { enabled: enabled, key: hotkey });
     }
 });
 
@@ -340,6 +332,9 @@ ipcRenderer.on("create-native-stream-for-jitsi", () => {
             
             frame++;
             
+            if (!ctx) {
+                throw new Error('Failed to get canvas context');
+            }
             // Градиентный фон
             const gradient = ctx.createRadialGradient(960, 540, 0, 960, 540, 600);
             gradient.addColorStop(0, `hsl(${frame % 360}, 70%, 50%)`);
@@ -424,7 +419,7 @@ electron_bridge.on_event("create-and-share-native-stream", async () => {
         
         // Анимированный контент
         let frame = 0;
-        let animationId = null;
+        let animationId: number | null = null;
         
         const animate = () => {
             frame++;
@@ -519,6 +514,11 @@ function createNativeStreamForJitsi() {
         let frame = 0;
         function animate() {
             frame++;
+            
+            if (!ctx) {
+                throw new Error('Failed to get canvas context');
+            }
+
             const gradient = ctx.createRadialGradient(960, 540, 0, 960, 540, 600);
             gradient.addColorStop(0, `hsl(${frame % 360}, 70%, 50%)`);
             gradient.addColorStop(1, `hsl(${(frame + 180) % 360}, 60%, 30%)`);

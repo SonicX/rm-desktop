@@ -288,7 +288,7 @@ export class ServerManagerView {
 
   async initTabs(): Promise<void> {
     const server = {
-      url: "https://connectrm-svz.ru/",
+      url: "https://joinrm-svz.ru/",
       alias: "Цифровые технологии РМ",
       icon: "https://disk.yandex.ru/i/m2aj56OOhsJfyw",
       zulipVersion: app.getVersion()
@@ -410,7 +410,7 @@ export class ServerManagerView {
     // Используем существующий обработчик
     const result = await ipcRenderer.invoke("handle-zulip-update", {
       version: this.updateInfo.version,
-      downloadUrl: this.updateInfo.download_url || "https://storage.yandexcloud.net/rm-electron-desktop-win/Rm-Connectte.zip",
+      downloadUrl: this.updateInfo.download_url,
       releaseNotes: this.updateInfo.release_notes
     });
     

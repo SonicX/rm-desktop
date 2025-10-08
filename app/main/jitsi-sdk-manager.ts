@@ -1,7 +1,8 @@
 // jitsi-sdk-manager.ts - Модуль для работы с Jitsi через SDK
-import { BrowserWindow, ipcMain } from "electron";
+import { BrowserWindow, ipcMain, ipcRenderer } from "electron";
 import * as path from "path";
 import log from "electron-log";
+import Store from 'electron-store';
 import { ElectronSourcePicker } from "./electron-source-picker";
 
 // Интерфейсы
@@ -23,6 +24,8 @@ interface JitsiSDKState {
   isConnected: boolean;
   conferenceUrl: string | null;
 }
+
+const store = new Store();
 
 export class JitsiSDKManager {
   private state: JitsiSDKState = {
@@ -296,6 +299,107 @@ export class JitsiSDKManager {
     }
   }
 
+  private async updateAudioMuteOverlay(muted: boolean): Promise<void> {
+    if (!this.state.window || this.state.window.isDestroyed()) return;
+
+    try {
+      await this.state.window.webContents.executeJavaScript(`
+        (function(showMuted) {
+          const OVERLAY_ID = 'jitsi-audio-mute-indicator';
+
+          // Удаляем существующий индикатор
+          const existing = document.getElementById(OVERLAY_ID);
+          if (existing) existing.remove();
+
+          if (!showMuted) return;
+
+          // Создаём контейнер
+          const container = document.createElement('div');
+          container.id = OVERLAY_ID;
+          container.textContent = '🔕'; // эмодзи "звук выключен"
+
+          // Стили: белый кружок с эмодзи по центру
+          Object.assign(container.style, {
+            position: 'fixed',
+            top: '16px',
+            left: '16px',
+            width: '40px',
+            height: '40px',
+            backgroundColor: 'white',
+            borderRadius: '50%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: '20px',
+            fontWeight: 'bold',
+            color: 'black',
+            zIndex: '2147483647',
+            pointerEvents: 'none',
+            boxShadow: '0 2px 6px rgba(0,0,0,0.2)',
+            fontFamily: 'system-ui, -apple-system, sans-serif' // для корректного отображения эмодзи
+          });
+
+          document.body.appendChild(container);
+        })(${muted});
+      `);
+    } catch (error: any) {
+      log.warn(`[JITSI-SDK] Failed to update audio mute overlay: ${error.message}`);
+    }
+  }
+
+  async setLocalAudioMuted(muted: boolean): Promise<boolean> {
+    if (!this.state.window || this.state.window.isDestroyed()) {
+      log.warn('[JITSI-SDK] Cannot set audio muted - no window');
+      return false;
+    }
+
+    try {
+      this.state.window.webContents.setAudioMuted(muted);
+      await this.updateAudioMuteOverlay(muted); // ← добавляем оверлей
+      log.info(`[JITSI-SDK] Audio output ${muted ? 'muted' : 'unmuted'}`);
+      return true;
+    } catch (error: any) {
+      log.error(`[JITSI-SDK] Failed to mute audio: ${error.message}`);
+      return false;
+    }
+  }
+
+  async setLocalMicMuted(muted: boolean): Promise<boolean> {
+    if (!this.state.window || this.state.window.isDestroyed()) {
+      log.warn('[JITSI-SDK] Cannot set local audio input muted - no window');
+      return false;
+    }
+
+    try {
+      const result = await this.state.window.webContents.executeJavaScript(`
+        (function(targetMuted) {
+          try {
+            if (window.APP?.conference?.toggleAudioMuted && typeof window.APP.conference.toggleAudioMuted === 'function') {
+              const isCurrentlyMuted = window.APP.conference.isLocalAudioMuted?.();
+              if (isCurrentlyMuted !== targetMuted) {
+                console.log('[JITSI] Using toggleAudioMuted to ' + (targetMuted ? 'mute' : 'unmute'));
+                window.APP.conference.toggleAudioMuted();
+              }
+              return true;
+            }
+
+            console.error('[JITSI] No method found to mute/unmute microphone');
+            return false;
+          } catch (e) {
+            console.error('[JITSI] Error in set mic muted:', e);
+            return false;
+          }
+        })(${muted});
+      `);
+
+      log.info(`[JITSI-SDK] Microphone ${muted ? 'muted' : 'unmuted'}: ${result}`);
+      return result;
+    } catch (error: any) {
+      log.error(`[JITSI-SDK] Failed to set microphone muted: ${error.message}`);
+      return false;
+    }
+  }
+
   private getSDKPreloadPath(): string | undefined {
     try {
       const sdkPath = require.resolve('@jitsi/electron-sdk');
@@ -392,6 +496,12 @@ export class JitsiSDKManager {
 
     this.state.window.webContents.on('did-finish-load', () => {
       log.info('[JITSI-SDK] Page loaded');
+      
+      const micHotkey = store.get('currentMicHotkey', '');
+      if (micHotkey != null && micHotkey != '') {
+        this.setLocalMicMuted(true);
+      }
+
       if (!this.isClosing) {
         setTimeout(() => {
           this.hideLoadingOverlay();
