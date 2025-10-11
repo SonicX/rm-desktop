@@ -748,6 +748,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
         log.info(`🎯[Jitsi] Starting conference without pre-selection`);
         
         // Используем SDK менеджер
+        
         const result = await jitsiSDKManager.createWindow({
             roomName: options.roomName || '',
             serverUrl: options.serverUrl || 'https://jitsi-connectrm.ru',
@@ -1029,25 +1030,25 @@ async function createMainWindow(): Promise<BrowserWindow> {
   });
 
   // Обработчик для установки горячей клавиши микрофона
-  ipcMain.on("global-volume-hotkey", (event, status: unknown) => {
+  ipcMain.on("global-volume-hotkey", (event, status: WalkieTalkieStatus) => {
     log.info(`Main: Получено новое событие global-volume-hotkey: ${JSON.stringify(status)}`);
     if (typeof status !== "object" || status === null ||!("key" in status)) {
       log.error(`Main: Некорректный формат данных для walkie-talkie-status: ${JSON.stringify(status)}`);
       return;
     }
 
-    const { key: rawKey } = status as WalkieTalkieStatus
+    const { key: rawKey } = status
     setupAudio(rawKey)
   });
 
-  ipcMain.on("walkie-talkie-status", (event, status: unknown) => {
+  ipcMain.on("walkie-talkie-status", (event, status: WalkieTalkieStatus) => {
     log.info(`Main: Получено новое событие walkie-talkie-status: ${JSON.stringify(status)}`);
     if (typeof status !== "object" || status === null ||!("key" in status)) {
       log.error(`Main: Некорректный формат данных для walkie-talkie-status: ${JSON.stringify(status)}`);
       return;
     }
   
-    const { key: rawKey } = status as WalkieTalkieStatus
+    const { key: rawKey } = status
     setupMic(rawKey);
   });
 
@@ -1610,6 +1611,11 @@ autoUpdater.on("error", (err) => {
 
 ipcMain.on("restart_app", () => {
   autoUpdater.quitAndInstall();
+});
+
+ipcMain.on("force_update", (event) => {
+  log.info(`Производим обновление`);
+  mainWindow?.webContents.send("force_update");
 });
 
 process.on("uncaughtException", (error) => {

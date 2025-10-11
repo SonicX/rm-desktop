@@ -166,6 +166,13 @@ export class JitsiSDKManager {
       return this.createWindow(options);
     });
 
+    ipcMain.handle("focus_stream", (event, token: string) => {
+      this.state.window?.show();
+      this.state.window?.focus();
+      this.state.window?.setAlwaysOnTop(true);
+      this.state.window?.setAlwaysOnTop(false);
+    });
+
     ipcMain.handle("jitsi-sdk:close", async () => {
       return this.closeWindow();
     });
@@ -223,16 +230,15 @@ export class JitsiSDKManager {
         }
       }
       
-      this.isCreatingWindow = true;
-      this.currentRoomName = roomName;
-      this.cleanupExecuted = false; // Сбрасываем флаг для новой сессии
-      
       if (this.state.window && !this.state.window.isDestroyed() && this.currentRoomName !== roomName) {
         log.info(`[JITSI-SDK] Closing previous window for different room`);
         await this.closeWindow();
         await new Promise(resolve => setTimeout(resolve, 500));
       }
 
+      this.isCreatingWindow = true;
+      this.currentRoomName = roomName;
+      this.cleanupExecuted = false; // Сбрасываем флаг для новой сессии
       this.isClosing = false;
 
       const server = options.serverUrl || 'https://meet.jit.si';

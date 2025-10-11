@@ -1054,6 +1054,11 @@ export class ServerManagerView {
       this.$updateButton.classList.remove("hidden");
     });
 
+    ipcRenderer.on("force_update", (event) => {
+      this.$updateTooltip.innerText = `Обновляем версию...`;
+      this.$updateButton.click();
+    });
+
     ipcRenderer.on("update_progress", (event, percent: number) => {
       this.$updateTooltip.innerText = `Загрузка: ${~~percent}%`;
       this.$updateButton.classList.remove("hidden");
@@ -1071,7 +1076,7 @@ export class ServerManagerView {
 
     ipcRenderer.on("update-available", (event, info) => {
       this.updateInfo = info;
-      this.showUpdateAvailable();
+      this.showUpdateAvailable(info);
     });
 
     ipcRenderer.on("update-download-progress", (event, progress) => {

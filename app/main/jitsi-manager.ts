@@ -5,10 +5,15 @@ import log from "electron-log";
 import { NativeCaptureManager } from "./native-capture";
 import { JitsiScreenShareMonitor } from "./jitsi-screen-share-monitor";
 
-interface JitsiOptions {
+export interface JitsiOptions {
   roomName: string;
   serverUrl?: string;
   displayName?: string;
+  userInfo?: {
+    displayName: string;
+    email: string;
+    avatarUrl?: string;
+  }
   email?: string;
   avatarUrl?: string;
   jwt?: string;
@@ -16,7 +21,13 @@ interface JitsiOptions {
   stream?: string;
 }
 
-interface JitsiState {
+export interface JitsiResult {
+  success: boolean,  // Чтобы Zulip не запускал iframe
+  conferenceStarted: boolean,
+  error?: string
+}
+
+export interface JitsiState {
   window: BrowserWindow | null;
   isStreamActive: boolean;
   streamId: string | null;
