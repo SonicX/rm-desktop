@@ -18,6 +18,7 @@ import process from "node:process";
 import { autoUpdater } from "electron-updater";
 import log from "electron-log";
 import { initializeTrayManager } from './trayManager.js';
+import { shell } from "electron";
 
 
 import { GlobalKeyboardListener, IGlobalKeyDownMap, IGlobalKeyEvent } from 'node-global-key-listener';
@@ -69,6 +70,19 @@ const JWT_SECRET = "HguV/8QBrJdCih2Ycpoz0g5q5m85apT3Nu6E+lDvufg=";
 
 let screenCaptureAddon: any = null;
         
+const openAppStoreIfMac = (appId: string) => {
+  if (process.platform === 'darwin') { // Только macOS
+    const url = `macappstore://itunes.apple.com/app/id${appId}`;
+    shell.openExternal(url).catch(console.error);
+
+    return true;
+  } else {
+    console.log('App Store доступен только на macOS');
+    // Можно предложить альтернативный способ (например, открыть веб‑страницу)
+
+    return false;
+  }
+};
 
 // Создаем поток для записи логов
 const preloadLogStream = fs.createWriteStream(
@@ -748,7 +762,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
         log.info(`🎯[Jitsi] Starting conference without pre-selection`);
         
         // Используем SDK менеджер
-        
+
         const result = await jitsiSDKManager.createWindow({
             roomName: options.roomName || '',
             serverUrl: options.serverUrl || 'https://jitsi-connectrm.ru',
@@ -1140,8 +1154,10 @@ async function createMainWindow(): Promise<BrowserWindow> {
       }
       const normalizedMainKey = mainKey.toUpperCase() as KeyName;
 
-      if (pressedKeyName !== normalizedMainKey) { return; }
+      log.info(`Нажата клавиша: ${pressedKeyName}, а ждём: ${normalizedMainKey}`);
 
+      if (pressedKeyName !== normalizedMainKey) { return; }
+      
       if (down[pressedKeyName] && !currentMicHotkeyPressed) {
         log.info(`Main: Нажата клавиша микрофона — включаем микрофон`);
         jitsiSDKManager.setLocalMicMuted(false); // включить вывод звук
@@ -1613,9 +1629,11 @@ ipcMain.on("restart_app", () => {
   autoUpdater.quitAndInstall();
 });
 
-ipcMain.on("force_update", (event) => {
+ipcMain.on("force-update", (event) => {
   log.info(`Производим обновление`);
-  mainWindow?.webContents.send("force_update");
+  if (!openAppStoreIfMac("6749675114")) {
+    mainWindow?.webContents.send("force-update");
+  }
 });
 
 process.on("uncaughtException", (error) => {

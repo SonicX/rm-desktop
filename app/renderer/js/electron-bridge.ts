@@ -55,6 +55,11 @@ const electron_bridge: ElectronBridge = {
       ipcRenderer.send("global-volume-hotkey", status as GlobalVolumeHotkeyStatus);
       return true;
     }
+    if (String(eventName) === "force-update") {
+      ipcRenderer.send("preload-log", `Preload: Установка обновлений:`);
+      ipcRenderer.send("force-update");
+      return true;
+    }
     return bridgeEvents.emit(eventName, ...arguments_);
   },
 

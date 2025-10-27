@@ -525,10 +525,6 @@ export class ServerManagerView {
     if (choice.response === 0) {
       // Устанавливаем обновление
       await this.installUpdate();
-    } else {
-      // Отложили обновление
-      this.updateDismissed = true;
-      this.$updateTooltip.innerText = "Нажмите для установки";
     }
   }
 
@@ -940,11 +936,17 @@ export class ServerManagerView {
     });
 
     ipcRenderer.on("open-settings", async () => { await this.openSettings(); });
+
     ipcRenderer.on("open-about", this.openAbout.bind(this));
+
     ipcRenderer.on("reload-viewer", this.reloadView.bind(this));
+
     ipcRenderer.on("reload-current-viewer", this.reloadCurrentView.bind(this));
+
     ipcRenderer.on("hard-reload", () => { ipcRenderer.send("reload-full-app"); });
+
     ipcRenderer.on("switch-server-tab", async (event, index: number) => { await this.activateLastTab(index); });
+
     ipcRenderer.on("reload-proxy", async (event, showAlert: boolean) => {
       await this.loadProxy();
       if (showAlert) {
@@ -952,21 +954,26 @@ export class ServerManagerView {
         ipcRenderer.send("reload-full-app");
       }
     });
+
     ipcRenderer.on("toggle-sidebar", async (event, show: boolean) => { this.toggleSidebar(show); });
+
     ipcRenderer.on("toggle-silent", async (event, state: boolean) =>
       Promise.all(this.tabs.map(async (tab) => {
         if (tab instanceof ServerTab) (await tab.webview).getWebContents().setAudioMuted(state);
       })),
     );
+
     ipcRenderer.on("toggle-autohide-menubar", async (event, autoHideMenubar: boolean, updateMenu: boolean) => {
       if (updateMenu) {
         ipcRenderer.send("update-menu", { tabs: this.tabsForIpc, activeTabIndex: this.activeTabIndex });
       }
     });
+
     ipcRenderer.on("toggle-dnd", async (event, state: boolean, newSettings: Partial<DndSettings>) => {
       this.toggleDndButton(state);
       ipcRenderer.send("forward-message", "toggle-silent", newSettings.silent ?? false);
     });
+
     ipcRenderer.on("update-realm-name", (event, serverURL: string, realmName: string) => {
       for (const [index, domain] of DomainUtil.getDomains().entries()) {
         if (domain.url === serverURL) {
@@ -978,6 +985,7 @@ export class ServerManagerView {
         }
       }
     });
+
     ipcRenderer.on("update-realm-icon", async (event, serverURL: string, iconURL: string) => {
       await Promise.all(DomainUtil.getDomains().map(async (domain, index) => {
         if (domain.url === serverURL) {
@@ -989,11 +997,14 @@ export class ServerManagerView {
         }
       }));
     });
+
     ipcRenderer.on("enter-fullscreen", () => {
       this.$fullscreenPopup.classList.add("show");
       this.$fullscreenPopup.classList.remove("hidden");
     });
+
     ipcRenderer.on("leave-fullscreen", () => { this.$fullscreenPopup.classList.remove("show"); });
+
     ipcRenderer.on("focus-webview-with-id", async (event, webviewId: number) =>
       Promise.all(this.tabs.map(async (tab) => {
         if (tab instanceof ServerTab && (await tab.webview).webContentsId === webviewId) {
@@ -1004,6 +1015,7 @@ export class ServerManagerView {
         }
       })),
     );
+
     ipcRenderer.on("render-taskbar-icon", (event, messageCount: number) => {
       function createOverlayIcon(messageCount: number): HTMLCanvasElement {
         const canvas = document.createElement("canvas");
@@ -1031,18 +1043,23 @@ export class ServerManagerView {
       }
       ipcRenderer.send("update-taskbar-icon", createOverlayIcon(messageCount).toDataURL(), String(messageCount));
     });
+
     ipcRenderer.on("copy-rm-url", async () => { clipboard.writeText(await this.getCurrentActiveServer()); });
+
     ipcRenderer.on("set-active", async () =>
       Promise.all(this.tabs.map(async (tab) => {
         if (tab instanceof ServerTab) (await tab.webview).send("set-active");
       })),
     );
+
     ipcRenderer.on("set-idle", async () =>
       Promise.all(this.tabs.map(async (tab) => {
         if (tab instanceof ServerTab) (await tab.webview).send("set-idle");
       })),
     );
+
     ipcRenderer.on("open-network-settings", async () => { await this.openSettings("Network"); });
+
     ipcRenderer.on("play-ding-sound", async () => { await dingSound.play(); });
 
     ipcRenderer.on("server-update-available", (event, updateInfo) => {
@@ -1054,8 +1071,8 @@ export class ServerManagerView {
       this.$updateButton.classList.remove("hidden");
     });
 
-    ipcRenderer.on("force_update", (event) => {
-      this.$updateTooltip.innerText = `Обновляем версию...`;
+    ipcRenderer.on("force-update", (event) => {
+      console.log("Renderer: Получено событие на обновление");
       this.$updateButton.click();
     });
 
@@ -1102,6 +1119,7 @@ export class ServerManagerView {
     });
 
     const postponedUpdate = ConfigUtil.getConfigItem("postponedUpdate", null);
+    
     if (postponedUpdate) {
       this.updateInfo = postponedUpdate;
       this.showUpdateReady();
@@ -1224,7 +1242,6 @@ window.addEventListener("load", async () => {
           </div>
           <div class="action-button" id="update-action">
             <i class="material-icons md-48">system_update_alt</i>
-            <span id="update-tooltip" style="display: none">Тест: Перезапуск</span>
           </div>
           <div class="version-label">${appVersion}</div>
         </div>
