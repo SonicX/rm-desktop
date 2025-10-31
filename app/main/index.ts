@@ -56,7 +56,7 @@ import AdmZip from 'adm-zip';
 // const { JitsiMeetElectron } = require('@jitsi/electron-sdk');
 
 // Глобальная переменная для Jitsi окна
-
+var windowCreating = false;
 let JitsiMeetElectron: any;
 try {
     const jitsiModule = require('@jitsi/electron-sdk');
@@ -445,12 +445,6 @@ async function createMainWindow(): Promise<BrowserWindow> {
         webPreferences.nodeIntegration = false;
         webPreferences.contextIsolation = true;
         
-        // КРИТИЧНО: Добавляем для Zulip
-        if (params.src && params.src.includes('joinrm-svz')) {
-            log.info(`Main: Устанавливаем preload для Zulip: ${preloadPath}`);
-            webPreferences.preload = preloadPath;
-        }
-        
         log.info(`Main: Webview preload установлен: ${preloadPath}`);
     });
 
@@ -601,7 +595,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
       const allContents = webContents.getAllWebContents();
       for (const content of allContents) {
           const url = content.getURL();
-          if (url && url.includes('joinrm-svz')) {
+          if (url && url.includes('rm-svz')) {
               content.executeJavaScript(`
                   if (window.electron_bridge && window.electron_bridge.emit_event) {
                       window.electron_bridge.emit_event('${eventName}', ${JSON.stringify(data)});
@@ -753,7 +747,15 @@ async function createMainWindow(): Promise<BrowserWindow> {
   ipcMain.handle("jitsi-connect-with-zulip-config", async (event, options) => {
     log.info("🎯[Jitsi] Connecting with Zulip config using SDK...");
     log.info(`🎯[Jitsi] Options received: ${JSON.stringify(options)}`);
-    
+    if (windowCreating == true) {
+      return { 
+        success: false,
+        conferenceStarted: true
+      };
+    }
+
+    windowCreating = true;
+
     try {
         // НЕ показываем диалог выбора экрана при старте
         // Он будет показан только когда пользователь нажмет кнопку демонстрации
@@ -774,7 +776,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
             stream: options.stream || '',
             enableScreenPicker: enableScreenPicker // Отключен предварительный выбор
         });
-        
+        windowCreating = false;
         if (result.success) {
             log.info(`🎯[Jitsi SDK] Conference window created successfully`);
 
@@ -793,39 +795,31 @@ async function createMainWindow(): Promise<BrowserWindow> {
                 success: true,
                 roomName: options.roomName
             });
-            
             return { 
                 success: true,
                 conferenceStarted: true
             };
         } else {
-            log.error(`🎯[Jitsi SDK] Failed to create window: ${result.error}`);
-            
-            dialog.showErrorBox(
-                'Ошибка подключения', 
-                `Не удалось подключиться к конференции: ${result.error}\n\nПроверьте интернет-соединение и попробуйте снова.`
-            );
-            
             return { 
                 success: true,  // Чтобы Zulip не запускал iframe
-                conferenceStarted: false,
-                error: result.error
+                conferenceStarted: false
             };
         }
         
     } catch (error: any) {
-        log.error(`🎯[Jitsi SDK] Error: ${error.message}`);
-        
-        dialog.showErrorBox(
-            'Ошибка подключения', 
-            `Не удалось запустить конференцию: ${error.message}`
-        );
-        
-        return { 
-            success: true,  // Чтобы Zulip не запускал iframe
-            conferenceStarted: false,
-            error: error.message
-        };
+      windowCreating = false;
+      log.error(`🎯[Jitsi SDK] Error: ${error.message}`);
+      
+      dialog.showErrorBox(
+          'Ошибка подключения', 
+          `Не удалось запустить конференцию: ${error.message}`
+      );
+      
+      return { 
+          success: true,  // Чтобы Zulip не запускал iframe
+          conferenceStarted: false,
+          error: error.message
+      };
     }
   });
 
@@ -905,92 +899,6 @@ async function createMainWindow(): Promise<BrowserWindow> {
                   }
               }));
           `);
-      }
-  });
-
-
-  // Тестовый обработчик для проверки связи с Zulip
-  ipcMain.handle("test-zulip-bridge", async () => {
-      log.info("🧪[Test] Testing Zulip bridge...");
-      
-      const result = {
-          zulipFound: false,
-          currentUserName: 'Unknown',
-          currentUserEmail: 'Unknown', 
-          hasElectronBridge: false,
-          hasIpcRenderer: false,
-          totalWebContents: 0,
-          zulipUrl: '',
-          error: null
-      };
-      
-      try {
-          const allContents = webContents.getAllWebContents();
-          result.totalWebContents = allContents.length;
-          
-          for (const content of allContents) {
-              const url = content.getURL();
-              
-              if (url && url.includes('joinrm-svz')) {
-                  result.zulipFound = true;
-                  result.zulipUrl = url;
-                  log.info(`🧪[Test] Found Zulip at: ${url}`);
-                  
-                  try {
-                      const testResult = await content.executeJavaScript(`
-                          (function() {
-                              const hasElectronBridge = typeof window.electron_bridge !== 'undefined';
-                              const hasIpcRenderer = typeof window.ipcRenderer !== 'undefined';
-                              
-                              let userName = 'Unknown';
-                              let userEmail = 'Unknown';
-                              
-                              if (typeof current_user !== 'undefined' && current_user) {
-                                  userName = String(current_user.full_name || 'Unknown');
-                                  userEmail = String(current_user.email || 'Unknown');
-                              }
-                              
-                              return {
-                                  hasElectronBridge: hasElectronBridge,
-                                  hasIpcRenderer: hasIpcRenderer,
-                                  userName: userName,
-                                  userEmail: userEmail,
-                                  location: window.location.href,
-                                  
-                                  // Детали API
-                                  electronBridgeOk: hasElectronBridge && 
-                                      typeof window.electron_bridge.on_event === 'function' &&
-                                      typeof window.electron_bridge.send_event === 'function',
-                                      
-                                  ipcRendererOk: hasIpcRenderer &&
-                                      typeof window.ipcRenderer.invoke === 'function' &&
-                                      typeof window.ipcRenderer.send === 'function'
-                              };
-                          })();
-                      `);
-                      
-                      result.currentUserName = testResult.userName;
-                      result.currentUserEmail = testResult.userEmail;
-                      result.hasElectronBridge = testResult.electronBridgeOk;
-                      result.hasIpcRenderer = testResult.ipcRendererOk;
-                      
-                      log.info(`🧪[Test] User: ${testResult.userName}, Bridge: ${testResult.electronBridgeOk}, IPC: ${testResult.ipcRendererOk}`);
-                      
-                  } catch (execError: any) {
-                      log.error(`🧪[Test] Error executing in Zulip: ${execError.message}`);
-                      result.error = execError.message;
-                  }
-                  break;
-              }
-          }
-          
-          log.info(`🧪[Test] Final result: ${JSON.stringify(result)}`);
-          return result;
-          
-      } catch (error: any) {
-          log.error(`🧪[Test] Error: ${error.message}`);
-          result.error = error.message;
-          return result;
       }
   });
 
