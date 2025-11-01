@@ -1138,6 +1138,8 @@ export class ServerManagerView {
 
 window.addEventListener("load", async () => {
   const appVersion = app.getVersion();
+  const isWin = process.platform === 'win32';
+
   document.body.innerHTML = html`
     <style>
       .version-label {
@@ -1241,9 +1243,11 @@ window.addEventListener("load", async () => {
             <i class="material-icons md-48">settings</i>
             <span id="setting-tooltip" style="display: none">${t.__("Настройки")}</span>
           </div>
-          <div class="action-button" id="update-action">
-            <i class="material-icons md-48">system_update_alt</i>
-          </div>
+          ${isWin ? 
+            `<div class="action-button" id="update-action">
+              <i class="material-icons md-48">system_update_alt</i>
+            </div>` : ''
+          }
           <div class="version-label">${appVersion}</div>
         </div>
       </div>
