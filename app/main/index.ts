@@ -749,7 +749,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
     log.info(`🎯[Jitsi] Options received: ${JSON.stringify(options)}`);
     if (windowCreating == true) {
       return { 
-        success: false,
+        success: true,
         conferenceStarted: true
       };
     }

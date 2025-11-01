@@ -554,6 +554,7 @@ export class ServerManagerView {
   initLeftSidebarEvents(): void {
     this.$dndButton.addEventListener("click", () => {
       const dndUtil = DNDUtil.toggle();
+      this.toggleDndButton(dndUtil.dnd);
       ipcRenderer.send(
         "forward-message",
         "toggle-dnd",
@@ -858,7 +859,7 @@ export class ServerManagerView {
 
   toggleDndButton(alert: boolean): void {
     this.$dndTooltip.textContent =
-      (alert ? "Отключить" : "Включить") + " Не беспокоить";
+      (alert ? "Включить" : "Отключить");
     this.$dndButton.querySelector("i")!.textContent = alert
       ? "notifications_off"
       : "notifications";
@@ -1226,7 +1227,7 @@ window.addEventListener("load", async () => {
           </div>
           <div class="action-button hidden" id="reload-action">
             <i class="material-icons md-48">refresh</i>
-            <span id="reload-tooltip" style="display: none">${t.__("Перезагрузить")}</span>
+            <span id="reload-tooltip" style="display: none">${t.__("Обновить")}</span>
           </div>
           <div class="action-button disable" id="loading-action">
             <i class="refresh material-icons md-48">loop</i>

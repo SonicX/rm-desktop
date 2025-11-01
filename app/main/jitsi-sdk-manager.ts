@@ -157,6 +157,91 @@ export class JitsiSDKManager {
     }
   }
 
+  private async injectAudioMuteIndicatorButton(): Promise<void> {
+    if (!this.state.window || this.state.window.isDestroyed()) return;
+
+    try {
+      await this.state.window.webContents.executeJavaScript(`
+        (function() {
+          const BUTTON_ID = 'electron-audio-mute-indicator-btn';
+          if (document.getElementById(BUTTON_ID)) return;
+
+          const btn = document.createElement('button');
+          btn.id = BUTTON_ID;
+          btn.style.cssText = \`
+            position: fixed;
+            bottom: 16px;
+            left: 20px;
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            background: white;
+            border: 2px solid #000;
+            font-size: 20px;
+            color: black;
+            cursor: pointer;
+            z-index: 2147483646;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+            transition: all 0.2s ease;
+          \`;
+
+          function updateIcon(isMuted) {
+            btn.textContent = isMuted ? '🔕' : '🔔';
+          }
+
+          // Получаем текущее состояние звука из Electron (через флаг)
+          function getCurrentMutedState() {
+            return window.electronAudioMuted ?? false;
+          }
+
+          updateIcon(getCurrentMutedState());
+
+          btn.onclick = () => {
+            const newMuted = !getCurrentMutedState();
+            window.electronRequestAudioMute = newMuted;
+            updateIcon(newMuted);
+          };
+
+          document.body.appendChild(btn);
+          console.log('[ELECTRON-BTN] Audio mute indicator button injected');
+        })();
+      `);
+
+      log.info('[JITSI-SDK] Audio mute indicator button injected');
+    } catch (error: any) {
+      log.error(`[JITSI-SDK] Failed to inject audio mute indicator button: ${error.message}`);
+    }
+  }
+
+  private startAudioMuteButtonPolling(): void {
+    if (!this.state.window) return;
+
+    const poll = async () => {
+      if (!this.state.window || this.state.window.isDestroyed()) return;
+
+      try {
+        const muted = await this.state.window.webContents.executeJavaScript(`
+          (window.electronRequestAudioMute !== undefined) ? window.electronRequestAudioMute : null
+        `);
+
+        if (typeof muted === 'boolean') {
+          await this.setLocalAudioMuted(muted);
+          await this.state.window.webContents.executeJavaScript(`
+            window.electronRequestAudioMute = undefined;
+          `);
+        }
+      } catch (e) {
+        // Игнор
+      }
+      setTimeout(poll, 300);
+    };
+
+    poll();
+  }
+
   private registerHandlers(): void {
     ipcMain.handle("jitsi-sdk:create-window", async (event, options: JitsiOptions) => {
       return this.createWindow(options);
@@ -269,6 +354,8 @@ export class JitsiSDKManager {
       await this.state.window.loadURL(conferenceUrl);
       await this.waitForConference();
       await this.injectConferenceHandlers();
+      await this.injectAudioMuteIndicatorButton();
+      this.startAudioMuteButtonPolling();
 
       log.info("[JITSI-SDK] Conference window created successfully");
       this.state.isConnected = true;
@@ -289,54 +376,6 @@ export class JitsiSDKManager {
     }
   }
 
-  private async updateAudioMuteOverlay(muted: boolean): Promise<void> {
-    if (!this.state.window || this.state.window.isDestroyed()) return;
-
-    try {
-      await this.state.window.webContents.executeJavaScript(`
-        (function(showMuted) {
-          const OVERLAY_ID = 'jitsi-audio-mute-indicator';
-
-          // Удаляем существующий индикатор
-          const existing = document.getElementById(OVERLAY_ID);
-          if (existing) existing.remove();
-
-          if (!showMuted) return;
-
-          // Создаём контейнер
-          const container = document.createElement('div');
-          container.id = OVERLAY_ID;
-          container.textContent = '🔕'; // эмодзи "звук выключен"
-
-          // Стили: белый кружок с эмодзи по центру
-          Object.assign(container.style, {
-            position: 'fixed',
-            top: '16px',
-            left: '16px',
-            width: '40px',
-            height: '40px',
-            backgroundColor: 'white',
-            borderRadius: '50%',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: '20px',
-            fontWeight: 'bold',
-            color: 'black',
-            zIndex: '2147483647',
-            pointerEvents: 'none',
-            boxShadow: '0 2px 6px rgba(0,0,0,0.2)',
-            fontFamily: 'system-ui, -apple-system, sans-serif' // для корректного отображения эмодзи
-          });
-
-          document.body.appendChild(container);
-        })(${muted});
-      `);
-    } catch (error: any) {
-      log.warn(`[JITSI-SDK] Failed to update audio mute overlay: ${error.message}`);
-    }
-  }
-
   async setLocalAudioMuted(muted: boolean): Promise<boolean> {
     if (!this.state.window || this.state.window.isDestroyed()) {
       log.warn('[JITSI-SDK] Cannot set audio muted - no window');
@@ -345,7 +384,12 @@ export class JitsiSDKManager {
 
     try {
       this.state.window.webContents.setAudioMuted(muted);
-      await this.updateAudioMuteOverlay(muted); // ← добавляем оверлей
+
+      // 🔁 Синхронизируем состояние в DOM
+      await this.state.window.webContents.executeJavaScript(`
+        window.electronAudioMuted = ${muted};
+      `);
+
       log.info(`[JITSI-SDK] Audio output ${muted ? 'muted' : 'unmuted'}`);
       return true;
     } catch (error: any) {
