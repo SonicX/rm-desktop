@@ -567,7 +567,10 @@ async function createMainWindow(): Promise<BrowserWindow> {
   // === НОВЫЙ КОД ===
   const nativeCaptureManager = new NativeCaptureManager(); // Оставляем для других целей
   //const jitsiPureManager = new JitsiPureManager(bundlePath, iconPath());
-  const jitsiSDKManager = new JitsiSDKManager(iconPath());
+  const conferenceClose = (roomName: string) => {
+    sendEventToZulip('jitsi-conference-close', {'roomName': roomName});
+  };
+  const jitsiSDKManager = new JitsiSDKManager(iconPath(), conferenceClose);
   
 
   // 2. ЗАТЕМ создаем сессию

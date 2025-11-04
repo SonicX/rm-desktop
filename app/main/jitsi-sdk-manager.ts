@@ -28,6 +28,8 @@ interface JitsiSDKState {
 const store = new Store();
 
 export class JitsiSDKManager {
+  private closureFunction: (roomName: string) => void;
+  
   private state: JitsiSDKState = {
     window: null,
     isConnected: false,
@@ -35,10 +37,11 @@ export class JitsiSDKManager {
   };
 
   private iconPath: string;
-  private currentRoomName: string | null = null;
+  private currentRoomName: string = '';
   private sourcePicker: ElectronSourcePicker;
 
-  constructor(iconPath: string) {
+  constructor(iconPath: string, closure: (roomName: string) => void) {
+    this.closureFunction = closure;
     this.iconPath = iconPath;
     this.sourcePicker = new ElectronSourcePicker();
     
@@ -276,7 +279,7 @@ export class JitsiSDKManager {
         return { success: false };
       }
 
-      if (this.currentRoomName != null && this.currentRoomName != roomName) {
+      if (this.currentRoomName != '' && this.currentRoomName != roomName) {
         log.info(`[JITSI-SDK] Closing previous window for different room`);
         await this.closeWindow();
         await new Promise(resolve => setTimeout(resolve, 500));
@@ -304,7 +307,6 @@ export class JitsiSDKManager {
             if (selectedSource) {
               log.info(`[JITSI-SDK] User selected source: ${selectedSource.name} (${selectedSource.id})`);
               options.selectedSourceId = selectedSource.id;
-              global.selectedScreenSource = selectedSource;
             } else {
               log.info(`[JITSI-SDK] User cancelled screen selection or dialog closed`);
             }
@@ -365,7 +367,7 @@ export class JitsiSDKManager {
     } catch (error: any) {
       log.error(`[JITSI-SDK] Failed to create window: ${error.message}`);
       
-      this.currentRoomName = null;
+      this.currentRoomName = '';
       
       if (this.state.window && !this.state.window.isDestroyed()) {
         this.state.window.close();
@@ -1033,9 +1035,11 @@ export class JitsiSDKManager {
   async closeWindow(): Promise<void> {
     if (!this.state.window || this.state.window.isDestroyed()) {
       log.info('[JITSI-SDK] Window already closed');
-      this.currentRoomName = null;
       return;
     }
+
+    this.closureFunction(this.currentRoomName);
+    this.currentRoomName = '';
 
     log.info('[JITSI-SDK] Closing conference window');
 
@@ -1048,14 +1052,9 @@ export class JitsiSDKManager {
       this.state.window = null;
       this.state.isConnected = false;
       this.state.conferenceUrl = null;
-      this.currentRoomName = null;
-      
-      if (global.selectedScreenSource) {
-        delete global.selectedScreenSource;
-      }
 
+      windowToClose.webContents?.removeAllListeners();
       windowToClose.removeAllListeners();
-      windowToClose.webContents.removeAllListeners();
       windowToClose.destroy();
 
       log.info('[JITSI-SDK] Window closed successfully');
@@ -1069,11 +1068,7 @@ export class JitsiSDKManager {
       
       this.state.window = null;
       this.state.isConnected = false;
-      this.currentRoomName = null;
-      
-      if (global.selectedScreenSource) {
-        delete global.selectedScreenSource;
-      }
+      this.currentRoomName = '';
     }
   }
 

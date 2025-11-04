@@ -16,7 +16,7 @@ build started...
 
 build started...
 
-  VITE v5.4.20  ready in 256 ms
+  VITE v5.4.20  ready in 230 ms
 
   ➜  Local:   http://localhost:5173/
   ➜  Network: use --host to expose
@@ -28,250 +28,380 @@ transforming...
 rendering chunks...
 computing gzip size...
 dist-electron/preload.js  95.08 kB │ gzip: 25.56 kB │ map: 51.42 kB
-built in 1438ms.
+built in 1632ms.
 ✓ 415 modules transformed.
-✓ 1991 modules transformed.
+✓ 1996 modules transformed.
 rendering chunks...
 computing gzip size...
 rendering chunks...
-dist-electron/index.js  2,159.81 kB │ map: 4,991.74 kB
-built in 6678ms.
+dist-electron/index.js  2,157.80 kB │ map: 4,991.29 kB
+built in 5509ms.
 dist-electron/renderer.js  779.45 kB │ gzip: 166.59 kB │ map: 1,673.98 kB
-built in 6792ms.
+built in 5620ms.
 Debugger attached.
-15:41:12.572 › 🎯[Jitsi SDK] Module loaded: object
-[15:41:12] 🔧 Custom config for mac: serverPath = /Users/jtereschenko/Documents/IDE/rm-desktop/node_modules/node-global-key-listener/bin/MacKeyServer
-[15:41:12] ✅ Lib binary chmod: /Users/jtereschenko/Documents/IDE/rm-desktop/node_modules/node-global-key-listener/bin/MacKeyServer
-[15:41:12] 🔧 Custom config for mac: serverPath = /Users/jtereschenko/Documents/IDE/rm-desktop/node_modules/node-global-key-listener/bin/MacKeyServer
-[15:41:12] ✅ Lib binary chmod: /Users/jtereschenko/Documents/IDE/rm-desktop/node_modules/node-global-key-listener/bin/MacKeyServer
-[15:41:12] [NativeCapture] Checking for addon in 3 locations:
-[15:41:12] [NativeCapture] Platform: darwin
-[15:41:12] [NativeCapture] Is Packaged: false
-[15:41:12] [NativeCapture] __dirname: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron
-[15:41:12] [NativeCapture] process.resourcesPath: /Users/jtereschenko/Documents/IDE/rm-desktop/node_modules/electron/dist/Electron.app/Contents/Resources
-[15:41:12] [NativeCapture] Checking: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron/native-addon.node - ✅ FOUND
-[15:41:12] [NativeCapture] Loading native addon from: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron/native-addon.node
+17:22:57.160 › 🎯[Jitsi SDK] Module loaded: object
+[17:22:57] 🔧 Custom config for mac: serverPath = /Users/jtereschenko/Documents/IDE/rm-desktop/node_modules/node-global-key-listener/bin/MacKeyServer
+[17:22:57] ✅ Lib binary chmod: /Users/jtereschenko/Documents/IDE/rm-desktop/node_modules/node-global-key-listener/bin/MacKeyServer
+[17:22:57] 🔧 Custom config for mac: serverPath = /Users/jtereschenko/Documents/IDE/rm-desktop/node_modules/node-global-key-listener/bin/MacKeyServer
+[17:22:57] ✅ Lib binary chmod: /Users/jtereschenko/Documents/IDE/rm-desktop/node_modules/node-global-key-listener/bin/MacKeyServer
+[17:22:57] [NativeCapture] Checking for addon in 3 locations:
+[17:22:57] [NativeCapture] Platform: darwin
+[17:22:57] [NativeCapture] Is Packaged: false
+[17:22:57] [NativeCapture] __dirname: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron
+[17:22:57] [NativeCapture] process.resourcesPath: /Users/jtereschenko/Documents/IDE/rm-desktop/node_modules/electron/dist/Electron.app/Contents/Resources
+[17:22:57] [NativeCapture] Checking: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron/native-addon.node - ✅ FOUND
+[17:22:57] [NativeCapture] Loading native addon from: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron/native-addon.node
 🪟 [detectAddonType] Start detect
 🪟 [detectAddonType] Start more
 Test from ScreenCaptureManager
 🍎 [detectAddonType] Detected macOS Swift addon
 🪟 [detectAddonType] End detect
-[15:41:12] [NativeCapture] ✅ Native addon loaded successfully
+[17:22:57] [NativeCapture] ✅ Native addon loaded successfully
 🪟 [detectAddonType] Start detect
 🪟 [detectAddonType] Start more
 Test from ScreenCaptureManager
 🍎 [detectAddonType] Detected macOS Swift addon
 🪟 [detectAddonType] End detect
-[15:41:12] [JITSI-SDK] Failed to setup always on top: Cannot read properties of undefined (reading 'webContents')
-[15:41:12] [JITSI-SDK] Failed to setup power monitor: Cannot read properties of undefined (reading 'on')
-[15:41:12] [JITSI-SDK] SDK helper functions initialized
-[15:41:12] [JITSI-SDK] Manager created
-[10819:1104/154113.041583:ERROR:sandbox/mac/system_services.cc:35] SetApplicationIsDaemon: Error Domain=NSOSStatusErrorDomain Code=-50 "paramErr: error in user parameter list" (-50)
+[17:22:57] [JITSI-SDK] Failed to setup always on top: Cannot read properties of undefined (reading 'webContents')
+[17:22:57] [JITSI-SDK] Failed to setup power monitor: Cannot read properties of undefined (reading 'on')
+[17:22:57] [JITSI-SDK] SDK helper functions initialized
+[17:22:57] [JITSI-SDK] Manager created
+[22948:1104/172257.531882:ERROR:sandbox/mac/system_services.cc:35] SetApplicationIsDaemon: Error Domain=NSOSStatusErrorDomain Code=-50 "paramErr: error in user parameter list" (-50)
 Attempting to call a function in a renderer window that has been closed or released.
 Function provided here: renderer.js:46:25
 ✅ Окно создано!
-[15:41:13] Tray created with icon: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron/resources/tray/traymacOSTemplate.png
-[15:41:13] Tray: Создан
+[17:22:57] Tray created with icon: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron/resources/tray/traymacOSTemplate.png
+[17:22:57] Tray: Создан
 ✅ Окно создано!
-[15:41:13] Main: WebView создается с URL: https://joinrm-svz.ru/
-[15:41:13] Main: Webview preload установлен: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron/preload.js
-[15:41:13] Main: WebView создается с URL: https://joinrm-svz.ru/
-[15:41:13] Main: Webview preload установлен: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron/preload.js
-[15:41:13] Main: Preload файл существует: true
-[15:41:14] Tray: Обновлён badge на 0
+[17:22:57] Main: WebView создается с URL: https://joinrm-svz.ru/
+[17:22:57] Main: Webview preload установлен: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron/preload.js
+[17:22:57] Main: WebView создается с URL: https://joinrm-svz.ru/
+[17:22:57] Main: Webview preload установлен: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron/preload.js
+[17:22:57] Main: Preload файл существует: true
+[17:22:57] Tray: Обновлён badge на 0
 Preload Log: ✅ Preload: Начало выполнения
-[15:41:15] Preload Log: ✅ Preload: Начало выполнения
-[15:41:15] Preload Log: ✅ Preload: Начало выполнения
+[17:22:58] Preload Log: ✅ Preload: Начало выполнения
+[17:22:58] Preload Log: ✅ Preload: Начало выполнения
 Preload Log: ✅ Preload: Начало выполнения
 Preload Log: ✅ Preload: Загружен для URL: https://joinrm-svz.ru/
-[15:41:15] Preload Log: ✅ Preload: Загружен для URL: https://joinrm-svz.ru/
-[15:41:15] Preload Log: ✅ Preload: Загружен для URL: https://joinrm-svz.ru/
+[17:22:58] Preload Log: ✅ Preload: Загружен для URL: https://joinrm-svz.ru/
+[17:22:58] Preload Log: ✅ Preload: Загружен для URL: https://joinrm-svz.ru/
 Preload Log: ✅ Preload: Загружен для URL: https://joinrm-svz.ru/
 Preload Log: ✅ Preload: Initialization complete
-[15:41:15] Preload Log: ✅ Preload: Initialization complete
-[15:41:15] Preload Log: ✅ Preload: Initialization complete
+[17:22:58] Preload Log: ✅ Preload: Initialization complete
+[17:22:58] Preload Log: ✅ Preload: Initialization complete
 Preload Log: ✅ Preload: Initialization complete
-[15:41:15] Tray: Обновлён badge на 0
+[17:22:58] Tray: Обновлён badge на 0
 (electron) 'console-message' arguments are deprecated and will be removed. Please use Event<WebContentsConsoleMessageEventParams> object instead.
-[15:41:16] Tray: Обновлён badge на 0
-[15:41:16] Tray: Обновлён badge на 0
+[17:22:59] Tray: Обновлён badge на 0
+[17:22:59] Tray: Обновлён badge на 0
 Preload Log: Bridge: Отправлено событие: request-electron-version []
-[15:41:16] Preload Log: Bridge: Отправлено событие: request-electron-version []
-[15:41:16] Preload Log: Bridge: Отправлено событие: request-electron-version []
+[17:22:59] Preload Log: Bridge: Отправлено событие: request-electron-version []
+[17:22:59] Preload Log: Bridge: Отправлено событие: request-electron-version []
 Preload Log: Bridge: Отправлено событие: request-electron-version []
 Preload Log: 📦 Zulip requested Electron version
-[15:41:16] Preload Log: 📦 Zulip requested Electron version
-[15:41:16] Preload Log: 📦 Zulip requested Electron version
+[17:22:59] Preload Log: 📦 Zulip requested Electron version
+[17:22:59] Preload Log: 📦 Zulip requested Electron version
 Preload Log: 📦 Zulip requested Electron version
 Preload Log: Bridge: Отправлено событие: electron-version [{"version":"5.27.0"}]
-[15:41:16] Preload Log: Bridge: Отправлено событие: electron-version [{"version":"5.27.0"}]
-[15:41:16] Preload Log: Bridge: Отправлено событие: electron-version [{"version":"5.27.0"}]
+[17:22:59] Preload Log: Bridge: Отправлено событие: electron-version [{"version":"5.27.0"}]
+[17:22:59] Preload Log: Bridge: Отправлено событие: electron-version [{"version":"5.27.0"}]
 Preload Log: Bridge: Отправлено событие: electron-version [{"version":"5.27.0"}]
 Preload Log: Bridge: Отправлено событие: jitsi-log-event [{"level":"info","message":"Zulip Webview: Получена версия Electron: 5.27.0"}]
-[15:41:16] Preload Log: Bridge: Отправлено событие: jitsi-log-event [{"level":"info","message":"Zulip Webview: Получена версия Electron: 5.27.0"}]
-[15:41:16] Preload Log: Bridge: Отправлено событие: jitsi-log-event [{"level":"info","message":"Zulip Webview: Получена версия Electron: 5.27.0"}]
+[17:22:59] Preload Log: Bridge: Отправлено событие: jitsi-log-event [{"level":"info","message":"Zulip Webview: Получена версия Electron: 5.27.0"}]
+[17:22:59] Preload Log: Bridge: Отправлено событие: jitsi-log-event [{"level":"info","message":"Zulip Webview: Получена версия Electron: 5.27.0"}]
 Preload Log: Bridge: Отправлено событие: jitsi-log-event [{"level":"info","message":"Zulip Webview: Получена версия Electron: 5.27.0"}]
 Preload Log: 📦 Sent version back to Zulip via IPC: 5.27.0
-[15:41:16] Preload Log: 📦 Sent version back to Zulip via IPC: 5.27.0
-[15:41:16] Preload Log: 📦 Sent version back to Zulip via IPC: 5.27.0
+[17:22:59] Preload Log: 📦 Sent version back to Zulip via IPC: 5.27.0
+[17:22:59] Preload Log: 📦 Sent version back to Zulip via IPC: 5.27.0
 Preload Log: 📦 Sent version back to Zulip via IPC: 5.27.0
 Preload Log: Bridge: Отправлено событие: show-update-available [{"version":"5.27.1","downloadUrl":"https://storage.yandexcloud.net/rm-electron-desktop-win/%D0%A1%D0%B2%D1%8F%D0%B7%D1%8C%20%D0%A0%D0%9C%20Setup%205.27.1.zip","releaseNotes":"ура!! обнова\nПроверяем обнову - без паники"}]
-[15:41:16] Preload Log: Bridge: Отправлено событие: show-update-available [{"version":"5.27.1","downloadUrl":"https://storage.yandexcloud.net/rm-electron-desktop-win/%D0%A1%D0%B2%D1%8F%D0%B7%D1%8C%20%D0%A0%D0%9C%20Setup%205.27.1.zip","releaseNotes":"ура!! обнова\nПроверяем обнову - без паники"}]
-[15:41:16] Preload Log: Bridge: Отправлено событие: show-update-available [{"version":"5.27.1","downloadUrl":"https://storage.yandexcloud.net/rm-electron-desktop-win/%D0%A1%D0%B2%D1%8F%D0%B7%D1%8C%20%D0%A0%D0%9C%20Setup%205.27.1.zip","releaseNotes":"ура!! обнова\nПроверяем обнову - без паники"}]
+[17:22:59] Preload Log: Bridge: Отправлено событие: show-update-available [{"version":"5.27.1","downloadUrl":"https://storage.yandexcloud.net/rm-electron-desktop-win/%D0%A1%D0%B2%D1%8F%D0%B7%D1%8C%20%D0%A0%D0%9C%20Setup%205.27.1.zip","releaseNotes":"ура!! обнова\nПроверяем обнову - без паники"}]
+[17:22:59] Preload Log: Bridge: Отправлено событие: show-update-available [{"version":"5.27.1","downloadUrl":"https://storage.yandexcloud.net/rm-electron-desktop-win/%D0%A1%D0%B2%D1%8F%D0%B7%D1%8C%20%D0%A0%D0%9C%20Setup%205.27.1.zip","releaseNotes":"ура!! обнова\nПроверяем обнову - без паники"}]
 Preload Log: Bridge: Отправлено событие: show-update-available [{"version":"5.27.1","downloadUrl":"https://storage.yandexcloud.net/rm-electron-desktop-win/%D0%A1%D0%B2%D1%8F%D0%B7%D1%8C%20%D0%A0%D0%9C%20Setup%205.27.1.zip","releaseNotes":"ура!! обнова\nПроверяем обнову - без паники"}]
 Preload Log: 📦 Update available from Zulip: v5.27.1
-[15:41:16] Preload Log: 📦 Update available from Zulip: v5.27.1
-[15:41:16] Preload Log: 📦 Update available from Zulip: v5.27.1
+[17:22:59] Preload Log: 📦 Update available from Zulip: v5.27.1
+[17:22:59] Preload Log: 📦 Update available from Zulip: v5.27.1
 Preload Log: 📦 Update available from Zulip: v5.27.1
-[15:41:16] 📦 Main: Showing update button for version 5.27.1
-[15:41:25] Tray: Обновлён badge на 0
-[15:41:26] Tray: Обновлён badge на 0
+[17:22:59] 📦 Main: Showing update button for version 5.27.1
+[17:23:01] Tray: Обновлён badge на 0
+[17:23:03] Tray: Обновлён badge на 0
 Preload Log: Zulip: ipcRenderer.invoke jitsi-connect-with-zulip-config
-[15:41:27] Preload Log: Zulip: ipcRenderer.invoke jitsi-connect-with-zulip-config
-[15:41:27] Preload Log: Zulip: ipcRenderer.invoke jitsi-connect-with-zulip-config
+[17:23:03] Preload Log: Zulip: ipcRenderer.invoke jitsi-connect-with-zulip-config
+[17:23:03] Preload Log: Zulip: ipcRenderer.invoke jitsi-connect-with-zulip-config
 Preload Log: Zulip: ipcRenderer.invoke jitsi-connect-with-zulip-config
-[15:41:27] 🎯[Jitsi] Connecting with Zulip config using SDK...
-[15:41:27] 🎯[Jitsi] Options received: {"roomUrl":"https://jitsi-connectrm.ru/801672557433261-5535756586325053","roomName":"801672557433261-5535756586325053","serverUrl":"https://jitsi-connectrm.ru","jwt":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjb250ZXh0Ijp7InVzZXIiOnsibmFtZSI6ItCS0LjRgtCw0LvRj1_QryIsImlkIjoicm9vdDMzQGxpdmUucnUiLCJlbWFpbCI6InJvb3QzM0BsaXZlLnJ1IiwiYXZhdGFyIjoiaHR0cHM6Ly9qb2lucm0tc3Z6LnJ1L3N0YXRpYy9pbWFnZXMvdXNlcnMtYXZhdGFycy8xNC5wbmcifX0sImFwcF9pZCI6ImNvbm5lY3RybV9zdnoiLCJhdWQiOiJqaXRzaSIsImlzcyI6ImNvbm5lY3RybV9zdnoiLCJzdWIiOiJqaXRzaS1jb25uZWN0cm0ucnUiLCJyb29tIjoiKiIsImlhdCI6MTc2MjI0NTY4NiwiZXhwIjoxNzYyMzE3Njg2fQ.rv6AZKCdBYfbhSnEkBi36uKpESxAq3mWBmQ3IzFZOQU","topic":"🔊 25","stream":"Бочарочка","streamId":53,"userInfo":{"displayName":"Виталя_Я","email":"root33@live.ru","avatarUrl":"https://joinrm-svz.ru/static/images/users-avatars/14.png"},"preInitialized":true,"currentTopic":"🔊 25"}
-[15:41:27] 🎯[Jitsi] Starting conference without pre-selection
-[15:41:27] [JITSI-SDK] Creating window for room: 801672557433261-5535756586325053
-[15:41:27] [JITSI-SDK] Failed to setup screen sharing: Cannot read properties of undefined (reading 'session')
-[15:41:27] [JITSI-SDK] Loading conference URL: https://jitsi-connectrm.ru/801672557433261-5535756586325053?jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjb250ZXh0Ijp7InVzZXIiOnsibmFtZSI6ItCS0LjRgtCw0LvRj1_QryIsImlkIjoicm9vdDMzQGxpdmUucnUiLCJlbWFpbCI6InJvb3QzM0BsaXZlLnJ1IiwiYXZhdGFyIjoiaHR0cHM6Ly9qb2lucm0tc3Z6LnJ1L3N0YXRpYy9pbWFnZXMvdXNlcnMtYXZhdGFycy8xNC5wbmcifX0sImFwcF9pZCI6ImNvbm5lY3RybV9zdnoiLCJhdWQiOiJqaXRzaSIsImlzcyI6ImNvbm5lY3RybV9zdnoiLCJzdWIiOiJqaXRzaS1jb25uZWN0cm0ucnUiLCJyb29tIjoiKiIsImlhdCI6MTc2MjI0NTY4NiwiZXhwIjoxNzYyMzE3Njg2fQ.rv6AZKCdBYfbhSnEkBi36uKpESxAq3mWBmQ3IzFZOQU#config.disableDeepLinking=true&config.prejoinPageEnabled=false&config.startWithAudioMuted=false&config.startWithVideoMuted=true&config.enableWelcomePage=false&config.enableClosePage=false&config.resolution=720&config.disableInitialGUM=false&config.enableLayerSuspension=true&config.p2p.enabled=true&config.p2p.preferH264=true&interfaceConfig.SHOW_JITSI_WATERMARK=false&interfaceConfig.SHOW_WATERMARK_FOR_GUESTS=false&interfaceConfig.SHOW_BRAND_WATERMARK=false&interfaceConfig.HIDE_INVITE_MORE_HEADER=true&interfaceConfig.MOBILE_APP_PROMO=false&interfaceConfig.SHOW_MEETING_NAME=false&interfaceConfig.DISPLAY_WELCOME_PAGE_CONTENT=false&interfaceConfig.APP_NAME=%F0%9F%94%8A+25&interfaceConfig.NATIVE_APP_NAME=%F0%9F%94%8A+25&config.requireDisplayName=false&config.hideConferenceSubject=true&config.hideConferenceTimer=false&config.hideDominantSpeakerBadge=false&interfaceConfig.SHOW_CONFERENCE_SUBJECT=false&interfaceConfig.HIDE_CONFERENCE_SUBJECT=true&config.subject=+&interfaceConfig.TOOLBAR_BUTTONS=%5B%22camera%22%2C%22desktop%22%2C%22microphone%22%2C%22participants%22%2C%22settings%22%2C%22fullscreen%22%2C%22hangup%22%5D&userInfo.displayName=%D0%92%D0%B8%D1%82%D0%B0%D0%BB%D1%8F_%D0%AF&userInfo.email=root33%40live.ru&config.subject=%F0%9F%94%8A+25&userInfo.avatarURL=https%3A%2F%2Fjoinrm-svz.ru%2Fstatic%2Fimages%2Fusers-avatars%2F14.png&config.gravatar.disabled=true
-[15:41:27] Jitsi Console: 2025-11-04T08:41:27.536Z [features/conference] (TIME) init action dispatched: 388.89999999990687
-[15:41:27] [JITSI-SDK] DOM ready
-2025-11-04 15:41:27.660 Electron Helper (Plugin)[10846:60418] WARNING: Add NSCameraUseContinuityCameraDeviceType to your Info.plist to use AVCaptureDeviceTypeContinuityCamera.
-[15:41:27] [JITSI-SDK] Page loaded
-[15:41:27] [JITSI-SDK] Loading overlay shown
-[15:41:27] Jitsi Console: [JITSI] Using toggleAudioMuted to mute
-[15:41:27] [JITSI-SDK] Microphone muted: true
-[15:41:27] [JITSI-SDK] Conference ready
-[15:41:27] Jitsi Console: [JITSI] Setting up conference handlers...
-[15:41:27] Jitsi Console: [JITSI] Conference handlers installed
-[15:41:27] [JITSI-SDK] Conference handlers injected
-[15:41:27] [JITSI-SDK] Audio mute indicator button injected
-[15:41:27] [JITSI-SDK] Conference window created successfully
-[15:41:27] 🎯[Jitsi SDK] Conference window created successfully
-[15:41:27] 🔧 Starting listener with custom config
-[15:41:27] 🔧 Starting listener with custom config
-[15:41:27] Jitsi Console: [JITSI] Found JitsiMeetScreenObtainer, overriding openDesktopPicker
-[15:41:27] Jitsi Console: 2025-11-04T08:41:27.793Z [features/conference] (TIME) setupInitialDevices finished: 646.6999999999534
-[15:41:27] Jitsi Console: 2025-11-04T08:41:27.794Z [conference.js] <Object.init>:  Executed conference.init with roomName: 801672557433261-5535756586325053 (performance.now=647.2999999998137)
-[15:41:27] Jitsi Console: 2025-11-04T08:41:27.798Z [conference.js] <Object.init>:  (TIME) createInitialLocalTracks: 651.0999999998603 
-[15:41:27] Jitsi Console: 2025-11-04T08:41:27.801Z [conference.js] <Object.init>:  Dispatching connect from init since prejoin is not visible.
-[15:41:27] Jitsi Console: 2025-11-04T08:41:27.803Z [modules/xmpp/moderator] <new fc>:  Using xmpp for conference requests.
-[15:41:27] Jitsi Console: 2025-11-04T08:41:27.965Z [conference.js] (TIME) createInitialLocalTracks finished: 818.5 
-[15:41:27] Jitsi Console: 2025-11-04T08:41:27.967Z [conference.js] Resolving the initialGUM promise!
-[15:41:28] Jitsi Console: 2025-11-04T08:41:28.384Z [features/base/conference] On connection established: prejoinVisible: false, initialGUMPromiseExists=true, promiseExists=true
-[15:41:28] Jitsi Console: 2025-11-04T08:41:28.387Z [conference.js] audio mute: initially muted.
-[15:41:28] Jitsi Console: 2025-11-04T08:41:28.404Z [modules/xmpp/moderator] Sending conference request over XMPP to focus.meet.jitsi
-[15:41:28] Jitsi Console: 2025-11-04T08:41:28.417Z [conference.js] Initialized with 1 local tracks
-[15:41:28] [JITSI-SDK] Loading overlay hidden
-[15:41:28] Jitsi Console: 2025-11-04T08:41:28.737Z [conference.js] <fo.<anonymous>>:  My role changed, new role: none
-[15:41:28] Jitsi Console: 2025-11-04T08:41:28.745Z [conference.js] <fo.<anonymous>>:  My role changed, new role: moderator
-[15:41:28] Jitsi Console: 2025-11-04T08:41:28.753Z [features/base/conference] Wake lock created.
-[15:41:29] Нажата клавиша: A, а ждём: G
-[15:41:29] Нажата клавиша: A, а ждём: G
-[15:41:30] Нажата клавиша: A, а ждём: G
-[15:41:30] Нажата клавиша: A, а ждём: G
-Preload Log: Zulip: ipcRenderer.invoke jitsi-connect-with-zulip-config
-[15:41:30] Preload Log: Zulip: ipcRenderer.invoke jitsi-connect-with-zulip-config
-[15:41:30] Preload Log: Zulip: ipcRenderer.invoke jitsi-connect-with-zulip-config
-Preload Log: Zulip: ipcRenderer.invoke jitsi-connect-with-zulip-config
-[15:41:30] 🎯[Jitsi] Connecting with Zulip config using SDK...
-[15:41:30] 🎯[Jitsi] Options received: {"roomUrl":"https://jitsi-connectrm.ru/801672557433261-5535756586325053","roomName":"801672557433261-5535756586325053","serverUrl":"https://jitsi-connectrm.ru","jwt":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjb250ZXh0Ijp7InVzZXIiOnsibmFtZSI6ItCS0LjRgtCw0LvRj1_QryIsImlkIjoicm9vdDMzQGxpdmUucnUiLCJlbWFpbCI6InJvb3QzM0BsaXZlLnJ1IiwiYXZhdGFyIjoiaHR0cHM6Ly9qb2lucm0tc3Z6LnJ1L3N0YXRpYy9pbWFnZXMvdXNlcnMtYXZhdGFycy8xNC5wbmcifX0sImFwcF9pZCI6ImNvbm5lY3RybV9zdnoiLCJhdWQiOiJqaXRzaSIsImlzcyI6ImNvbm5lY3RybV9zdnoiLCJzdWIiOiJqaXRzaS1jb25uZWN0cm0ucnUiLCJyb29tIjoiKiIsImlhdCI6MTc2MjI0NTY5MCwiZXhwIjoxNzYyMzE3NjkwfQ.m45qvpBR6yBQSX_ELUQ3YhyTDkamLR0JKRAD-JPng_0","topic":"🔊 25","stream":"Бочарочка","streamId":53,"userInfo":{"displayName":"Виталя_Я","email":"root33@live.ru","avatarUrl":"https://joinrm-svz.ru/static/images/users-avatars/14.png"},"preInitialized":true,"currentTopic":"🔊 25"}
-[15:41:30] 🎯[Jitsi] Starting conference without pre-selection
-[15:41:30] [JITSI-SDK] Window already exists for room: 801672557433261-5535756586325053, focusing existing window
-[15:41:31] Нажата клавиша: A, а ждём: G
-[15:41:31] Нажата клавиша: A, а ждём: G
-[15:41:32] Нажата клавиша: A, а ждём: G
-[15:41:33] Нажата клавиша: A, а ждём: G
-Preload Log: Zulip: ipcRenderer.invoke jitsi-connect-with-zulip-config
-[15:41:33] Preload Log: Zulip: ipcRenderer.invoke jitsi-connect-with-zulip-config
-[15:41:33] Preload Log: Zulip: ipcRenderer.invoke jitsi-connect-with-zulip-config
-Preload Log: Zulip: ipcRenderer.invoke jitsi-connect-with-zulip-config
-[15:41:33] 🎯[Jitsi] Connecting with Zulip config using SDK...
-[15:41:33] 🎯[Jitsi] Options received: {"roomUrl":"https://jitsi-connectrm.ru/801672557433261-5535756586325053","roomName":"801672557433261-5535756586325053","serverUrl":"https://jitsi-connectrm.ru","jwt":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjb250ZXh0Ijp7InVzZXIiOnsibmFtZSI6ItCS0LjRgtCw0LvRj1_QryIsImlkIjoicm9vdDMzQGxpdmUucnUiLCJlbWFpbCI6InJvb3QzM0BsaXZlLnJ1IiwiYXZhdGFyIjoiaHR0cHM6Ly9qb2lucm0tc3Z6LnJ1L3N0YXRpYy9pbWFnZXMvdXNlcnMtYXZhdGFycy8xNC5wbmcifX0sImFwcF9pZCI6ImNvbm5lY3RybV9zdnoiLCJhdWQiOiJqaXRzaSIsImlzcyI6ImNvbm5lY3RybV9zdnoiLCJzdWIiOiJqaXRzaS1jb25uZWN0cm0ucnUiLCJyb29tIjoiKiIsImlhdCI6MTc2MjI0NTY5MywiZXhwIjoxNzYyMzE3NjkzfQ.hp8P2wF8dCs6mj0rf9H0lLt1_Fhr2Baa2E8YP88_kbQ","topic":"🔊 25","stream":"Бочарочка","streamId":53,"userInfo":{"displayName":"Виталя_Я","email":"root33@live.ru","avatarUrl":"https://joinrm-svz.ru/static/images/users-avatars/14.png"},"preInitialized":true,"currentTopic":"🔊 25"}
-[15:41:33] 🎯[Jitsi] Starting conference without pre-selection
-[15:41:33] [JITSI-SDK] Window already exists for room: 801672557433261-5535756586325053, focusing existing window
-[15:41:33] Нажата клавиша: A, а ждём: G
-[15:41:34] Нажата клавиша: A, а ждём: G
-[15:41:34] Нажата клавиша: A, а ждём: G
-[15:41:34] Нажата клавиша: A, а ждём: G
-Preload Log: Zulip: ipcRenderer.invoke jitsi-connect-with-zulip-config
-[15:41:34] Preload Log: Zulip: ipcRenderer.invoke jitsi-connect-with-zulip-config
-[15:41:34] Preload Log: Zulip: ipcRenderer.invoke jitsi-connect-with-zulip-config
-Preload Log: Zulip: ipcRenderer.invoke jitsi-connect-with-zulip-config
-[15:41:34] 🎯[Jitsi] Connecting with Zulip config using SDK...
-[15:41:34] 🎯[Jitsi] Options received: {"roomUrl":"https://jitsi-connectrm.ru/801672557433261-5535756586325053","roomName":"801672557433261-5535756586325053","serverUrl":"https://jitsi-connectrm.ru","jwt":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjb250ZXh0Ijp7InVzZXIiOnsibmFtZSI6ItCS0LjRgtCw0LvRj1_QryIsImlkIjoicm9vdDMzQGxpdmUucnUiLCJlbWFpbCI6InJvb3QzM0BsaXZlLnJ1IiwiYXZhdGFyIjoiaHR0cHM6Ly9qb2lucm0tc3Z6LnJ1L3N0YXRpYy9pbWFnZXMvdXNlcnMtYXZhdGFycy8xNC5wbmcifX0sImFwcF9pZCI6ImNvbm5lY3RybV9zdnoiLCJhdWQiOiJqaXRzaSIsImlzcyI6ImNvbm5lY3RybV9zdnoiLCJzdWIiOiJqaXRzaS1jb25uZWN0cm0ucnUiLCJyb29tIjoiKiIsImlhdCI6MTc2MjI0NTY5NCwiZXhwIjoxNzYyMzE3Njk0fQ.t73FBzlos7G86GejqMWuOgKxVNoCYdSxP-iRqBGG3lo","topic":"🔊 25","stream":"Бочарочка","streamId":53,"userInfo":{"displayName":"Виталя_Я","email":"root33@live.ru","avatarUrl":"https://joinrm-svz.ru/static/images/users-avatars/14.png"},"preInitialized":true,"currentTopic":"🔊 25"}
-[15:41:34] 🎯[Jitsi] Starting conference without pre-selection
-[15:41:34] [JITSI-SDK] Window already exists for room: 801672557433261-5535756586325053, focusing existing window
-[15:41:35] Нажата клавиша: A, а ждём: G
-[15:41:35] Нажата клавиша: A, а ждём: G
-[15:41:36] Нажата клавиша: A, а ждём: G
-[15:41:36] Нажата клавиша: A, а ждём: G
-[15:41:38] Нажата клавиша: A, а ждём: G
-[15:41:38] Нажата клавиша: A, а ждём: G
-[15:41:40] Нажата клавиша: A, а ждём: G
-[15:41:40] Jitsi Console: 2025-11-04T08:41:40.030Z [features/base/conference] <WakeLockSentinel.r6>:  Wake lock released
-[15:41:40] Нажата клавиша: A, а ждём: G
-[15:41:40] Main: Горячая клавиша r удалена при выходе
-[15:41:40] Main: Горячая клавиша g удалена при выходе
-[15:41:40] [JITSI-SDK] Window close requested - performing cleanup
-[15:41:40] [JITSI-SDK] Performing conference cleanup
-[15:41:40] Jitsi Console: [JITSI] Starting conference cleanup
-[15:41:40] Jitsi Console: [JITSI] Found APP.conference, attempting cleanup
-[15:41:40] Jitsi Console: [JITSI] Calling hangup
-[15:41:40] Jitsi Console: [JITSI] Stopping all media streams
-[15:41:40] Jitsi Console: [JITSI] Cleanup completed
-[15:41:40] [JITSI-SDK] Conference cleanup completed
-[15:41:40] [JITSI-SDK] Closing screen shown
-[15:41:41] [JITSI-SDK] Navigation attempt to: https://jitsi-connectrm.ru/?jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjb250ZXh0Ijp7InVzZXIiOnsibmFtZSI6ItCS0LjRgtCw0LvRj1_QryIsImlkIjoicm9vdDMzQGxpdmUucnUiLCJlbWFpbCI6InJvb3QzM0BsaXZlLnJ1IiwiYXZhdGFyIjoiaHR0cHM6Ly9qb2lucm0tc3Z6LnJ1L3N0YXRpYy9pbWFnZXMvdXNlcnMtYXZhdGFycy8xNC5wbmcifX0sImFwcF9pZCI6ImNvbm5lY3RybV9zdnoiLCJhdWQiOiJqaXRzaSIsImlzcyI6ImNvbm5lY3RybV9zdnoiLCJzdWIiOiJqaXRzaS1jb25uZWN0cm0ucnUiLCJyb29tIjoiKiIsImlhdCI6MTc2MjI0NTY4NiwiZXhwIjoxNzYyMzE3Njg2fQ.rv6AZKCdBYfbhSnEkBi36uKpESxAq3mWBmQ3IzFZOQU#config.disableDeepLinking=true&config.prejoinPageEnabled=false&config.startWithAudioMuted=false&config.startWithVideoMuted=true&config.enableWelcomePage=false&config.enableClosePage=false&config.resolution=720&config.disableInitialGUM=false&config.enableLayerSuspension=true&config.p2p.enabled=true&config.p2p.preferH264=true&interfaceConfig.SHOW_JITSI_WATERMARK=false&interfaceConfig.SHOW_WATERMARK_FOR_GUESTS=false&interfaceConfig.SHOW_BRAND_WATERMARK=false&interfaceConfig.HIDE_INVITE_MORE_HEADER=true&interfaceConfig.MOBILE_APP_PROMO=false&interfaceConfig.SHOW_MEETING_NAME=false&interfaceConfig.DISPLAY_WELCOME_PAGE_CONTENT=false&interfaceConfig.APP_NAME=%F0%9F%94%8A+25&interfaceConfig.NATIVE_APP_NAME=%F0%9F%94%8A+25&config.requireDisplayName=false&config.hideConferenceSubject=true&config.hideConferenceTimer=false&config.hideDominantSpeakerBadge=false&interfaceConfig.SHOW_CONFERENCE_SUBJECT=false&interfaceConfig.HIDE_CONFERENCE_SUBJECT=true&config.subject=+&interfaceConfig.TOOLBAR_BUTTONS=%5B%22camera%22%2C%22desktop%22%2C%22microphone%22%2C%22participants%22%2C%22settings%22%2C%22fullscreen%22%2C%22hangup%22%5D&userInfo.displayName=%D0%92%D0%B8%D1%82%D0%B0%D0%BB%D1%8F_%D0%AF&userInfo.email=root33%40live.ru&config.subject=%F0%9F%94%8A+25&userInfo.avatarURL=https%3A%2F%2Fjoinrm-svz.ru%2Fstatic%2Fimages%2Fusers-avatars%2F14.png&config.gravatar.disabled=true
-[15:41:41] [JITSI-SDK] Blocking navigation to different page
-[15:41:41] [JITSI-SDK] Performing conference cleanup
-[15:41:41] Jitsi Console: [JITSI] Starting conference cleanup
-[15:41:41] Jitsi Console: [JITSI] Found APP.conference, attempting cleanup
-[15:41:41] Jitsi Console: [JITSI] Calling hangup
-[15:41:41] [JITSI-SDK] Navigation attempt to: https://jitsi-connectrm.ru/#
-[15:41:41] [JITSI-SDK] Blocking navigation to different page
-[15:41:41] [JITSI-SDK] Performing conference cleanup
-[15:41:41] [JITSI-SDK] Permanent closing screen shown
-[15:41:41] Jitsi Console: [JITSI] Stopping all media streams
-[15:41:41] Jitsi Console: [JITSI] Cleanup completed
-[15:41:41] Jitsi Console: [JITSI] Starting conference cleanup
-[15:41:41] Jitsi Console: [JITSI] Found APP.conference, attempting cleanup
-[15:41:41] Jitsi Console: [JITSI] Calling hangup
-[15:41:41] [JITSI-SDK] Permanent closing screen shown
-[15:41:41] Jitsi Console: [JITSI] Stopping all media streams
-[15:41:41] Jitsi Console: [JITSI] Cleanup completed
-[15:41:42] [JITSI-SDK] Conference cleanup completed
-[15:41:42] [JITSI-SDK] Conference cleanup completed
-[15:41:42] [JITSI-SDK] Navigation attempt to: https://jitsi-connectrm.ru/?jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjb250ZXh0Ijp7InVzZXIiOnsibmFtZSI6ItCS0LjRgtCw0LvRj1_QryIsImlkIjoicm9vdDMzQGxpdmUucnUiLCJlbWFpbCI6InJvb3QzM0BsaXZlLnJ1IiwiYXZhdGFyIjoiaHR0cHM6Ly9qb2lucm0tc3Z6LnJ1L3N0YXRpYy9pbWFnZXMvdXNlcnMtYXZhdGFycy8xNC5wbmcifX0sImFwcF9pZCI6ImNvbm5lY3RybV9zdnoiLCJhdWQiOiJqaXRzaSIsImlzcyI6ImNvbm5lY3RybV9zdnoiLCJzdWIiOiJqaXRzaS1jb25uZWN0cm0ucnUiLCJyb29tIjoiKiIsImlhdCI6MTc2MjI0NTY4NiwiZXhwIjoxNzYyMzE3Njg2fQ.rv6AZKCdBYfbhSnEkBi36uKpESxAq3mWBmQ3IzFZOQU#config.disableDeepLinking=true&config.prejoinPageEnabled=false&config.startWithAudioMuted=false&config.startWithVideoMuted=true&config.enableWelcomePage=false&config.enableClosePage=false&config.resolution=720&config.disableInitialGUM=false&config.enableLayerSuspension=true&config.p2p.enabled=true&config.p2p.preferH264=true&interfaceConfig.SHOW_JITSI_WATERMARK=false&interfaceConfig.SHOW_WATERMARK_FOR_GUESTS=false&interfaceConfig.SHOW_BRAND_WATERMARK=false&interfaceConfig.HIDE_INVITE_MORE_HEADER=true&interfaceConfig.MOBILE_APP_PROMO=false&interfaceConfig.SHOW_MEETING_NAME=false&interfaceConfig.DISPLAY_WELCOME_PAGE_CONTENT=false&interfaceConfig.APP_NAME=%F0%9F%94%8A+25&interfaceConfig.NATIVE_APP_NAME=%F0%9F%94%8A+25&config.requireDisplayName=false&config.hideConferenceSubject=true&config.hideConferenceTimer=false&config.hideDominantSpeakerBadge=false&interfaceConfig.SHOW_CONFERENCE_SUBJECT=false&interfaceConfig.HIDE_CONFERENCE_SUBJECT=true&config.subject=+&interfaceConfig.TOOLBAR_BUTTONS=%5B%22camera%22%2C%22desktop%22%2C%22microphone%22%2C%22participants%22%2C%22settings%22%2C%22fullscreen%22%2C%22hangup%22%5D&userInfo.displayName=%D0%92%D0%B8%D1%82%D0%B0%D0%BB%D1%8F_%D0%AF&userInfo.email=root33%40live.ru&config.subject=%F0%9F%94%8A+25&userInfo.avatarURL=https%3A%2F%2Fjoinrm-svz.ru%2Fstatic%2Fimages%2Fusers-avatars%2F14.png&config.gravatar.disabled=true
-[15:41:42] [JITSI-SDK] Blocking navigation to different page
-[15:41:42] [JITSI-SDK] Performing conference cleanup
-[15:41:42] [JITSI-SDK] Navigation attempt to: https://jitsi-connectrm.ru/?jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjb250ZXh0Ijp7InVzZXIiOnsibmFtZSI6ItCS0LjRgtCw0LvRj1_QryIsImlkIjoicm9vdDMzQGxpdmUucnUiLCJlbWFpbCI6InJvb3QzM0BsaXZlLnJ1IiwiYXZhdGFyIjoiaHR0cHM6Ly9qb2lucm0tc3Z6LnJ1L3N0YXRpYy9pbWFnZXMvdXNlcnMtYXZhdGFycy8xNC5wbmcifX0sImFwcF9pZCI6ImNvbm5lY3RybV9zdnoiLCJhdWQiOiJqaXRzaSIsImlzcyI6ImNvbm5lY3RybV9zdnoiLCJzdWIiOiJqaXRzaS1jb25uZWN0cm0ucnUiLCJyb29tIjoiKiIsImlhdCI6MTc2MjI0NTY4NiwiZXhwIjoxNzYyMzE3Njg2fQ.rv6AZKCdBYfbhSnEkBi36uKpESxAq3mWBmQ3IzFZOQU#config.disableDeepLinking=true&config.prejoinPageEnabled=false&config.startWithAudioMuted=false&config.startWithVideoMuted=true&config.enableWelcomePage=false&config.enableClosePage=false&config.resolution=720&config.disableInitialGUM=false&config.enableLayerSuspension=true&config.p2p.enabled=true&config.p2p.preferH264=true&interfaceConfig.SHOW_JITSI_WATERMARK=false&interfaceConfig.SHOW_WATERMARK_FOR_GUESTS=false&interfaceConfig.SHOW_BRAND_WATERMARK=false&interfaceConfig.HIDE_INVITE_MORE_HEADER=true&interfaceConfig.MOBILE_APP_PROMO=false&interfaceConfig.SHOW_MEETING_NAME=false&interfaceConfig.DISPLAY_WELCOME_PAGE_CONTENT=false&interfaceConfig.APP_NAME=%F0%9F%94%8A+25&interfaceConfig.NATIVE_APP_NAME=%F0%9F%94%8A+25&config.requireDisplayName=false&config.hideConferenceSubject=true&config.hideConferenceTimer=false&config.hideDominantSpeakerBadge=false&interfaceConfig.SHOW_CONFERENCE_SUBJECT=false&interfaceConfig.HIDE_CONFERENCE_SUBJECT=true&config.subject=+&interfaceConfig.TOOLBAR_BUTTONS=%5B%22camera%22%2C%22desktop%22%2C%22microphone%22%2C%22participants%22%2C%22settings%22%2C%22fullscreen%22%2C%22hangup%22%5D&userInfo.displayName=%D0%92%D0%B8%D1%82%D0%B0%D0%BB%D1%8F_%D0%AF&userInfo.email=root33%40live.ru&config.subject=%F0%9F%94%8A+25&userInfo.avatarURL=https%3A%2F%2Fjoinrm-svz.ru%2Fstatic%2Fimages%2Fusers-avatars%2F14.png&config.gravatar.disabled=true
-[15:41:42] [JITSI-SDK] Blocking navigation to different page
-[15:41:42] [JITSI-SDK] Performing conference cleanup
-[15:41:42] Jitsi Console: [JITSI] Starting conference cleanup
-[15:41:42] Jitsi Console: [JITSI] Found APP.conference, attempting cleanup
-[15:41:42] Jitsi Console: [JITSI] Calling hangup
-[15:41:42] [JITSI-SDK] Permanent closing screen shown
-[15:41:42] Jitsi Console: [JITSI] Starting conference cleanup
-[15:41:42] Jitsi Console: [JITSI] Found APP.conference, attempting cleanup
-[15:41:42] Jitsi Console: [JITSI] Calling hangup
-[15:41:42] [JITSI-SDK] Permanent closing screen shown
-[15:41:42] Jitsi Console: [JITSI] Stopping all media streams
-[15:41:42] Jitsi Console: [JITSI] Cleanup completed
-[15:41:42] Jitsi Console: [JITSI] Stopping all media streams
-[15:41:42] Jitsi Console: [JITSI] Cleanup completed
-[15:41:42] [JITSI-SDK] Closing conference window
-[15:41:42] [JITSI-SDK] Performing conference cleanup
-[15:41:42] Jitsi Console: [JITSI] Starting conference cleanup
-[15:41:42] Jitsi Console: [JITSI] Found APP.conference, attempting cleanup
-[15:41:42] Jitsi Console: [JITSI] Calling hangup
-[15:41:42] Jitsi Console: [JITSI] Stopping all media streams
-[15:41:42] Jitsi Console: [JITSI] Cleanup completed
-[15:41:43] [JITSI-SDK] Conference cleanup completed
-[15:41:43] [JITSI-SDK] Conference cleanup completed
-[15:41:43] [JITSI-SDK] Conference cleanup completed
-[15:41:43] Main: Горячая клавиша r удалена при выходе
-[15:41:43] Main: Горячая клавиша g удалена при выходе
-[15:41:43] [JITSI-SDK] Window closed successfully
+[17:23:03] 🎯[Jitsi] Connecting with Zulip config using SDK...
+[17:23:03] 🎯[Jitsi] Options received: {"roomUrl":"https://jitsi-connectrm.ru/801672557433261-5535756586325051","roomName":"801672557433261-5535756586325051","serverUrl":"https://jitsi-connectrm.ru","jwt":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjb250ZXh0Ijp7InVzZXIiOnsibmFtZSI6ItCS0LjRgtCw0LvRj1_QryIsImlkIjoicm9vdDMzQGxpdmUucnUiLCJlbWFpbCI6InJvb3QzM0BsaXZlLnJ1IiwiYXZhdGFyIjoiaHR0cHM6Ly9qb2lucm0tc3Z6LnJ1L3N0YXRpYy9pbWFnZXMvdXNlcnMtYXZhdGFycy8xNC5wbmcifX0sImFwcF9pZCI6ImNvbm5lY3RybV9zdnoiLCJhdWQiOiJqaXRzaSIsImlzcyI6ImNvbm5lY3RybV9zdnoiLCJzdWIiOiJqaXRzaS1jb25uZWN0cm0ucnUiLCJyb29tIjoiKiIsImlhdCI6MTc2MjI1MTc4MywiZXhwIjoxNzYyMzIzNzgzfQ.P94QLiSRtHTtf4iRV_gLMimq2Di4FKb6QEHBUkwlKyg","topic":"🔊 23","stream":"Бочарочка","streamId":53,"userInfo":{"displayName":"Виталя_Я","email":"root33@live.ru","avatarUrl":"https://joinrm-svz.ru/static/images/users-avatars/14.png"},"preInitialized":true,"currentTopic":"🔊 23"}
+[17:23:03] 🎯[Jitsi] Starting conference without pre-selection
+[17:23:03] [JITSI-SDK] Creating window for room: 801672557433261-5535756586325051
+[17:23:03] [JITSI-SDK] Failed to setup screen sharing: Cannot read properties of undefined (reading 'session')
+[17:23:03] [JITSI-SDK] Loading conference URL: https://jitsi-connectrm.ru/801672557433261-5535756586325051?jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjb250ZXh0Ijp7InVzZXIiOnsibmFtZSI6ItCS0LjRgtCw0LvRj1_QryIsImlkIjoicm9vdDMzQGxpdmUucnUiLCJlbWFpbCI6InJvb3QzM0BsaXZlLnJ1IiwiYXZhdGFyIjoiaHR0cHM6Ly9qb2lucm0tc3Z6LnJ1L3N0YXRpYy9pbWFnZXMvdXNlcnMtYXZhdGFycy8xNC5wbmcifX0sImFwcF9pZCI6ImNvbm5lY3RybV9zdnoiLCJhdWQiOiJqaXRzaSIsImlzcyI6ImNvbm5lY3RybV9zdnoiLCJzdWIiOiJqaXRzaS1jb25uZWN0cm0ucnUiLCJyb29tIjoiKiIsImlhdCI6MTc2MjI1MTc4MywiZXhwIjoxNzYyMzIzNzgzfQ.P94QLiSRtHTtf4iRV_gLMimq2Di4FKb6QEHBUkwlKyg#config.disableDeepLinking=true&config.prejoinPageEnabled=false&config.startWithAudioMuted=false&config.startWithVideoMuted=true&config.enableWelcomePage=false&config.enableClosePage=false&config.resolution=720&config.disableInitialGUM=false&config.enableLayerSuspension=true&config.p2p.enabled=true&config.p2p.preferH264=true&interfaceConfig.SHOW_JITSI_WATERMARK=false&interfaceConfig.SHOW_WATERMARK_FOR_GUESTS=false&interfaceConfig.SHOW_BRAND_WATERMARK=false&interfaceConfig.HIDE_INVITE_MORE_HEADER=true&interfaceConfig.MOBILE_APP_PROMO=false&interfaceConfig.SHOW_MEETING_NAME=false&interfaceConfig.DISPLAY_WELCOME_PAGE_CONTENT=false&interfaceConfig.APP_NAME=%F0%9F%94%8A+23&interfaceConfig.NATIVE_APP_NAME=%F0%9F%94%8A+23&config.requireDisplayName=false&config.hideConferenceSubject=true&config.hideConferenceTimer=false&config.hideDominantSpeakerBadge=false&interfaceConfig.SHOW_CONFERENCE_SUBJECT=false&interfaceConfig.HIDE_CONFERENCE_SUBJECT=true&config.subject=+&interfaceConfig.TOOLBAR_BUTTONS=%5B%22camera%22%2C%22desktop%22%2C%22microphone%22%2C%22participants%22%2C%22settings%22%2C%22fullscreen%22%2C%22hangup%22%5D&userInfo.displayName=%D0%92%D0%B8%D1%82%D0%B0%D0%BB%D1%8F_%D0%AF&userInfo.email=root33%40live.ru&config.subject=%F0%9F%94%8A+23&userInfo.avatarURL=https%3A%2F%2Fjoinrm-svz.ru%2Fstatic%2Fimages%2Fusers-avatars%2F14.png&config.gravatar.disabled=true
+[17:23:04] Jitsi Console: 2025-11-04T10:23:04.341Z [features/conference] (TIME) init action dispatched: 747.9000000003725
+[17:23:04] [JITSI-SDK] DOM ready
+2025-11-04 17:23:04.424 Electron Helper (Plugin)[22961:196938] WARNING: Add NSCameraUseContinuityCameraDeviceType to your Info.plist to use AVCaptureDeviceTypeContinuityCamera.
+[17:23:04] Jitsi Console: 2025-11-04T10:23:04.569Z [features/conference] (TIME) setupInitialDevices finished: 976.4000000003725
+[17:23:04] Jitsi Console: 2025-11-04T10:23:04.569Z [conference.js] <Object.init>:  Executed conference.init with roomName: 801672557433261-5535756586325051 (performance.now=976.9000000003725)
+[17:23:04] Jitsi Console: 2025-11-04T10:23:04.595Z [conference.js] <Object.init>:  (TIME) createInitialLocalTracks: 1002.9000000003725 
+[17:23:04] Jitsi Console: 2025-11-04T10:23:04.598Z [conference.js] <Object.init>:  Dispatching connect from init since prejoin is not visible.
+[17:23:04] Jitsi Console: 2025-11-04T10:23:04.601Z [modules/xmpp/moderator] <new fc>:  Using xmpp for conference requests.
+[17:23:04] [JITSI-SDK] Page loaded
+[17:23:04] [JITSI-SDK] Loading overlay shown
+[17:23:04] Jitsi Console: [JITSI] Using toggleAudioMuted to mute
+[17:23:04] [JITSI-SDK] Microphone muted: true
+[17:23:04] [JITSI-SDK] Conference ready
+[17:23:04] Jitsi Console: [JITSI] Setting up conference handlers...
+[17:23:04] Jitsi Console: [JITSI] Conference handlers installed
+[17:23:04] [JITSI-SDK] Conference handlers injected
+[17:23:04] [JITSI-SDK] Audio mute indicator button injected
+[17:23:04] [JITSI-SDK] Conference window created successfully
+[17:23:04] 🎯[Jitsi SDK] Conference window created successfully
+[17:23:04] 🔧 Starting listener with custom config
+[17:23:04] 🔧 Starting listener with custom config
+[17:23:04] Jitsi Console: 2025-11-04T10:23:04.730Z [conference.js] (TIME) createInitialLocalTracks finished: 1137.300000000745 
+[17:23:04] Jitsi Console: 2025-11-04T10:23:04.731Z [conference.js] Resolving the initialGUM promise!
+[17:23:04] Jitsi Console: [JITSI] Found JitsiMeetScreenObtainer, overriding openDesktopPicker
+[17:23:05] Нажата клавиша: A, а ждём: G
+[17:23:05] Нажата клавиша: A, а ждём: G
+[17:23:05] [JITSI-SDK] Loading overlay hidden
+[17:23:06] Jitsi Console: 2025-11-04T10:23:06.845Z [features/base/conference] On connection established: prejoinVisible: false, initialGUMPromiseExists=true, promiseExists=true
+[17:23:06] Jitsi Console: 2025-11-04T10:23:06.851Z [conference.js] audio mute: initially muted.
+[17:23:06] Jitsi Console: 2025-11-04T10:23:06.873Z [modules/xmpp/moderator] Sending conference request over XMPP to focus.meet.jitsi
+[17:23:06] Jitsi Console: 2025-11-04T10:23:06.890Z [conference.js] Initialized with 1 local tracks
+[17:23:07] Нажата клавиша: A, а ждём: G
+[17:23:07] Нажата клавиша: A, а ждём: G
+[17:23:07] Jitsi Console: 2025-11-04T10:23:07.703Z [conference.js] <fo.<anonymous>>:  My role changed, new role: none
+[17:23:07] Jitsi Console: 2025-11-04T10:23:07.711Z [conference.js] <fo.<anonymous>>:  My role changed, new role: moderator
+[17:23:07] Jitsi Console: 2025-11-04T10:23:07.722Z [features/base/conference] Wake lock created.
+[17:23:10] Нажата клавиша: A, а ждём: G
+[17:23:10] Нажата клавиша: A, а ждём: G
+[17:23:10] [JITSI-SDK] Window close requested - performing cleanup
+[17:23:10] [JITSI-SDK] Performing conference cleanup
+[17:23:10] Jitsi Console: [JITSI] Starting conference cleanup
+[17:23:10] Jitsi Console: [JITSI] Found APP.conference, attempting cleanup
+[17:23:10] Jitsi Console: [JITSI] Calling hangup
+[17:23:10] Jitsi Console: [JITSI] Stopping all media streams
+[17:23:10] Jitsi Console: [JITSI] Cleanup completed
+[17:23:10] Jitsi Console: 2025-11-04T10:23:10.970Z [features/base/conference] <e6>:  Releasing wake lock.
+[17:23:10] Jitsi Console: 2025-11-04T10:23:10.970Z [features/base/conference] <WakeLockSentinel.r6>:  Wake lock released
+[17:23:11] [JITSI-SDK] Conference cleanup completed
+[17:23:11] [JITSI-SDK] Closing screen shown
+[17:23:11] [JITSI-SDK] Navigation attempt to: https://jitsi-connectrm.ru/?jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjb250ZXh0Ijp7InVzZXIiOnsibmFtZSI6ItCS0LjRgtCw0LvRj1_QryIsImlkIjoicm9vdDMzQGxpdmUucnUiLCJlbWFpbCI6InJvb3QzM0BsaXZlLnJ1IiwiYXZhdGFyIjoiaHR0cHM6Ly9qb2lucm0tc3Z6LnJ1L3N0YXRpYy9pbWFnZXMvdXNlcnMtYXZhdGFycy8xNC5wbmcifX0sImFwcF9pZCI6ImNvbm5lY3RybV9zdnoiLCJhdWQiOiJqaXRzaSIsImlzcyI6ImNvbm5lY3RybV9zdnoiLCJzdWIiOiJqaXRzaS1jb25uZWN0cm0ucnUiLCJyb29tIjoiKiIsImlhdCI6MTc2MjI1MTc4MywiZXhwIjoxNzYyMzIzNzgzfQ.P94QLiSRtHTtf4iRV_gLMimq2Di4FKb6QEHBUkwlKyg#config.disableDeepLinking=true&config.prejoinPageEnabled=false&config.startWithAudioMuted=false&config.startWithVideoMuted=true&config.enableWelcomePage=false&config.enableClosePage=false&config.resolution=720&config.disableInitialGUM=false&config.enableLayerSuspension=true&config.p2p.enabled=true&config.p2p.preferH264=true&interfaceConfig.SHOW_JITSI_WATERMARK=false&interfaceConfig.SHOW_WATERMARK_FOR_GUESTS=false&interfaceConfig.SHOW_BRAND_WATERMARK=false&interfaceConfig.HIDE_INVITE_MORE_HEADER=true&interfaceConfig.MOBILE_APP_PROMO=false&interfaceConfig.SHOW_MEETING_NAME=false&interfaceConfig.DISPLAY_WELCOME_PAGE_CONTENT=false&interfaceConfig.APP_NAME=%F0%9F%94%8A+23&interfaceConfig.NATIVE_APP_NAME=%F0%9F%94%8A+23&config.requireDisplayName=false&config.hideConferenceSubject=true&config.hideConferenceTimer=false&config.hideDominantSpeakerBadge=false&interfaceConfig.SHOW_CONFERENCE_SUBJECT=false&interfaceConfig.HIDE_CONFERENCE_SUBJECT=true&config.subject=+&interfaceConfig.TOOLBAR_BUTTONS=%5B%22camera%22%2C%22desktop%22%2C%22microphone%22%2C%22participants%22%2C%22settings%22%2C%22fullscreen%22%2C%22hangup%22%5D&userInfo.displayName=%D0%92%D0%B8%D1%82%D0%B0%D0%BB%D1%8F_%D0%AF&userInfo.email=root33%40live.ru&config.subject=%F0%9F%94%8A+23&userInfo.avatarURL=https%3A%2F%2Fjoinrm-svz.ru%2Fstatic%2Fimages%2Fusers-avatars%2F14.png&config.gravatar.disabled=true
+[17:23:11] [JITSI-SDK] Blocking navigation to different page
+[17:23:11] [JITSI-SDK] Performing conference cleanup
+[17:23:11] Jitsi Console: [JITSI] Starting conference cleanup
+[17:23:11] Jitsi Console: [JITSI] Found APP.conference, attempting cleanup
+[17:23:11] Jitsi Console: [JITSI] Calling hangup
+[17:23:11] [JITSI-SDK] Navigation attempt to: https://jitsi-connectrm.ru/#
+[17:23:11] [JITSI-SDK] Blocking navigation to different page
+[17:23:11] [JITSI-SDK] Performing conference cleanup
+[17:23:11] [JITSI-SDK] Permanent closing screen shown
+[17:23:11] Jitsi Console: [JITSI] Stopping all media streams
+[17:23:11] Jitsi Console: [JITSI] Cleanup completed
+[17:23:11] Jitsi Console: [JITSI] Starting conference cleanup
+[17:23:11] Jitsi Console: [JITSI] Found APP.conference, attempting cleanup
+[17:23:11] Jitsi Console: [JITSI] Calling hangup
+[17:23:11] [JITSI-SDK] Permanent closing screen shown
+[17:23:11] Jitsi Console: [JITSI] Stopping all media streams
+[17:23:11] Jitsi Console: [JITSI] Cleanup completed
+[17:23:11] [JITSI-SDK] Navigation attempt to: https://jitsi-connectrm.ru/?jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjb250ZXh0Ijp7InVzZXIiOnsibmFtZSI6ItCS0LjRgtCw0LvRj1_QryIsImlkIjoicm9vdDMzQGxpdmUucnUiLCJlbWFpbCI6InJvb3QzM0BsaXZlLnJ1IiwiYXZhdGFyIjoiaHR0cHM6Ly9qb2lucm0tc3Z6LnJ1L3N0YXRpYy9pbWFnZXMvdXNlcnMtYXZhdGFycy8xNC5wbmcifX0sImFwcF9pZCI6ImNvbm5lY3RybV9zdnoiLCJhdWQiOiJqaXRzaSIsImlzcyI6ImNvbm5lY3RybV9zdnoiLCJzdWIiOiJqaXRzaS1jb25uZWN0cm0ucnUiLCJyb29tIjoiKiIsImlhdCI6MTc2MjI1MTc4MywiZXhwIjoxNzYyMzIzNzgzfQ.P94QLiSRtHTtf4iRV_gLMimq2Di4FKb6QEHBUkwlKyg#config.disableDeepLinking=true&config.prejoinPageEnabled=false&config.startWithAudioMuted=false&config.startWithVideoMuted=true&config.enableWelcomePage=false&config.enableClosePage=false&config.resolution=720&config.disableInitialGUM=false&config.enableLayerSuspension=true&config.p2p.enabled=true&config.p2p.preferH264=true&interfaceConfig.SHOW_JITSI_WATERMARK=false&interfaceConfig.SHOW_WATERMARK_FOR_GUESTS=false&interfaceConfig.SHOW_BRAND_WATERMARK=false&interfaceConfig.HIDE_INVITE_MORE_HEADER=true&interfaceConfig.MOBILE_APP_PROMO=false&interfaceConfig.SHOW_MEETING_NAME=false&interfaceConfig.DISPLAY_WELCOME_PAGE_CONTENT=false&interfaceConfig.APP_NAME=%F0%9F%94%8A+23&interfaceConfig.NATIVE_APP_NAME=%F0%9F%94%8A+23&config.requireDisplayName=false&config.hideConferenceSubject=true&config.hideConferenceTimer=false&config.hideDominantSpeakerBadge=false&interfaceConfig.SHOW_CONFERENCE_SUBJECT=false&interfaceConfig.HIDE_CONFERENCE_SUBJECT=true&config.subject=+&interfaceConfig.TOOLBAR_BUTTONS=%5B%22camera%22%2C%22desktop%22%2C%22microphone%22%2C%22participants%22%2C%22settings%22%2C%22fullscreen%22%2C%22hangup%22%5D&userInfo.displayName=%D0%92%D0%B8%D1%82%D0%B0%D0%BB%D1%8F_%D0%AF&userInfo.email=root33%40live.ru&config.subject=%F0%9F%94%8A+23&userInfo.avatarURL=https%3A%2F%2Fjoinrm-svz.ru%2Fstatic%2Fimages%2Fusers-avatars%2F14.png&config.gravatar.disabled=true
+[17:23:11] [JITSI-SDK] Blocking navigation to different page
+[17:23:11] [JITSI-SDK] Performing conference cleanup
+[17:23:11] [JITSI-SDK] Conference cleanup completed
+[17:23:11] [JITSI-SDK] Conference cleanup completed
+[17:23:11] [JITSI-SDK] Navigation attempt to: https://jitsi-connectrm.ru/?jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjb250ZXh0Ijp7InVzZXIiOnsibmFtZSI6ItCS0LjRgtCw0LvRj1_QryIsImlkIjoicm9vdDMzQGxpdmUucnUiLCJlbWFpbCI6InJvb3QzM0BsaXZlLnJ1IiwiYXZhdGFyIjoiaHR0cHM6Ly9qb2lucm0tc3Z6LnJ1L3N0YXRpYy9pbWFnZXMvdXNlcnMtYXZhdGFycy8xNC5wbmcifX0sImFwcF9pZCI6ImNvbm5lY3RybV9zdnoiLCJhdWQiOiJqaXRzaSIsImlzcyI6ImNvbm5lY3RybV9zdnoiLCJzdWIiOiJqaXRzaS1jb25uZWN0cm0ucnUiLCJyb29tIjoiKiIsImlhdCI6MTc2MjI1MTc4MywiZXhwIjoxNzYyMzIzNzgzfQ.P94QLiSRtHTtf4iRV_gLMimq2Di4FKb6QEHBUkwlKyg#config.disableDeepLinking=true&config.prejoinPageEnabled=false&config.startWithAudioMuted=false&config.startWithVideoMuted=true&config.enableWelcomePage=false&config.enableClosePage=false&config.resolution=720&config.disableInitialGUM=false&config.enableLayerSuspension=true&config.p2p.enabled=true&config.p2p.preferH264=true&interfaceConfig.SHOW_JITSI_WATERMARK=false&interfaceConfig.SHOW_WATERMARK_FOR_GUESTS=false&interfaceConfig.SHOW_BRAND_WATERMARK=false&interfaceConfig.HIDE_INVITE_MORE_HEADER=true&interfaceConfig.MOBILE_APP_PROMO=false&interfaceConfig.SHOW_MEETING_NAME=false&interfaceConfig.DISPLAY_WELCOME_PAGE_CONTENT=false&interfaceConfig.APP_NAME=%F0%9F%94%8A+23&interfaceConfig.NATIVE_APP_NAME=%F0%9F%94%8A+23&config.requireDisplayName=false&config.hideConferenceSubject=true&config.hideConferenceTimer=false&config.hideDominantSpeakerBadge=false&interfaceConfig.SHOW_CONFERENCE_SUBJECT=false&interfaceConfig.HIDE_CONFERENCE_SUBJECT=true&config.subject=+&interfaceConfig.TOOLBAR_BUTTONS=%5B%22camera%22%2C%22desktop%22%2C%22microphone%22%2C%22participants%22%2C%22settings%22%2C%22fullscreen%22%2C%22hangup%22%5D&userInfo.displayName=%D0%92%D0%B8%D1%82%D0%B0%D0%BB%D1%8F_%D0%AF&userInfo.email=root33%40live.ru&config.subject=%F0%9F%94%8A+23&userInfo.avatarURL=https%3A%2F%2Fjoinrm-svz.ru%2Fstatic%2Fimages%2Fusers-avatars%2F14.png&config.gravatar.disabled=true
+[17:23:11] [JITSI-SDK] Blocking navigation to different page
+[17:23:11] [JITSI-SDK] Performing conference cleanup
+[17:23:11] Jitsi Console: [JITSI] Starting conference cleanup
+[17:23:11] Jitsi Console: [JITSI] Found APP.conference, attempting cleanup
+[17:23:11] Jitsi Console: [JITSI] Calling hangup
+[17:23:11] [JITSI-SDK] Permanent closing screen shown
+[17:23:11] Jitsi Console: [JITSI] Starting conference cleanup
+[17:23:11] Jitsi Console: [JITSI] Found APP.conference, attempting cleanup
+[17:23:11] Jitsi Console: [JITSI] Calling hangup
+[17:23:11] [JITSI-SDK] Permanent closing screen shown
+[17:23:11] Jitsi Console: [JITSI] Stopping all media streams
+[17:23:11] Jitsi Console: [JITSI] Cleanup completed
+[17:23:11] Jitsi Console: [JITSI] Stopping all media streams
+[17:23:12] Jitsi Console: [JITSI] Cleanup completed
+[17:23:12] [JITSI-SDK] Navigation attempt to: https://jitsi-connectrm.ru/?jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjb250ZXh0Ijp7InVzZXIiOnsibmFtZSI6ItCS0LjRgtCw0LvRj1_QryIsImlkIjoicm9vdDMzQGxpdmUucnUiLCJlbWFpbCI6InJvb3QzM0BsaXZlLnJ1IiwiYXZhdGFyIjoiaHR0cHM6Ly9qb2lucm0tc3Z6LnJ1L3N0YXRpYy9pbWFnZXMvdXNlcnMtYXZhdGFycy8xNC5wbmcifX0sImFwcF9pZCI6ImNvbm5lY3RybV9zdnoiLCJhdWQiOiJqaXRzaSIsImlzcyI6ImNvbm5lY3RybV9zdnoiLCJzdWIiOiJqaXRzaS1jb25uZWN0cm0ucnUiLCJyb29tIjoiKiIsImlhdCI6MTc2MjI1MTc4MywiZXhwIjoxNzYyMzIzNzgzfQ.P94QLiSRtHTtf4iRV_gLMimq2Di4FKb6QEHBUkwlKyg#config.disableDeepLinking=true&config.prejoinPageEnabled=false&config.startWithAudioMuted=false&config.startWithVideoMuted=true&config.enableWelcomePage=false&config.enableClosePage=false&config.resolution=720&config.disableInitialGUM=false&config.enableLayerSuspension=true&config.p2p.enabled=true&config.p2p.preferH264=true&interfaceConfig.SHOW_JITSI_WATERMARK=false&interfaceConfig.SHOW_WATERMARK_FOR_GUESTS=false&interfaceConfig.SHOW_BRAND_WATERMARK=false&interfaceConfig.HIDE_INVITE_MORE_HEADER=true&interfaceConfig.MOBILE_APP_PROMO=false&interfaceConfig.SHOW_MEETING_NAME=false&interfaceConfig.DISPLAY_WELCOME_PAGE_CONTENT=false&interfaceConfig.APP_NAME=%F0%9F%94%8A+23&interfaceConfig.NATIVE_APP_NAME=%F0%9F%94%8A+23&config.requireDisplayName=false&config.hideConferenceSubject=true&config.hideConferenceTimer=false&config.hideDominantSpeakerBadge=false&interfaceConfig.SHOW_CONFERENCE_SUBJECT=false&interfaceConfig.HIDE_CONFERENCE_SUBJECT=true&config.subject=+&interfaceConfig.TOOLBAR_BUTTONS=%5B%22camera%22%2C%22desktop%22%2C%22microphone%22%2C%22participants%22%2C%22settings%22%2C%22fullscreen%22%2C%22hangup%22%5D&userInfo.displayName=%D0%92%D0%B8%D1%82%D0%B0%D0%BB%D1%8F_%D0%AF&userInfo.email=root33%40live.ru&config.subject=%F0%9F%94%8A+23&userInfo.avatarURL=https%3A%2F%2Fjoinrm-svz.ru%2Fstatic%2Fimages%2Fusers-avatars%2F14.png&config.gravatar.disabled=true
+[17:23:12] [JITSI-SDK] Blocking navigation to different page
+[17:23:12] [JITSI-SDK] Performing conference cleanup
+[17:23:12] [JITSI-SDK] Navigation attempt to: https://jitsi-connectrm.ru/?jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjb250ZXh0Ijp7InVzZXIiOnsibmFtZSI6ItCS0LjRgtCw0LvRj1_QryIsImlkIjoicm9vdDMzQGxpdmUucnUiLCJlbWFpbCI6InJvb3QzM0BsaXZlLnJ1IiwiYXZhdGFyIjoiaHR0cHM6Ly9qb2lucm0tc3Z6LnJ1L3N0YXRpYy9pbWFnZXMvdXNlcnMtYXZhdGFycy8xNC5wbmcifX0sImFwcF9pZCI6ImNvbm5lY3RybV9zdnoiLCJhdWQiOiJqaXRzaSIsImlzcyI6ImNvbm5lY3RybV9zdnoiLCJzdWIiOiJqaXRzaS1jb25uZWN0cm0ucnUiLCJyb29tIjoiKiIsImlhdCI6MTc2MjI1MTc4MywiZXhwIjoxNzYyMzIzNzgzfQ.P94QLiSRtHTtf4iRV_gLMimq2Di4FKb6QEHBUkwlKyg#config.disableDeepLinking=true&config.prejoinPageEnabled=false&config.startWithAudioMuted=false&config.startWithVideoMuted=true&config.enableWelcomePage=false&config.enableClosePage=false&config.resolution=720&config.disableInitialGUM=false&config.enableLayerSuspension=true&config.p2p.enabled=true&config.p2p.preferH264=true&interfaceConfig.SHOW_JITSI_WATERMARK=false&interfaceConfig.SHOW_WATERMARK_FOR_GUESTS=false&interfaceConfig.SHOW_BRAND_WATERMARK=false&interfaceConfig.HIDE_INVITE_MORE_HEADER=true&interfaceConfig.MOBILE_APP_PROMO=false&interfaceConfig.SHOW_MEETING_NAME=false&interfaceConfig.DISPLAY_WELCOME_PAGE_CONTENT=false&interfaceConfig.APP_NAME=%F0%9F%94%8A+23&interfaceConfig.NATIVE_APP_NAME=%F0%9F%94%8A+23&config.requireDisplayName=false&config.hideConferenceSubject=true&config.hideConferenceTimer=false&config.hideDominantSpeakerBadge=false&interfaceConfig.SHOW_CONFERENCE_SUBJECT=false&interfaceConfig.HIDE_CONFERENCE_SUBJECT=true&config.subject=+&interfaceConfig.TOOLBAR_BUTTONS=%5B%22camera%22%2C%22desktop%22%2C%22microphone%22%2C%22participants%22%2C%22settings%22%2C%22fullscreen%22%2C%22hangup%22%5D&userInfo.displayName=%D0%92%D0%B8%D1%82%D0%B0%D0%BB%D1%8F_%D0%AF&userInfo.email=root33%40live.ru&config.subject=%F0%9F%94%8A+23&userInfo.avatarURL=https%3A%2F%2Fjoinrm-svz.ru%2Fstatic%2Fimages%2Fusers-avatars%2F14.png&config.gravatar.disabled=true
+[17:23:12] [JITSI-SDK] Blocking navigation to different page
+[17:23:12] [JITSI-SDK] Performing conference cleanup
+[17:23:12] [JITSI-SDK] Conference cleanup completed
+[17:23:12] [JITSI-SDK] Conference cleanup completed
+[17:23:12] Jitsi Console: [JITSI] Starting conference cleanup
+[17:23:12] Jitsi Console: [JITSI] Found APP.conference, attempting cleanup
+[17:23:12] Jitsi Console: [JITSI] Calling hangup
+[17:23:12] [JITSI-SDK] Permanent closing screen shown
+[17:23:12] Jitsi Console: [JITSI] Starting conference cleanup
+[17:23:12] Jitsi Console: [JITSI] Found APP.conference, attempting cleanup
+[17:23:12] Jitsi Console: [JITSI] Calling hangup
+[17:23:12] [JITSI-SDK] Permanent closing screen shown
+[17:23:12] Jitsi Console: [JITSI] Stopping all media streams
+[17:23:12] Jitsi Console: [JITSI] Cleanup completed
+[17:23:12] Jitsi Console: [JITSI] Stopping all media streams
+[17:23:12] Jitsi Console: [JITSI] Cleanup completed
+[17:23:13] [JITSI-SDK] Navigation attempt to: https://jitsi-connectrm.ru/?jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjb250ZXh0Ijp7InVzZXIiOnsibmFtZSI6ItCS0LjRgtCw0LvRj1_QryIsImlkIjoicm9vdDMzQGxpdmUucnUiLCJlbWFpbCI6InJvb3QzM0BsaXZlLnJ1IiwiYXZhdGFyIjoiaHR0cHM6Ly9qb2lucm0tc3Z6LnJ1L3N0YXRpYy9pbWFnZXMvdXNlcnMtYXZhdGFycy8xNC5wbmcifX0sImFwcF9pZCI6ImNvbm5lY3RybV9zdnoiLCJhdWQiOiJqaXRzaSIsImlzcyI6ImNvbm5lY3RybV9zdnoiLCJzdWIiOiJqaXRzaS1jb25uZWN0cm0ucnUiLCJyb29tIjoiKiIsImlhdCI6MTc2MjI1MTc4MywiZXhwIjoxNzYyMzIzNzgzfQ.P94QLiSRtHTtf4iRV_gLMimq2Di4FKb6QEHBUkwlKyg#config.disableDeepLinking=true&config.prejoinPageEnabled=false&config.startWithAudioMuted=false&config.startWithVideoMuted=true&config.enableWelcomePage=false&config.enableClosePage=false&config.resolution=720&config.disableInitialGUM=false&config.enableLayerSuspension=true&config.p2p.enabled=true&config.p2p.preferH264=true&interfaceConfig.SHOW_JITSI_WATERMARK=false&interfaceConfig.SHOW_WATERMARK_FOR_GUESTS=false&interfaceConfig.SHOW_BRAND_WATERMARK=false&interfaceConfig.HIDE_INVITE_MORE_HEADER=true&interfaceConfig.MOBILE_APP_PROMO=false&interfaceConfig.SHOW_MEETING_NAME=false&interfaceConfig.DISPLAY_WELCOME_PAGE_CONTENT=false&interfaceConfig.APP_NAME=%F0%9F%94%8A+23&interfaceConfig.NATIVE_APP_NAME=%F0%9F%94%8A+23&config.requireDisplayName=false&config.hideConferenceSubject=true&config.hideConferenceTimer=false&config.hideDominantSpeakerBadge=false&interfaceConfig.SHOW_CONFERENCE_SUBJECT=false&interfaceConfig.HIDE_CONFERENCE_SUBJECT=true&config.subject=+&interfaceConfig.TOOLBAR_BUTTONS=%5B%22camera%22%2C%22desktop%22%2C%22microphone%22%2C%22participants%22%2C%22settings%22%2C%22fullscreen%22%2C%22hangup%22%5D&userInfo.displayName=%D0%92%D0%B8%D1%82%D0%B0%D0%BB%D1%8F_%D0%AF&userInfo.email=root33%40live.ru&config.subject=%F0%9F%94%8A+23&userInfo.avatarURL=https%3A%2F%2Fjoinrm-svz.ru%2Fstatic%2Fimages%2Fusers-avatars%2F14.png&config.gravatar.disabled=true
+[17:23:13] [JITSI-SDK] Blocking navigation to different page
+[17:23:13] [JITSI-SDK] Performing conference cleanup
+[17:23:13] [JITSI-SDK] Navigation attempt to: https://jitsi-connectrm.ru/?jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjb250ZXh0Ijp7InVzZXIiOnsibmFtZSI6ItCS0LjRgtCw0LvRj1_QryIsImlkIjoicm9vdDMzQGxpdmUucnUiLCJlbWFpbCI6InJvb3QzM0BsaXZlLnJ1IiwiYXZhdGFyIjoiaHR0cHM6Ly9qb2lucm0tc3Z6LnJ1L3N0YXRpYy9pbWFnZXMvdXNlcnMtYXZhdGFycy8xNC5wbmcifX0sImFwcF9pZCI6ImNvbm5lY3RybV9zdnoiLCJhdWQiOiJqaXRzaSIsImlzcyI6ImNvbm5lY3RybV9zdnoiLCJzdWIiOiJqaXRzaS1jb25uZWN0cm0ucnUiLCJyb29tIjoiKiIsImlhdCI6MTc2MjI1MTc4MywiZXhwIjoxNzYyMzIzNzgzfQ.P94QLiSRtHTtf4iRV_gLMimq2Di4FKb6QEHBUkwlKyg#config.disableDeepLinking=true&config.prejoinPageEnabled=false&config.startWithAudioMuted=false&config.startWithVideoMuted=true&config.enableWelcomePage=false&config.enableClosePage=false&config.resolution=720&config.disableInitialGUM=false&config.enableLayerSuspension=true&config.p2p.enabled=true&config.p2p.preferH264=true&interfaceConfig.SHOW_JITSI_WATERMARK=false&interfaceConfig.SHOW_WATERMARK_FOR_GUESTS=false&interfaceConfig.SHOW_BRAND_WATERMARK=false&interfaceConfig.HIDE_INVITE_MORE_HEADER=true&interfaceConfig.MOBILE_APP_PROMO=false&interfaceConfig.SHOW_MEETING_NAME=false&interfaceConfig.DISPLAY_WELCOME_PAGE_CONTENT=false&interfaceConfig.APP_NAME=%F0%9F%94%8A+23&interfaceConfig.NATIVE_APP_NAME=%F0%9F%94%8A+23&config.requireDisplayName=false&config.hideConferenceSubject=true&config.hideConferenceTimer=false&config.hideDominantSpeakerBadge=false&interfaceConfig.SHOW_CONFERENCE_SUBJECT=false&interfaceConfig.HIDE_CONFERENCE_SUBJECT=true&config.subject=+&interfaceConfig.TOOLBAR_BUTTONS=%5B%22camera%22%2C%22desktop%22%2C%22microphone%22%2C%22participants%22%2C%22settings%22%2C%22fullscreen%22%2C%22hangup%22%5D&userInfo.displayName=%D0%92%D0%B8%D1%82%D0%B0%D0%BB%D1%8F_%D0%AF&userInfo.email=root33%40live.ru&config.subject=%F0%9F%94%8A+23&userInfo.avatarURL=https%3A%2F%2Fjoinrm-svz.ru%2Fstatic%2Fimages%2Fusers-avatars%2F14.png&config.gravatar.disabled=true
+[17:23:13] [JITSI-SDK] Blocking navigation to different page
+[17:23:13] [JITSI-SDK] Performing conference cleanup
+[17:23:13] [JITSI-SDK] Conference cleanup completed
+[17:23:13] [JITSI-SDK] Conference cleanup completed
+[17:23:13] Jitsi Console: [JITSI] Starting conference cleanup
+[17:23:13] Jitsi Console: [JITSI] Found APP.conference, attempting cleanup
+[17:23:13] Jitsi Console: [JITSI] Calling hangup
+[17:23:13] [JITSI-SDK] Permanent closing screen shown
+[17:23:13] Jitsi Console: [JITSI] Starting conference cleanup
+[17:23:13] Jitsi Console: [JITSI] Found APP.conference, attempting cleanup
+[17:23:13] Jitsi Console: [JITSI] Calling hangup
+[17:23:13] [JITSI-SDK] Permanent closing screen shown
+[17:23:13] Jitsi Console: [JITSI] Stopping all media streams
+[17:23:13] Jitsi Console: [JITSI] Cleanup completed
+[17:23:13] Jitsi Console: [JITSI] Stopping all media streams
+[17:23:13] Jitsi Console: [JITSI] Cleanup completed
+[17:23:13] [JITSI-SDK] Closing conference window
+[17:23:13] [JITSI-SDK] Performing conference cleanup
+[17:23:13] Jitsi Console: [JITSI] Starting conference cleanup
+[17:23:13] Jitsi Console: [JITSI] Found APP.conference, attempting cleanup
+[17:23:13] Jitsi Console: [JITSI] Calling hangup
+[17:23:13] Jitsi Console: [JITSI] Stopping all media streams
+[17:23:13] Jitsi Console: [JITSI] Cleanup completed
+[17:23:13] [JITSI-SDK] Closing conference window
+[17:23:13] [JITSI-SDK] Performing conference cleanup
+[17:23:13] Jitsi Console: [JITSI] Starting conference cleanup
+[17:23:13] Jitsi Console: [JITSI] Found APP.conference, attempting cleanup
+[17:23:13] Jitsi Console: [JITSI] Calling hangup
+[17:23:13] [JITSI-SDK] Closing conference window
+[17:23:13] [JITSI-SDK] Performing conference cleanup
+[17:23:13] Jitsi Console: [JITSI] Starting conference cleanup
+[17:23:13] Jitsi Console: [JITSI] Found APP.conference, attempting cleanup
+[17:23:13] Jitsi Console: [JITSI] Calling hangup
+[17:23:13] Jitsi Console: [JITSI] Stopping all media streams
+[17:23:13] Jitsi Console: [JITSI] Cleanup completed
+[17:23:13] Jitsi Console: [JITSI] Stopping all media streams
+[17:23:13] Jitsi Console: [JITSI] Cleanup completed
+[17:23:13] [JITSI-SDK] Navigation attempt to: https://jitsi-connectrm.ru/?jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjb250ZXh0Ijp7InVzZXIiOnsibmFtZSI6ItCS0LjRgtCw0LvRj1_QryIsImlkIjoicm9vdDMzQGxpdmUucnUiLCJlbWFpbCI6InJvb3QzM0BsaXZlLnJ1IiwiYXZhdGFyIjoiaHR0cHM6Ly9qb2lucm0tc3Z6LnJ1L3N0YXRpYy9pbWFnZXMvdXNlcnMtYXZhdGFycy8xNC5wbmcifX0sImFwcF9pZCI6ImNvbm5lY3RybV9zdnoiLCJhdWQiOiJqaXRzaSIsImlzcyI6ImNvbm5lY3RybV9zdnoiLCJzdWIiOiJqaXRzaS1jb25uZWN0cm0ucnUiLCJyb29tIjoiKiIsImlhdCI6MTc2MjI1MTc4MywiZXhwIjoxNzYyMzIzNzgzfQ.P94QLiSRtHTtf4iRV_gLMimq2Di4FKb6QEHBUkwlKyg#config.disableDeepLinking=true&config.prejoinPageEnabled=false&config.startWithAudioMuted=false&config.startWithVideoMuted=true&config.enableWelcomePage=false&config.enableClosePage=false&config.resolution=720&config.disableInitialGUM=false&config.enableLayerSuspension=true&config.p2p.enabled=true&config.p2p.preferH264=true&interfaceConfig.SHOW_JITSI_WATERMARK=false&interfaceConfig.SHOW_WATERMARK_FOR_GUESTS=false&interfaceConfig.SHOW_BRAND_WATERMARK=false&interfaceConfig.HIDE_INVITE_MORE_HEADER=true&interfaceConfig.MOBILE_APP_PROMO=false&interfaceConfig.SHOW_MEETING_NAME=false&interfaceConfig.DISPLAY_WELCOME_PAGE_CONTENT=false&interfaceConfig.APP_NAME=%F0%9F%94%8A+23&interfaceConfig.NATIVE_APP_NAME=%F0%9F%94%8A+23&config.requireDisplayName=false&config.hideConferenceSubject=true&config.hideConferenceTimer=false&config.hideDominantSpeakerBadge=false&interfaceConfig.SHOW_CONFERENCE_SUBJECT=false&interfaceConfig.HIDE_CONFERENCE_SUBJECT=true&config.subject=+&interfaceConfig.TOOLBAR_BUTTONS=%5B%22camera%22%2C%22desktop%22%2C%22microphone%22%2C%22participants%22%2C%22settings%22%2C%22fullscreen%22%2C%22hangup%22%5D&userInfo.displayName=%D0%92%D0%B8%D1%82%D0%B0%D0%BB%D1%8F_%D0%AF&userInfo.email=root33%40live.ru&config.subject=%F0%9F%94%8A+23&userInfo.avatarURL=https%3A%2F%2Fjoinrm-svz.ru%2Fstatic%2Fimages%2Fusers-avatars%2F14.png&config.gravatar.disabled=true
+[17:23:13] [JITSI-SDK] Navigation attempt to: https://jitsi-connectrm.ru/?jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjb250ZXh0Ijp7InVzZXIiOnsibmFtZSI6ItCS0LjRgtCw0LvRj1_QryIsImlkIjoicm9vdDMzQGxpdmUucnUiLCJlbWFpbCI6InJvb3QzM0BsaXZlLnJ1IiwiYXZhdGFyIjoiaHR0cHM6Ly9qb2lucm0tc3Z6LnJ1L3N0YXRpYy9pbWFnZXMvdXNlcnMtYXZhdGFycy8xNC5wbmcifX0sImFwcF9pZCI6ImNvbm5lY3RybV9zdnoiLCJhdWQiOiJqaXRzaSIsImlzcyI6ImNvbm5lY3RybV9zdnoiLCJzdWIiOiJqaXRzaS1jb25uZWN0cm0ucnUiLCJyb29tIjoiKiIsImlhdCI6MTc2MjI1MTc4MywiZXhwIjoxNzYyMzIzNzgzfQ.P94QLiSRtHTtf4iRV_gLMimq2Di4FKb6QEHBUkwlKyg#config.disableDeepLinking=true&config.prejoinPageEnabled=false&config.startWithAudioMuted=false&config.startWithVideoMuted=true&config.enableWelcomePage=false&config.enableClosePage=false&config.resolution=720&config.disableInitialGUM=false&config.enableLayerSuspension=true&config.p2p.enabled=true&config.p2p.preferH264=true&interfaceConfig.SHOW_JITSI_WATERMARK=false&interfaceConfig.SHOW_WATERMARK_FOR_GUESTS=false&interfaceConfig.SHOW_BRAND_WATERMARK=false&interfaceConfig.HIDE_INVITE_MORE_HEADER=true&interfaceConfig.MOBILE_APP_PROMO=false&interfaceConfig.SHOW_MEETING_NAME=false&interfaceConfig.DISPLAY_WELCOME_PAGE_CONTENT=false&interfaceConfig.APP_NAME=%F0%9F%94%8A+23&interfaceConfig.NATIVE_APP_NAME=%F0%9F%94%8A+23&config.requireDisplayName=false&config.hideConferenceSubject=true&config.hideConferenceTimer=false&config.hideDominantSpeakerBadge=false&interfaceConfig.SHOW_CONFERENCE_SUBJECT=false&interfaceConfig.HIDE_CONFERENCE_SUBJECT=true&config.subject=+&interfaceConfig.TOOLBAR_BUTTONS=%5B%22camera%22%2C%22desktop%22%2C%22microphone%22%2C%22participants%22%2C%22settings%22%2C%22fullscreen%22%2C%22hangup%22%5D&userInfo.displayName=%D0%92%D0%B8%D1%82%D0%B0%D0%BB%D1%8F_%D0%AF&userInfo.email=root33%40live.ru&config.subject=%F0%9F%94%8A+23&userInfo.avatarURL=https%3A%2F%2Fjoinrm-svz.ru%2Fstatic%2Fimages%2Fusers-avatars%2F14.png&config.gravatar.disabled=true
+[17:23:13] [JITSI-SDK] Conference cleanup completed
+[17:23:13] [JITSI-SDK] Conference cleanup completed
+[17:23:13] [JITSI-SDK] Conference cleanup completed
+[17:23:13] [JITSI-SDK] Window closed successfully
+[17:23:13] [JITSI-SDK] Conference cleanup completed
+[17:23:13] [JITSI-SDK] Error closing window: Cannot read properties of null (reading 'webContents')
+[17:23:13] [JITSI-SDK] Conference cleanup completed
+[17:23:13] [JITSI-SDK] Error closing window: Cannot read properties of null (reading 'webContents')
+[17:23:13] [JITSI-SDK] Window already closed
+[17:23:13] [JITSI-SDK] Window already closed
+[17:23:14] [JITSI-SDK] Window already closed
+[17:23:14] [JITSI-SDK] Window already closed
+[17:23:14] Нажата клавиша: A, а ждём: G
+[17:23:14] Нажата клавиша: A, а ждём: G
+[17:23:15] [JITSI-SDK] Window already closed
+[17:23:15] [JITSI-SDK] Window already closed
+[17:23:19] Нажата клавиша: A, а ждём: G
+[17:23:19] Нажата клавиша: A, а ждём: G
+[17:23:20] Нажата клавиша: , а ждём: G
+[17:23:20] Нажата клавиша: FORWARD SLASH, а ждём: G
+[17:23:20] Нажата клавиша: FORWARD SLASH, а ждём: G
+[17:23:20] Нажата клавиша: , а ждём: G
+
+build started...
+✓ 55 modules transformed.
+dist-electron/index.js  2,159.09 kB │ map: 4,991.23 kB
+built in 3323ms.
+[22937:1104/172324.752751:ERROR:content/browser/network_service_instance_impl.cc:597] Network service crashed, restarting service.
+[22937:1104/172324.757052:ERROR:content/browser/gpu/gpu_process_host.cc:957] GPU process exited unexpectedly: exit_code=15
+[17:23:24] Main: Горячая клавиша r удалена при выходе
+[17:23:24] Main: Горячая клавиша g удалена при выходе
+2025-11-04 17:23:24.858 Electron Helper (Plugin)[23061:197706] WARNING: Add NSCameraUseContinuityCameraDeviceType to your Info.plist to use AVCaptureDeviceTypeContinuityCamera.
+[23064:1104/172324.963447:ERROR:sandbox/mac/system_services.cc:35] SetApplicationIsDaemon: Error Domain=NSOSStatusErrorDomain Code=-50 "paramErr: error in user parameter list" (-50)
+Debugger attached.
+17:23:26.107 › 🎯[Jitsi SDK] Module loaded: object
+[17:23:26] 🔧 Custom config for mac: serverPath = /Users/jtereschenko/Documents/IDE/rm-desktop/node_modules/node-global-key-listener/bin/MacKeyServer
+[17:23:26] ✅ Lib binary chmod: /Users/jtereschenko/Documents/IDE/rm-desktop/node_modules/node-global-key-listener/bin/MacKeyServer
+[17:23:26] 🔧 Custom config for mac: serverPath = /Users/jtereschenko/Documents/IDE/rm-desktop/node_modules/node-global-key-listener/bin/MacKeyServer
+[17:23:26] ✅ Lib binary chmod: /Users/jtereschenko/Documents/IDE/rm-desktop/node_modules/node-global-key-listener/bin/MacKeyServer
+[17:23:26] [NativeCapture] Checking for addon in 3 locations:
+[17:23:26] [NativeCapture] Platform: darwin
+[17:23:26] [NativeCapture] Is Packaged: false
+[17:23:26] [NativeCapture] __dirname: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron
+[17:23:26] [NativeCapture] process.resourcesPath: /Users/jtereschenko/Documents/IDE/rm-desktop/node_modules/electron/dist/Electron.app/Contents/Resources
+[17:23:26] [NativeCapture] Checking: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron/native-addon.node - ✅ FOUND
+[17:23:26] [NativeCapture] Loading native addon from: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron/native-addon.node
+🪟 [detectAddonType] Start detect
+🪟 [detectAddonType] Start more
+Test from ScreenCaptureManager
+🍎 [detectAddonType] Detected macOS Swift addon
+🪟 [detectAddonType] End detect
+[17:23:26] [NativeCapture] ✅ Native addon loaded successfully
+🪟 [detectAddonType] Start detect
+🪟 [detectAddonType] Start more
+Test from ScreenCaptureManager
+🍎 [detectAddonType] Detected macOS Swift addon
+🪟 [detectAddonType] End detect
+[17:23:26] [JITSI-SDK] Failed to setup always on top: Cannot read properties of undefined (reading 'webContents')
+[17:23:26] [JITSI-SDK] Failed to setup power monitor: Cannot read properties of undefined (reading 'on')
+[17:23:26] [JITSI-SDK] SDK helper functions initialized
+[17:23:26] [JITSI-SDK] Manager created
+[23102:1104/172326.483121:ERROR:sandbox/mac/system_services.cc:35] SetApplicationIsDaemon: Error Domain=NSOSStatusErrorDomain Code=-50 "paramErr: error in user parameter list" (-50)
+Attempting to call a function in a renderer window that has been closed or released.
+Function provided here: renderer.js:46:25
+✅ Окно создано!
+[17:23:26] Tray created with icon: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron/resources/tray/traymacOSTemplate.png
+[17:23:26] Tray: Создан
+✅ Окно создано!
+[17:23:26] Main: WebView создается с URL: https://joinrm-svz.ru/
+[17:23:26] Main: Webview preload установлен: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron/preload.js
+[17:23:26] Main: WebView создается с URL: https://joinrm-svz.ru/
+[17:23:26] Main: Webview preload установлен: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron/preload.js
+[17:23:26] Main: Preload файл существует: true
+[17:23:26] Tray: Обновлён badge на 0
+Preload Log: ✅ Preload: Начало выполнения
+[17:23:27] Preload Log: ✅ Preload: Начало выполнения
+[17:23:27] Preload Log: ✅ Preload: Начало выполнения
+Preload Log: ✅ Preload: Начало выполнения
+Preload Log: ✅ Preload: Загружен для URL: https://joinrm-svz.ru/
+[17:23:27] Preload Log: ✅ Preload: Загружен для URL: https://joinrm-svz.ru/
+[17:23:27] Preload Log: ✅ Preload: Загружен для URL: https://joinrm-svz.ru/
+Preload Log: ✅ Preload: Загружен для URL: https://joinrm-svz.ru/
+Preload Log: ✅ Preload: Initialization complete
+[17:23:27] Preload Log: ✅ Preload: Initialization complete
+[17:23:27] Preload Log: ✅ Preload: Initialization complete
+Preload Log: ✅ Preload: Initialization complete
+[17:23:27] Tray: Обновлён badge на 0
+[17:23:27] Tray: Обновлён badge на 0
+(electron) 'console-message' arguments are deprecated and will be removed. Please use Event<WebContentsConsoleMessageEventParams> object instead.
+[17:23:28] Tray: Обновлён badge на 0
+Preload Log: Bridge: Отправлено событие: request-electron-version []
+[17:23:28] Preload Log: Bridge: Отправлено событие: request-electron-version []
+[17:23:28] Preload Log: Bridge: Отправлено событие: request-electron-version []
+Preload Log: Bridge: Отправлено событие: request-electron-version []
+Preload Log: 📦 Zulip requested Electron version
+[17:23:28] Preload Log: 📦 Zulip requested Electron version
+[17:23:28] Preload Log: 📦 Zulip requested Electron version
+Preload Log: 📦 Zulip requested Electron version
+Preload Log: Bridge: Отправлено событие: electron-version [{"version":"5.27.0"}]
+[17:23:28] Preload Log: Bridge: Отправлено событие: electron-version [{"version":"5.27.0"}]
+[17:23:28] Preload Log: Bridge: Отправлено событие: electron-version [{"version":"5.27.0"}]
+Preload Log: Bridge: Отправлено событие: electron-version [{"version":"5.27.0"}]
+Preload Log: Bridge: Отправлено событие: jitsi-log-event [{"level":"info","message":"Zulip Webview: Получена версия Electron: 5.27.0"}]
+[17:23:28] Preload Log: Bridge: Отправлено событие: jitsi-log-event [{"level":"info","message":"Zulip Webview: Получена версия Electron: 5.27.0"}]
+[17:23:28] Preload Log: Bridge: Отправлено событие: jitsi-log-event [{"level":"info","message":"Zulip Webview: Получена версия Electron: 5.27.0"}]
+Preload Log: Bridge: Отправлено событие: jitsi-log-event [{"level":"info","message":"Zulip Webview: Получена версия Electron: 5.27.0"}]
+Preload Log: 📦 Sent version back to Zulip via IPC: 5.27.0
+[17:23:28] Preload Log: 📦 Sent version back to Zulip via IPC: 5.27.0
+[17:23:28] Preload Log: 📦 Sent version back to Zulip via IPC: 5.27.0
+Preload Log: 📦 Sent version back to Zulip via IPC: 5.27.0
+Preload Log: Bridge: Отправлено событие: show-update-available [{"version":"5.27.1","downloadUrl":"https://storage.yandexcloud.net/rm-electron-desktop-win/%D0%A1%D0%B2%D1%8F%D0%B7%D1%8C%20%D0%A0%D0%9C%20Setup%205.27.1.zip","releaseNotes":"ура!! обнова\nПроверяем обнову - без паники"}]
+[17:23:28] Preload Log: Bridge: Отправлено событие: show-update-available [{"version":"5.27.1","downloadUrl":"https://storage.yandexcloud.net/rm-electron-desktop-win/%D0%A1%D0%B2%D1%8F%D0%B7%D1%8C%20%D0%A0%D0%9C%20Setup%205.27.1.zip","releaseNotes":"ура!! обнова\nПроверяем обнову - без паники"}]
+[17:23:28] Preload Log: Bridge: Отправлено событие: show-update-available [{"version":"5.27.1","downloadUrl":"https://storage.yandexcloud.net/rm-electron-desktop-win/%D0%A1%D0%B2%D1%8F%D0%B7%D1%8C%20%D0%A0%D0%9C%20Setup%205.27.1.zip","releaseNotes":"ура!! обнова\nПроверяем обнову - без паники"}]
+Preload Log: Bridge: Отправлено событие: show-update-available [{"version":"5.27.1","downloadUrl":"https://storage.yandexcloud.net/rm-electron-desktop-win/%D0%A1%D0%B2%D1%8F%D0%B7%D1%8C%20%D0%A0%D0%9C%20Setup%205.27.1.zip","releaseNotes":"ура!! обнова\nПроверяем обнову - без паники"}]
+Preload Log: 📦 Update available from Zulip: v5.27.1
+[17:23:28] Preload Log: 📦 Update available from Zulip: v5.27.1
+[17:23:28] Preload Log: 📦 Update available from Zulip: v5.27.1
+Preload Log: 📦 Update available from Zulip: v5.27.1
+[17:23:28] 📦 Main: Showing update button for version 5.27.1
