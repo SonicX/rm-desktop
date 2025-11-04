@@ -276,14 +276,14 @@ export class JitsiSDKManager {
         return { success: false };
       }
 
-      this.currentRoomName = roomName;
-
-      if (this.currentRoomName != null) {
+      if (this.currentRoomName != null && this.currentRoomName != roomName) {
         log.info(`[JITSI-SDK] Closing previous window for different room`);
         await this.closeWindow();
         await new Promise(resolve => setTimeout(resolve, 500));
       }
       
+      this.currentRoomName = roomName;
+
       if (options.enableScreenPicker) {
         log.info(`[JITSI-SDK] Screen picker enabled, getting sources....`);
         
