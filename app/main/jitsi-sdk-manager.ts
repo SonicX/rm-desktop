@@ -1033,13 +1033,15 @@ export class JitsiSDKManager {
   }
 
   async closeWindow(): Promise<void> {
+    if (this.currentRoomName != '') {
+      this.closureFunction(this.currentRoomName);
+      this.currentRoomName = '';
+    }
+
     if (!this.state.window || this.state.window.isDestroyed()) {
       log.info('[JITSI-SDK] Window already closed');
       return;
     }
-
-    this.closureFunction(this.currentRoomName);
-    this.currentRoomName = '';
 
     log.info('[JITSI-SDK] Closing conference window');
 
