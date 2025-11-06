@@ -595,22 +595,18 @@ async function createMainWindow(): Promise<BrowserWindow> {
   );
 
   function sendEventToZulip(eventName: string, data: any): void {
-      const allContents = webContents.getAllWebContents();
-      for (const content of allContents) {
-          const url = content.getURL();
-          if (url && url.includes('rm-svz')) {
-              content.executeJavaScript(`
-                  if (window.electron_bridge && window.electron_bridge.emit_event) {
-                      window.electron_bridge.emit_event('${eventName}', ${JSON.stringify(data)});
-                      console.log('[Electron->Zulip] Sent event: ${eventName}');
-                  }
-              `).catch(err => {
-                  log.error(`Failed to send event to Zulip: ${err.message}`);
-              });
-              break;
-          }
-      }
-  }
+    const allContents = webContents.getAllWebContents();
+    for (const content of allContents) {
+        const url = content.getURL();
+        if (url && (url.includes('rm-svz') || url.includes('localhost:9991'))) {
+            content.send('zulip-message', {
+                type: eventName,
+                data: data
+            });
+            break;
+        }
+    }
+}
 
   function createSourceThumbnail(source: any): string {
     const colors: { [key: string]: string } = {
