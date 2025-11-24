@@ -1016,6 +1016,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
         volumeHotkeyWasPressed = true; // помечаем, что клавиша уже обработана
 
         log.info(`Main: Полное нажатие клавиши громкости — переключаем звук`);
+        log.info(`Сейчас ${currentVolumeHotkeyPressed}, а станет ${!currentVolumeHotkeyPressed}`);
         
         // Переключаем состояние: если был выключен — включаем, и наоборот
         const newMutedState = !currentVolumeHotkeyPressed;
@@ -1060,8 +1061,6 @@ async function createMainWindow(): Promise<BrowserWindow> {
         pressedKeyName = winVKToName[e.vKey] || ''
       }
       const normalizedMainKey = mainKey.toUpperCase() as KeyName;
-
-      log.info(`Нажата клавиша: ${pressedKeyName}, а ждём: ${normalizedMainKey}`);
 
       if (pressedKeyName !== normalizedMainKey) { return; }
       

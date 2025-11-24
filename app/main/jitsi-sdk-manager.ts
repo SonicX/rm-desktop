@@ -379,26 +379,32 @@ export class JitsiSDKManager {
   }
 
   async setLocalAudioMuted(muted: boolean): Promise<boolean> {
-    if (!this.state.window || this.state.window.isDestroyed()) {
-      log.warn('[JITSI-SDK] Cannot set audio muted - no window');
-      return false;
-    }
-
-    try {
-      this.state.window.webContents.setAudioMuted(muted);
-
-      // 🔁 Синхронизируем состояние в DOM
-      await this.state.window.webContents.executeJavaScript(`
-        window.electronAudioMuted = ${muted};
-      `);
-
-      log.info(`[JITSI-SDK] Audio output ${muted ? 'muted' : 'unmuted'}`);
-      return true;
-    } catch (error: any) {
-      log.error(`[JITSI-SDK] Failed to mute audio: ${error.message}`);
-      return false;
-    }
+  if (!this.state.window || this.state.window.isDestroyed()) {
+    log.warn('[JITSI-SDK] Cannot set audio muted - no window');
+    return false;
   }
+
+  try {
+    this.state.window.webContents.setAudioMuted(muted);
+
+    await this.state.window.webContents.executeJavaScript(`
+      (function() {
+        window.electronAudioMuted = ${muted};
+        const btn = document.getElementById('electron-audio-mute-indicator-btn');
+        if (btn) {
+          btn.textContent = ${muted ? "'🔕'" : "'🔔'"};
+        }
+        console.log('[ELECTRON-AUDIO] Audio output ${muted ? 'muted' : 'unmuted'} via setLocalAudioMuted');
+      })();
+    `);
+
+    log.info(`[JITSI-SDK] Audio output ${muted ? 'muted' : 'unmuted'}`);
+    return true;
+  } catch (error: any) {
+    log.error(`[JITSI-SDK] Failed to mute audio: ${error.message}`);
+    return false;
+  }
+}
 
   async setLocalMicMuted(muted: boolean): Promise<boolean> {
     if (!this.state.window || this.state.window.isDestroyed()) {

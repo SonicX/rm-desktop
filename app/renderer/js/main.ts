@@ -288,7 +288,7 @@ export class ServerManagerView {
 
   async initTabs(): Promise<void> {
     const server = {
-      url: "https://joinrm-svz.ru/",
+      url: "https://connectrm-svz.ru/",
       alias: "Цифровые технологии РМ",
       icon: "https://disk.yandex.ru/i/m2aj56OOhsJfyw",
       zulipVersion: app.getVersion()
@@ -440,7 +440,7 @@ export class ServerManagerView {
       const currentVersion = app.getVersion();
       if (this.isNewerVersion(data.version, currentVersion)) {
         this.updateInfo = data;
-        this.showUpdateAvailable();
+        this.showUpdateAvailable(data);
       }
     } catch (error) {
       console.error('Ошибка проверки обновлений:', error);
@@ -1108,11 +1108,9 @@ export class ServerManagerView {
       ConfigUtil.setConfigItem("pendingUpdate", this.updateInfo);
       
       // Показываем диалог сразу после загрузки
-      if (!this.updateDismissed) {
-        setTimeout(() => {
+      setTimeout(() => {
           this.showUpdateDialog();
         }, 1000);
-      }
     });
 
     ipcRenderer.on("update-error", (event, error) => {
