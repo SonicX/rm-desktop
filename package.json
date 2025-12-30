@@ -1,6 +1,6 @@
 {
   "name": "RMConnect",
-  "version": "5.27.0",
+  "version": "5.27.1",
   "productName": "Связь РМ",
   "main": "./dist-electron",
   "description": "Приложение Связь РМ",
@@ -52,7 +52,7 @@
     "test"
   ],
   "build": {
-    "buildVersion": 17.0,
+    "buildVersion": 17.1,
     "appId": "org.rm.rm-electron",
     "copyright": "©Цифровые технологии РМ",
     "npmRebuild": false,

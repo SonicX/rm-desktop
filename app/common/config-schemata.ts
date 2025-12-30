@@ -19,6 +19,8 @@ export const configSchemata = {
   dndPreviousSettings: z.object(dndSettingsSchemata).partial(),
   dockBouncing: z.boolean(),
   downloadsPath: z.string(),
+  pendingUpdate: z.boolean(),
+  postponedUpdate: z.boolean(),
   enableSpellchecker: z.boolean(),
   errorReporting: z.boolean(),
   lastActiveTab: z.number(),

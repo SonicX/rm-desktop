@@ -16,7 +16,7 @@ build started...
 
 build started...
 
-  VITE v5.4.20  ready in 290 ms
+  VITE v5.4.20  ready in 238 ms
 
   ➜  Local:   http://localhost:5173/
   ➜  Network: use --host to expose
@@ -28,231 +28,99 @@ transforming...
 rendering chunks...
 computing gzip size...
 dist-electron/preload.js  95.08 kB │ gzip: 25.56 kB │ map: 51.42 kB
-built in 982ms.
+built in 925ms.
 ✓ 415 modules transformed.
-✓ 1996 modules transformed.
+✓ 1990 modules transformed.
 rendering chunks...
 computing gzip size...
 rendering chunks...
-dist-electron/index.js  2,157.91 kB │ map: 4,991.33 kB
-built in 4531ms.
-dist-electron/renderer.js  779.41 kB │ gzip: 166.57 kB │ map: 1,673.91 kB
-built in 4586ms.
+dist-electron/index.js  2,160.19 kB │ map: 4,992.01 kB
+built in 5397ms.
+dist-electron/renderer.js  779.47 kB │ gzip: 166.59 kB │ map: 1,674.02 kB
+built in 5428ms.
 Debugger attached.
-13:33:09.788 › 🎯[Jitsi SDK] Module loaded: object
-[13:33:09] 🔧 Custom config for mac: serverPath = /Users/jtereschenko/Documents/IDE/rm-desktop/node_modules/node-global-key-listener/bin/MacKeyServer
-[13:33:09] ✅ Lib binary chmod: /Users/jtereschenko/Documents/IDE/rm-desktop/node_modules/node-global-key-listener/bin/MacKeyServer
-[13:33:09] 🔧 Custom config for mac: serverPath = /Users/jtereschenko/Documents/IDE/rm-desktop/node_modules/node-global-key-listener/bin/MacKeyServer
-[13:33:09] ✅ Lib binary chmod: /Users/jtereschenko/Documents/IDE/rm-desktop/node_modules/node-global-key-listener/bin/MacKeyServer
-[13:33:09] [NativeCapture] Checking for addon in 3 locations:
-[13:33:09] [NativeCapture] Platform: darwin
-[13:33:09] [NativeCapture] Is Packaged: false
-[13:33:09] [NativeCapture] __dirname: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron
-[13:33:09] [NativeCapture] process.resourcesPath: /Users/jtereschenko/Documents/IDE/rm-desktop/node_modules/electron/dist/Electron.app/Contents/Resources
-[13:33:09] [NativeCapture] Checking: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron/native-addon.node - ✅ FOUND
-[13:33:09] [NativeCapture] Loading native addon from: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron/native-addon.node
+16:44:51.214 › 🎯[Jitsi SDK] Module loaded: object
+[16:44:51] 🔧 Custom config for mac: serverPath = /Users/jtereschenko/Documents/IDE/rm-desktop/node_modules/node-global-key-listener/bin/MacKeyServer
+[16:44:51] ✅ Lib binary chmod: /Users/jtereschenko/Documents/IDE/rm-desktop/node_modules/node-global-key-listener/bin/MacKeyServer
+[16:44:51] 🔧 Custom config for mac: serverPath = /Users/jtereschenko/Documents/IDE/rm-desktop/node_modules/node-global-key-listener/bin/MacKeyServer
+[16:44:51] ✅ Lib binary chmod: /Users/jtereschenko/Documents/IDE/rm-desktop/node_modules/node-global-key-listener/bin/MacKeyServer
+[16:44:51] [NativeCapture] Checking for addon in 3 locations:
+[16:44:51] [NativeCapture] Platform: darwin
+[16:44:51] [NativeCapture] Is Packaged: false
+[16:44:51] [NativeCapture] __dirname: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron
+[16:44:51] [NativeCapture] process.resourcesPath: /Users/jtereschenko/Documents/IDE/rm-desktop/node_modules/electron/dist/Electron.app/Contents/Resources
+[16:44:51] [NativeCapture] Checking: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron/native-addon.node - ✅ FOUND
+[16:44:51] [NativeCapture] Loading native addon from: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron/native-addon.node
 🪟 [detectAddonType] Start detect
 🪟 [detectAddonType] Start more
 Test from ScreenCaptureManager
 🍎 [detectAddonType] Detected macOS Swift addon
 🪟 [detectAddonType] End detect
-[13:33:09] [NativeCapture] ✅ Native addon loaded successfully
+[16:44:51] [NativeCapture] ✅ Native addon loaded successfully
 🪟 [detectAddonType] Start detect
 🪟 [detectAddonType] Start more
 Test from ScreenCaptureManager
 🍎 [detectAddonType] Detected macOS Swift addon
 🪟 [detectAddonType] End detect
-[13:33:09] [JITSI-SDK] Failed to setup always on top: Cannot read properties of undefined (reading 'webContents')
-[13:33:09] [JITSI-SDK] Failed to setup power monitor: Cannot read properties of undefined (reading 'on')
-[13:33:09] [JITSI-SDK] SDK helper functions initialized
-[13:33:09] [JITSI-SDK] Manager created
-[65098:1124/133310.459833:ERROR:sandbox/mac/system_services.cc:35] SetApplicationIsDaemon: Error Domain=NSOSStatusErrorDomain Code=-50 "paramErr: error in user parameter list" (-50)
+[16:44:51] [JITSI-SDK] Failed to setup always on top: Cannot read properties of undefined (reading 'webContents')
+[16:44:51] [JITSI-SDK] Failed to setup power monitor: Cannot read properties of undefined (reading 'on')
+[16:44:51] [JITSI-SDK] SDK helper functions initialized
+[16:44:51] [JITSI-SDK] Manager created
+[34534:1229/164451.852472:ERROR:sandbox/mac/system_services.cc:35] SetApplicationIsDaemon: Error Domain=NSOSStatusErrorDomain Code=-50 "paramErr: error in user parameter list" (-50)
 Attempting to call a function in a renderer window that has been closed or released.
 Function provided here: renderer.js:46:25
 ✅ Окно создано!
-[13:33:10] Tray created with icon: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron/resources/tray/traymacOSTemplate.png
-[13:33:10] Tray: Создан
+[16:44:52] Tray created with icon: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron/resources/tray/traymacOSTemplate.png
+[16:44:52] Tray: Создан
 ✅ Окно создано!
-[13:33:10] Main: WebView создается с URL: https://connectrm-svz.ru/
-[13:33:10] Main: Webview preload установлен: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron/preload.js
-[13:33:10] Main: WebView создается с URL: https://connectrm-svz.ru/
-[13:33:10] Main: Webview preload установлен: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron/preload.js
-[13:33:10] Main: Preload файл существует: true
-[13:33:10] Tray: Обновлён badge на 0
+[16:44:52] Main: WebView создается с URL: https://joinrm-svz.ru/
+[16:44:52] Main: Webview preload установлен: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron/preload.js
+[16:44:52] Main: WebView создается с URL: https://joinrm-svz.ru/
+[16:44:52] Main: Webview preload установлен: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron/preload.js
+[16:44:52] Main: Preload файл существует: true
+[16:44:52] Tray: Обновлён badge на 0
 Preload Log: ✅ Preload: Начало выполнения
-[13:33:14] Preload Log: ✅ Preload: Начало выполнения
-[13:33:14] Preload Log: ✅ Preload: Начало выполнения
+[16:44:53] Preload Log: ✅ Preload: Начало выполнения
+[16:44:53] Preload Log: ✅ Preload: Начало выполнения
 Preload Log: ✅ Preload: Начало выполнения
-Preload Log: ✅ Preload: Загружен для URL: https://connectrm-svz.ru/
-[13:33:14] Preload Log: ✅ Preload: Загружен для URL: https://connectrm-svz.ru/
-[13:33:14] Preload Log: ✅ Preload: Загружен для URL: https://connectrm-svz.ru/
-Preload Log: ✅ Preload: Загружен для URL: https://connectrm-svz.ru/
+Preload Log: ✅ Preload: Загружен для URL: https://joinrm-svz.ru/
+[16:44:53] Preload Log: ✅ Preload: Загружен для URL: https://joinrm-svz.ru/
+[16:44:53] Preload Log: ✅ Preload: Загружен для URL: https://joinrm-svz.ru/
+Preload Log: ✅ Preload: Загружен для URL: https://joinrm-svz.ru/
 Preload Log: ✅ Preload: Initialization complete
-[13:33:14] Preload Log: ✅ Preload: Initialization complete
-[13:33:14] Preload Log: ✅ Preload: Initialization complete
+[16:44:53] Preload Log: ✅ Preload: Initialization complete
+[16:44:53] Preload Log: ✅ Preload: Initialization complete
 Preload Log: ✅ Preload: Initialization complete
-[13:33:14] Tray: Обновлён badge на 0
-[13:33:17] Tray: Обновлён badge на 0
+[16:44:53] Tray: Обновлён badge на 0
+[16:44:53] Tray: Обновлён badge на 0
 (electron) 'console-message' arguments are deprecated and will be removed. Please use Event<WebContentsConsoleMessageEventParams> object instead.
-Preload Log: Bridge: Отправлено событие: total_unread_count [1]
-[13:33:17] Preload Log: Bridge: Отправлено событие: total_unread_count [1]
-[13:33:17] Preload Log: Bridge: Отправлено событие: total_unread_count [1]
-Preload Log: Bridge: Отправлено событие: total_unread_count [1]
-[13:33:17] Tray: Обновлён badge на 1
-[13:33:17] Tray: Обновлён badge на 1
+[16:44:53] Tray: Обновлён badge на 0
 Preload Log: Bridge: Отправлено событие: request-electron-version []
-[13:33:17] Preload Log: Bridge: Отправлено событие: request-electron-version []
-[13:33:17] Preload Log: Bridge: Отправлено событие: request-electron-version []
+[16:44:53] Preload Log: Bridge: Отправлено событие: request-electron-version []
+[16:44:53] Preload Log: Bridge: Отправлено событие: request-electron-version []
 Preload Log: Bridge: Отправлено событие: request-electron-version []
 Preload Log: 📦 Zulip requested Electron version
-[13:33:17] Preload Log: 📦 Zulip requested Electron version
-[13:33:17] Preload Log: 📦 Zulip requested Electron version
+[16:44:53] Preload Log: 📦 Zulip requested Electron version
+[16:44:53] Preload Log: 📦 Zulip requested Electron version
 Preload Log: 📦 Zulip requested Electron version
 Preload Log: Bridge: Отправлено событие: electron-version [{"version":"5.27.0"}]
-[13:33:17] Preload Log: Bridge: Отправлено событие: electron-version [{"version":"5.27.0"}]
-[13:33:17] Preload Log: Bridge: Отправлено событие: electron-version [{"version":"5.27.0"}]
+[16:44:54] Preload Log: Bridge: Отправлено событие: electron-version [{"version":"5.27.0"}]
+[16:44:54] Preload Log: Bridge: Отправлено событие: electron-version [{"version":"5.27.0"}]
 Preload Log: Bridge: Отправлено событие: electron-version [{"version":"5.27.0"}]
 Preload Log: Bridge: Отправлено событие: jitsi-log-event [{"level":"info","message":"Zulip Webview: Получена версия Electron: 5.27.0"}]
-[13:33:17] Preload Log: Bridge: Отправлено событие: jitsi-log-event [{"level":"info","message":"Zulip Webview: Получена версия Electron: 5.27.0"}]
-[13:33:17] Preload Log: Bridge: Отправлено событие: jitsi-log-event [{"level":"info","message":"Zulip Webview: Получена версия Electron: 5.27.0"}]
+[16:44:54] Preload Log: Bridge: Отправлено событие: jitsi-log-event [{"level":"info","message":"Zulip Webview: Получена версия Electron: 5.27.0"}]
+[16:44:54] Preload Log: Bridge: Отправлено событие: jitsi-log-event [{"level":"info","message":"Zulip Webview: Получена версия Electron: 5.27.0"}]
 Preload Log: Bridge: Отправлено событие: jitsi-log-event [{"level":"info","message":"Zulip Webview: Получена версия Electron: 5.27.0"}]
 Preload Log: 📦 Sent version back to Zulip via IPC: 5.27.0
-[13:33:17] Preload Log: 📦 Sent version back to Zulip via IPC: 5.27.0
-[13:33:17] Preload Log: 📦 Sent version back to Zulip via IPC: 5.27.0
+[16:44:54] Preload Log: 📦 Sent version back to Zulip via IPC: 5.27.0
+[16:44:54] Preload Log: 📦 Sent version back to Zulip via IPC: 5.27.0
 Preload Log: 📦 Sent version back to Zulip via IPC: 5.27.0
-[13:33:19] Tray: Обновлён badge на 1
-[13:33:21] Tray: Обновлён badge на 1
-Preload Log: Zulip: ipcRenderer.invoke jitsi-connect-with-zulip-config
-[13:33:21] Preload Log: Zulip: ipcRenderer.invoke jitsi-connect-with-zulip-config
-[13:33:21] Preload Log: Zulip: ipcRenderer.invoke jitsi-connect-with-zulip-config
-Preload Log: Zulip: ipcRenderer.invoke jitsi-connect-with-zulip-config
-[13:33:21] 🎯[Jitsi] Connecting with Zulip config using SDK...
-[13:33:21] 🎯[Jitsi] Options received: {"roomUrl":"https://jitsi-connectrm.ru/229112088298645-55357565863210401091107610801086","roomName":"229112088298645-55357565863210401091107610801086","serverUrl":"https://jitsi-connectrm.ru","jwt":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjb250ZXh0Ijp7InVzZXIiOnsibmFtZSI6Ill1cmFfWWFfTiIsImlkIjoiaXNvbmljdXBAZ21haWwuY29tIiwiZW1haWwiOiJpc29uaWN1cEBnbWFpbC5jb20iLCJhdmF0YXIiOiJodHRwczovL3N0b3JhZ2UueWFuZGV4Y2xvdWQubmV0L2Nvbm5lY3RybS1wdWJsaWMtYXZhdGFycy8yL2IwYjY0YTE0ZTkxOTM0MTExNmIyNmU0MGY1ZGY3MDEwODY1NGI0YzYucG5nIn19LCJhcHBfaWQiOiJjb25uZWN0cm1fc3Z6IiwiYXVkIjoiaml0c2kiLCJpc3MiOiJjb25uZWN0cm1fc3Z6Iiwic3ViIjoiaml0c2ktY29ubmVjdHJtLnJ1Iiwicm9vbSI6IioiLCJpYXQiOjE3NjM5NjYwMDEsImV4cCI6MTc2NDAzODAwMX0.9Usl7w7JLP6mBIER3MLK1wlXPqu7glVDhzXMh5dJJb8","topic":"🔊 Аудио","stream":"Разлом","streamId":56,"userInfo":{"displayName":"Yura_Ya_N","email":"isonicup@gmail.com","avatarUrl":"https://storage.yandexcloud.net/connectrm-public-avatars/2/b0b64a14e919341116b26e40f5df70108654b4c6.png"},"preInitialized":true,"currentTopic":"🔊 Аудио"}
-[13:33:21] 🎯[Jitsi] Starting conference without pre-selection
-[13:33:21] [JITSI-SDK] Creating window for room: 229112088298645-55357565863210401091107610801086
-[13:33:21] [JITSI-SDK] Failed to setup screen sharing: Cannot read properties of undefined (reading 'session')
-[13:33:21] [JITSI-SDK] Loading conference URL: https://jitsi-connectrm.ru/229112088298645-55357565863210401091107610801086?jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjb250ZXh0Ijp7InVzZXIiOnsibmFtZSI6Ill1cmFfWWFfTiIsImlkIjoiaXNvbmljdXBAZ21haWwuY29tIiwiZW1haWwiOiJpc29uaWN1cEBnbWFpbC5jb20iLCJhdmF0YXIiOiJodHRwczovL3N0b3JhZ2UueWFuZGV4Y2xvdWQubmV0L2Nvbm5lY3RybS1wdWJsaWMtYXZhdGFycy8yL2IwYjY0YTE0ZTkxOTM0MTExNmIyNmU0MGY1ZGY3MDEwODY1NGI0YzYucG5nIn19LCJhcHBfaWQiOiJjb25uZWN0cm1fc3Z6IiwiYXVkIjoiaml0c2kiLCJpc3MiOiJjb25uZWN0cm1fc3Z6Iiwic3ViIjoiaml0c2ktY29ubmVjdHJtLnJ1Iiwicm9vbSI6IioiLCJpYXQiOjE3NjM5NjYwMDEsImV4cCI6MTc2NDAzODAwMX0.9Usl7w7JLP6mBIER3MLK1wlXPqu7glVDhzXMh5dJJb8#config.disableDeepLinking=true&config.prejoinPageEnabled=false&config.startWithAudioMuted=false&config.startWithVideoMuted=true&config.enableWelcomePage=false&config.enableClosePage=false&config.resolution=720&config.disableInitialGUM=false&config.enableLayerSuspension=true&config.p2p.enabled=true&config.p2p.preferH264=true&interfaceConfig.SHOW_JITSI_WATERMARK=false&interfaceConfig.SHOW_WATERMARK_FOR_GUESTS=false&interfaceConfig.SHOW_BRAND_WATERMARK=false&interfaceConfig.HIDE_INVITE_MORE_HEADER=true&interfaceConfig.MOBILE_APP_PROMO=false&interfaceConfig.SHOW_MEETING_NAME=false&interfaceConfig.DISPLAY_WELCOME_PAGE_CONTENT=false&interfaceConfig.APP_NAME=%F0%9F%94%8A+%D0%90%D1%83%D0%B4%D0%B8%D0%BE&interfaceConfig.NATIVE_APP_NAME=%F0%9F%94%8A+%D0%90%D1%83%D0%B4%D0%B8%D0%BE&config.requireDisplayName=false&config.hideConferenceSubject=true&config.hideConferenceTimer=false&config.hideDominantSpeakerBadge=false&interfaceConfig.SHOW_CONFERENCE_SUBJECT=false&interfaceConfig.HIDE_CONFERENCE_SUBJECT=true&config.subject=+&interfaceConfig.TOOLBAR_BUTTONS=%5B%22camera%22%2C%22desktop%22%2C%22microphone%22%2C%22participants%22%2C%22settings%22%2C%22fullscreen%22%2C%22hangup%22%5D&userInfo.displayName=Yura_Ya_N&userInfo.email=isonicup%40gmail.com&config.subject=%F0%9F%94%8A+%D0%90%D1%83%D0%B4%D0%B8%D0%BE&userInfo.avatarURL=https%3A%2F%2Fstorage.yandexcloud.net%2Fconnectrm-public-avatars%2F2%2Fb0b64a14e919341116b26e40f5df70108654b4c6.png&config.gravatar.disabled=true
-[13:33:22] Jitsi Console: 2025-11-24T06:33:22.281Z [features/conference] (TIME) init action dispatched: 867.6000000238419
-[13:33:22] [JITSI-SDK] DOM ready
-2025-11-24 13:33:22.392 Electron Helper (Plugin)[65158:72383327] WARNING: Add NSCameraUseContinuityCameraDeviceType to your Info.plist to use AVCaptureDeviceTypeContinuityCamera.
-[13:33:22] Jitsi Console: 2025-11-24T06:33:22.544Z [features/conference] (TIME) setupInitialDevices finished: 1131.7000000476837
-[13:33:22] Jitsi Console: 2025-11-24T06:33:22.545Z [conference.js] <Object.init>:  Executed conference.init with roomName: 229112088298645-55357565863210401091107610801086 (performance.now=1132.2000000476837)
-[13:33:22] Jitsi Console: 2025-11-24T06:33:22.548Z [conference.js] <Object.init>:  (TIME) createInitialLocalTracks: 1135.7999999523163 
-[13:33:22] Jitsi Console: 2025-11-24T06:33:22.551Z [conference.js] <Object.init>:  Dispatching connect from init since prejoin is not visible.
-[13:33:22] Jitsi Console: 2025-11-24T06:33:22.553Z [modules/xmpp/moderator] <new fc>:  Using xmpp for conference requests.
-[13:33:22] Jitsi Console: 2025-11-24T06:33:22.747Z [conference.js] (TIME) createInitialLocalTracks finished: 1334.2000000476837 
-[13:33:22] Jitsi Console: 2025-11-24T06:33:22.748Z [conference.js] Resolving the initialGUM promise!
-[13:33:23] [JITSI-SDK] Page loaded
-[13:33:23] [JITSI-SDK] Loading overlay shown
-[13:33:23] Jitsi Console: [JITSI] Using toggleAudioMuted to mute
-[13:33:23] [JITSI-SDK] Microphone muted: true
-[13:33:23] [JITSI-SDK] Conference ready
-[13:33:23] Jitsi Console: [JITSI] Setting up conference handlers...
-[13:33:23] Jitsi Console: [JITSI] Conference handlers installed
-[13:33:23] [JITSI-SDK] Conference handlers injected
-[13:33:23] [JITSI-SDK] Audio mute indicator button injected
-[13:33:23] [JITSI-SDK] Conference window created successfully
-[13:33:23] 🎯[Jitsi SDK] Conference window created successfully
-[13:33:23] 🔧 Starting listener with custom config
-[13:33:23] 🔧 Starting listener with custom config
-[13:33:23] Jitsi Console: [JITSI] Found JitsiMeetScreenObtainer, overriding openDesktopPicker
-[13:33:23] Jitsi Console: 2025-11-24T06:33:23.968Z [features/base/conference] On connection established: prejoinVisible: false, initialGUMPromiseExists=true, promiseExists=true
-[13:33:23] Jitsi Console: 2025-11-24T06:33:23.971Z [conference.js] audio mute: initially muted.
-[13:33:23] Jitsi Console: 2025-11-24T06:33:23.995Z [modules/xmpp/moderator] Sending conference request over XMPP to focus.meet.jitsi
-[13:33:24] Jitsi Console: 2025-11-24T06:33:24.010Z [conference.js] Initialized with 1 local tracks
-[13:33:24] [JITSI-SDK] Loading overlay hidden
-[13:33:24] Jitsi Console: 2025-11-24T06:33:24.585Z [conference.js] <fo.<anonymous>>:  My role changed, new role: none
-[13:33:24] Jitsi Console: 2025-11-24T06:33:24.593Z [conference.js] <fo.<anonymous>>:  My role changed, new role: moderator
-[13:33:24] Jitsi Console: 2025-11-24T06:33:24.604Z [features/base/conference] Wake lock created.
-[13:33:25] Main: Полное нажатие клавиши громкости — переключаем звук
-[13:33:25] Сейчас false, а станет true
-[13:33:25] [JITSI-SDK] Audio output muted
-[13:33:25] Main: Полное нажатие клавиши громкости — переключаем звук
-[13:33:25] Сейчас true, а станет false
-[13:33:25] [JITSI-SDK] Audio output unmuted
-[13:33:25] Main: Полное нажатие клавиши громкости — переключаем звук
-[13:33:25] Сейчас false, а станет true
-[13:33:25] [JITSI-SDK] Audio output muted
-[13:33:26] Main: Полное нажатие клавиши громкости — переключаем звук
-[13:33:26] Сейчас true, а станет false
-[13:33:26] [JITSI-SDK] Audio output unmuted
-[13:33:27] Main: Полное нажатие клавиши громкости — переключаем звук
-[13:33:27] Сейчас false, а станет true
-[13:33:27] [JITSI-SDK] Audio output muted
-[13:33:37] Main: Нажата клавиша микрофона — включаем микрофон
-[13:33:37] Jitsi Console: [JITSI] Using toggleAudioMuted to unmute
-[13:33:37] [JITSI-SDK] Microphone unmuted: true
-[13:33:41] Main: Отпущена клавиша микрофона — выключаем микрофон
-[13:33:41] Jitsi Console: [JITSI] Using toggleAudioMuted to mute
-[13:33:41] [JITSI-SDK] Microphone muted: true
-[13:33:41] Main: Полное нажатие клавиши громкости — переключаем звук
-[13:33:41] Сейчас true, а станет false
-[13:33:41] [JITSI-SDK] Audio output unmuted
-[13:33:43] Main: Нажата клавиша микрофона — включаем микрофон
-[13:33:43] Jitsi Console: [JITSI] Using toggleAudioMuted to unmute
-[13:33:43] [JITSI-SDK] Microphone unmuted: true
-[13:33:46] Main: Отпущена клавиша микрофона — выключаем микрофон
-[13:33:46] Jitsi Console: [JITSI] Using toggleAudioMuted to mute
-[13:33:46] [JITSI-SDK] Microphone muted: true
-[13:33:49] Main: Полное нажатие клавиши громкости — переключаем звук
-[13:33:49] Сейчас false, а станет true
-[13:33:49] [JITSI-SDK] Audio output muted
-[13:33:50] Main: Полное нажатие клавиши громкости — переключаем звук
-[13:33:50] Сейчас true, а станет false
-[13:33:50] [JITSI-SDK] Audio output unmuted
-[13:33:50] Main: Нажата клавиша микрофона — включаем микрофон
-[13:33:50] Jitsi Console: [JITSI] Using toggleAudioMuted to unmute
-[13:33:50] [JITSI-SDK] Microphone unmuted: true
-[13:33:51] Main: Отпущена клавиша микрофона — выключаем микрофон
-[13:33:51] Jitsi Console: [JITSI] Using toggleAudioMuted to mute
-[13:33:51] [JITSI-SDK] Microphone muted: true
-[13:33:51] Main: Нажата клавиша микрофона — включаем микрофон
-[13:33:51] Jitsi Console: [JITSI] Using toggleAudioMuted to unmute
-[13:33:51] [JITSI-SDK] Microphone unmuted: true
-[13:33:52] Main: Отпущена клавиша микрофона — выключаем микрофон
-[13:33:52] Jitsi Console: [JITSI] Using toggleAudioMuted to mute
-[13:33:52] [JITSI-SDK] Microphone muted: true
-[13:33:52] Main: Нажата клавиша микрофона — включаем микрофон
-[13:33:52] Jitsi Console: [JITSI] Using toggleAudioMuted to unmute
-[13:33:52] [JITSI-SDK] Microphone unmuted: true
-[13:33:52] Main: Отпущена клавиша микрофона — выключаем микрофон
-[13:33:52] Jitsi Console: [JITSI] Using toggleAudioMuted to mute
-[13:33:52] [JITSI-SDK] Microphone muted: true
-[13:33:53] Main: Нажата клавиша микрофона — включаем микрофон
-[13:33:53] Jitsi Console: [JITSI] Using toggleAudioMuted to unmute
-[13:33:53] [JITSI-SDK] Microphone unmuted: true
-[13:33:53] Main: Отпущена клавиша микрофона — выключаем микрофон
-[13:33:53] Jitsi Console: [JITSI] Using toggleAudioMuted to mute
-[13:33:53] [JITSI-SDK] Microphone muted: true
-[13:33:53] Main: Нажата клавиша микрофона — включаем микрофон
-[13:33:53] Jitsi Console: [JITSI] Using toggleAudioMuted to unmute
-[13:33:53] [JITSI-SDK] Microphone unmuted: true
-[13:33:54] Main: Отпущена клавиша микрофона — выключаем микрофон
-[13:33:54] Jitsi Console: [JITSI] Using toggleAudioMuted to mute
-[13:33:54] [JITSI-SDK] Microphone muted: true
-[13:33:54] Main: Нажата клавиша микрофона — включаем микрофон
-[13:33:54] Jitsi Console: [JITSI] Using toggleAudioMuted to unmute
-[13:33:54] [JITSI-SDK] Microphone unmuted: true
-[13:33:55] Main: Отпущена клавиша микрофона — выключаем микрофон
-[13:33:55] Jitsi Console: [JITSI] Using toggleAudioMuted to mute
-[13:33:55] [JITSI-SDK] Microphone muted: true
-[13:33:56] Main: Нажата клавиша микрофона — включаем микрофон
-[13:33:56] Jitsi Console: [JITSI] Using toggleAudioMuted to unmute
-[13:33:56] [JITSI-SDK] Microphone unmuted: true
-[13:33:56] Main: Отпущена клавиша микрофона — выключаем микрофон
-[13:33:56] Jitsi Console: [JITSI] Using toggleAudioMuted to mute
-[13:33:56] [JITSI-SDK] Microphone muted: true
-[13:33:57] Main: Нажата клавиша микрофона — включаем микрофон
-[13:33:57] Jitsi Console: [JITSI] Using toggleAudioMuted to unmute
-[13:33:57] [JITSI-SDK] Microphone unmuted: true
-[13:33:59] Main: Отпущена клавиша микрофона — выключаем микрофон
-[13:33:59] Jitsi Console: [JITSI] Using toggleAudioMuted to mute
-[13:33:59] [JITSI-SDK] Microphone muted: true
-[13:34:21] Jitsi Console: 2025-11-24T06:34:21.942Z [features/base/conference] <WakeLockSentinel.r6>:  Wake lock released
-[13:34:22] Main: Горячая клавиша f удалена при выходе
-[13:34:22] Main: Горячая клавиша n удалена при выходе
-[13:34:22] [JITSI-SDK] Window close requested - performing cleanup
-[13:34:22] [JITSI-SDK] Performing conference cleanup
-[65087:1124/133422.736000:ERROR:content/browser/network_service_instance_impl.cc:597] Network service crashed, restarting service.
-[65358:1124/133423.060275:ERROR:sandbox/mac/system_services.cc:35] SetApplicationIsDaemon: Error Domain=NSOSStatusErrorDomain Code=-50 "paramErr: error in user parameter list" (-50)
-2025-11-24 13:34:23.061 Electron Helper (Plugin)[65361:72386044] WARNING: Add NSCameraUseContinuityCameraDeviceType to your Info.plist to use AVCaptureDeviceTypeContinuityCamera.
+Preload Log: Bridge: Отправлено событие: show-update-available [{"version":"5.27.1","downloadUrl":"https://storage.yandexcloud.net/rm-electron-desktop-win/%D0%A1%D0%B2%D1%8F%D0%B7%D1%8C%20%D0%A0%D0%9C%20Setup%205.27.1.zip","releaseNotes":"ура!! обнова\nПроверяем обнову - без паники"}]
+[16:44:54] Preload Log: Bridge: Отправлено событие: show-update-available [{"version":"5.27.1","downloadUrl":"https://storage.yandexcloud.net/rm-electron-desktop-win/%D0%A1%D0%B2%D1%8F%D0%B7%D1%8C%20%D0%A0%D0%9C%20Setup%205.27.1.zip","releaseNotes":"ура!! обнова\nПроверяем обнову - без паники"}]
+[16:44:54] Preload Log: Bridge: Отправлено событие: show-update-available [{"version":"5.27.1","downloadUrl":"https://storage.yandexcloud.net/rm-electron-desktop-win/%D0%A1%D0%B2%D1%8F%D0%B7%D1%8C%20%D0%A0%D0%9C%20Setup%205.27.1.zip","releaseNotes":"ура!! обнова\nПроверяем обнову - без паники"}]
+Preload Log: Bridge: Отправлено событие: show-update-available [{"version":"5.27.1","downloadUrl":"https://storage.yandexcloud.net/rm-electron-desktop-win/%D0%A1%D0%B2%D1%8F%D0%B7%D1%8C%20%D0%A0%D0%9C%20Setup%205.27.1.zip","releaseNotes":"ура!! обнова\nПроверяем обнову - без паники"}]
+Preload Log: 📦 Update available from Zulip: v5.27.1
+[16:44:54] Preload Log: 📦 Update available from Zulip: v5.27.1
+[16:44:54] Preload Log: 📦 Update available from Zulip: v5.27.1
+Preload Log: 📦 Update available from Zulip: v5.27.1
+[16:44:54] 📦 Main: Showing update button for version 5.27.1

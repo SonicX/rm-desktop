@@ -172,7 +172,7 @@ export class ServerManagerView {
   }
 
   checkPendingUpdate(): void {
-    const pendingUpdate = ConfigUtil.getConfigItem("pendingUpdate", null);
+    const pendingUpdate = ConfigUtil.getConfigItem("pendingUpdate", false);
     if (pendingUpdate) {
       this.updateInfo = pendingUpdate;
       this.showUpdateReady();
