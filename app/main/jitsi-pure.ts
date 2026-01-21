@@ -1,9 +1,11 @@
-// jitsi-pure.ts - Оптимизированный модуль для Jitsi
-import { BrowserWindow, ipcMain, desktopCapturer } from "electron";
-import * as path from "path";
-import log from "electron-log";
+// Jitsi-pure.ts - Оптимизированный модуль для Jitsi
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/prefer-nullish-coalescing, @typescript-eslint/member-ordering, @typescript-eslint/no-floating-promises, @typescript-eslint/use-unknown-in-catch-callback-variable, @typescript-eslint/no-unused-vars, @typescript-eslint/parameter-properties, promise/param-names, no-promise-executor-return, @typescript-eslint/only-throw-error, no-await-in-loop */
+import {BrowserWindow, desktopCapturer, ipcMain} from "electron/main"; // eslint-disable-line no-restricted-imports
+import * as path from "node:path";
 
-interface JitsiOptions {
+import log from "electron-log/main";
+
+type JitsiOptions = {
   roomName: string;
   serverUrl?: string;
   displayName?: string;
@@ -12,83 +14,83 @@ interface JitsiOptions {
   jwt?: string;
   topic?: string;
   stream?: string;
-}
+};
 
-interface JitsiPureState {
+type JitsiPureState = {
   window: BrowserWindow | null;
   isSharing: boolean;
   conferenceUrl: string | null;
-}
+};
 
 export class JitsiPureManager {
-  private state: JitsiPureState = {
+  private readonly state: JitsiPureState = {
     window: null,
     isSharing: false,
-    conferenceUrl: null
+    conferenceUrl: null,
   };
 
-  private bundlePath: string;
-  private iconPath: string;
-  private sessionCounter: number = 0;
+  private readonly bundlePath: string;
+  private readonly iconPath: string;
+  private sessionCounter = 0;
 
   constructor(bundlePath: string, iconPath: string) {
     this.bundlePath = bundlePath;
     this.iconPath = iconPath;
-    
+
     this.registerHandlers();
-    
+
     // Регистрируем обработчик демонстрации экрана ОДИН РАЗ при создании менеджера
-    if (!ipcMain.eventNames().includes('jitsi-screen-sharing-get-sources')) {
-      ipcMain.handle('jitsi-screen-sharing-get-sources', async () => {
+    if (!ipcMain.eventNames().includes("jitsi-screen-sharing-get-sources")) {
+      ipcMain.handle("jitsi-screen-sharing-get-sources", async () => {
         const sources = await desktopCapturer.getSources({
-          types: ['window', 'screen'],
-          thumbnailSize: { width: 300, height: 200 }
+          types: ["window", "screen"],
+          thumbnailSize: {width: 300, height: 200},
         });
-        
-        return sources.map(source => ({
+
+        return sources.map((source) => ({
           id: source.id,
           name: source.name,
-          thumbnail: source.thumbnail.toDataURL()
+          thumbnail: source.thumbnail.toDataURL(),
         }));
       });
-      log.info('[JITSI-SDK] Screen sharing handler registered in constructor');
+      log.info("[JITSI-SDK] Screen sharing handler registered in constructor");
     }
-    
+
     log.info("[JITSI-SDK] Manager initialized with official SDK");
   }
 
   private registerHandlers(): void {
     // Создание окна
-    ipcMain.handle("jitsi-pure:create-window", async (event, options: JitsiOptions) => {
-      return this.createWindow(options);
-    });
+    ipcMain.handle(
+      "jitsi-pure:create-window",
+      async (event, options: JitsiOptions) => this.createWindow(options),
+    );
 
     // Закрытие окна
-    ipcMain.handle("jitsi-pure:close", async () => {
-      return this.closeWindow();
-    });
+    ipcMain.handle("jitsi-pure:close", async () => this.closeWindow());
 
     // Получение статуса
-    ipcMain.handle("jitsi-pure:get-status", async () => {
-      return {
-        hasWindow: !!this.state.window && !this.state.window.isDestroyed(),
-        isSharing: this.state.isSharing
-      };
-    });
+    ipcMain.handle("jitsi-pure:get-status", async () => ({
+      hasWindow:
+        Boolean(this.state.window) && !this.state.window?.isDestroyed(),
+      isSharing: this.state.isSharing,
+    }));
   }
 
-  async createWindow(options: JitsiOptions): Promise<{ success: boolean; error?: string }> {
+  async createWindow(
+    options: JitsiOptions,
+  ): Promise<{success: boolean; error?: string}> {
     try {
       // Закрываем предыдущее окно если есть
       await this.closeWindow();
       // Убираем лишнюю задержку
       // await new Promise(resolve => setTimeout(resolve, 500));
 
-      const server = options.serverUrl || 'https://meet.jit.si';
-      const roomName = options.roomName.replace(/[^a-zA-Z0-9-_]/g, '');
-      const displayName = options.displayName || 'Guest';
-      const topic = options.topic || '';
-      const stream = options.stream || '';
+      const server = options.serverUrl || "https://meet.jit.si";
+      const roomName = options.roomName.replaceAll(/[^\w-]/g, "");
+      const displayName = options.displayName || "Guest";
+      const topic = options.topic || "";
+      const stream = options.stream || "";
 
       log.info(`[JITSI-SDK] Creating window: ${server}/${roomName}`);
 
@@ -111,34 +113,34 @@ export class JitsiPureManager {
           webSecurity: false,
           partition: uniquePartition,
         },
-        backgroundColor: '#1a1a2e',
+        backgroundColor: "#1a1a2e",
         show: false,
-        center: true
+        center: true,
       });
 
       // Предотвращаем изменение заголовка
-      this.state.window.on('page-title-updated', (event) => {
+      this.state.window.on("page-title-updated", (event) => {
         event.preventDefault();
       });
 
       // Формируем URL с параметрами
       const conferenceUrl = this.buildConferenceUrl(server, roomName, options);
       this.state.conferenceUrl = conferenceUrl;
-      
+
       // Флаги состояния
       let isSuccessfullyLoaded = false;
       let hasError = false;
       let configInjected = false;
 
       // Блокируем новые окна
-      this.state.window.webContents.setWindowOpenHandler(() => {
-        return { action: 'deny' };
-      });
+      this.state.window.webContents.setWindowOpenHandler(() => ({
+        action: "deny",
+      }));
 
       // Обработчик навигации
-      this.state.window.webContents.on('will-navigate', (event, url) => {
+      this.state.window.webContents.on("will-navigate", (event, url) => {
         log.info(`[JITSI-SDK] Navigation attempt to: ${url}`);
-        
+
         if (this.state.conferenceUrl && !url.includes(roomName)) {
           log.info("[JITSI-SDK] Leaving conference detected");
           event.preventDefault();
@@ -147,64 +149,75 @@ export class JitsiPureManager {
       });
 
       // ОПТИМИЗАЦИЯ: Инъектируем конфигурацию только ОДИН РАЗ в dom-ready
-      this.state.window.webContents.on('dom-ready', async () => {
+      this.state.window.webContents.on("dom-ready", async () => {
         if (!configInjected) {
           configInjected = true;
-          
+
           // Сначала инъектируем оверлей
           await this.injectLoadingOverlay();
-          
+
           // Затем конфигурацию пользователя (если есть)
           if (options.displayName || options.email || options.avatarUrl) {
             await this.injectUserConfig(options);
           }
-          
+
           // И обработчики конференции
           await this.injectConferenceHandlers();
         }
       });
 
       // Обработчик успешной загрузки
-      this.state.window.webContents.on('did-finish-load', async () => {
+      this.state.window.webContents.on("did-finish-load", async () => {
         if (!this.state.window || this.state.window.isDestroyed()) return;
-        
+
         const currentUrl = this.state.window.webContents.getURL();
         log.info(`[JITSI-SDK] Page loaded: ${currentUrl}`);
-        
+
         isSuccessfullyLoaded = true;
-        
+
         // ОПТИМИЗАЦИЯ: Убираем лишнюю задержку
         // await new Promise(resolve => setTimeout(resolve, 500));
-        
+
         // Ждем готовности и скрываем загрузчик
         await this.waitForJitsiAndHideLoader();
       });
 
       // Обработчик ошибок
-      this.state.window.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL, isMainFrame) => {
-        if (!isMainFrame || isSuccessfullyLoaded) return;
-        hasError = true;
-        log.error(`[JITSI-SDK] Load failed: ${errorDescription} (${errorCode})`);
-      });
+      this.state.window.webContents.on(
+        "did-fail-load",
+        (event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+          if (!isMainFrame || isSuccessfullyLoaded) return;
+          hasError = true;
+          log.error(
+            `[JITSI-SDK] Load failed: ${errorDescription} (${errorCode})`,
+          );
+        },
+      );
 
       // Обработчик закрытия
-      this.state.window.on('close', async (event) => {
+      this.state.window.on("close", async (event) => {
         event.preventDefault();
         log.info("[JITSI-SDK] Window close requested");
         await this.closeWindow();
       });
 
-      this.state.window.on('closed', () => {
+      this.state.window.on("closed", () => {
         this.state.window = null;
         this.state.conferenceUrl = null;
       });
 
       // Консоль для отладки
-      this.state.window.webContents.on('console-message', (event, level, message) => {
-        if (message.includes('[JITSI-SDK]') || message.includes('CONFERENCE')) {
-          log.info(`Jitsi Console: ${message}`);
-        }
-      });
+      this.state.window.webContents.on(
+        "console-message",
+        (event, level, message) => {
+          if (
+            message.includes("[JITSI-SDK]") ||
+            message.includes("CONFERENCE")
+          ) {
+            log.info(`Jitsi Console: ${message}`);
+          }
+        },
+      );
 
       // Показываем окно
       this.state.window.show();
@@ -214,47 +227,47 @@ export class JitsiPureManager {
       // Загружаем с таймаутом
       try {
         const loadPromise = this.state.window.loadURL(conferenceUrl);
-        const timeoutPromise = new Promise<void>((_, reject) => 
-          setTimeout(() => reject(new Error('Timeout loading conference')), 30000)
+        const timeoutPromise = new Promise<void>((_, reject) =>
+          setTimeout(() => {
+            reject(new Error("Timeout loading conference"));
+          }, 30_000),
         );
-        
+
         await Promise.race([loadPromise, timeoutPromise]);
-        
+
         // ОПТИМИЗАЦИЯ: Уменьшаем задержку
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
+        await new Promise((resolve) => setTimeout(resolve, 500));
+
         if (hasError && !isSuccessfullyLoaded) {
-          throw new Error('Failed to load conference page');
+          throw new Error("Failed to load conference page");
         }
-        
+
         if (!this.state.window || this.state.window.isDestroyed()) {
-          throw new Error('Window was closed during loading');
+          throw new Error("Window was closed during loading");
         }
-        
+
         log.info("[JITSI-SDK] Conference loaded successfully");
-        return { success: true };
-        
+        return {success: true};
       } catch (loadError: any) {
         log.error(`[JITSI-SDK] Load error: ${loadError.message}`);
         throw loadError;
       }
-
     } catch (error: any) {
       log.error(`[JITSI-SDK] Failed to create window: ${error.message}`);
-      
+
       if (this.state.window && !this.state.window.isDestroyed()) {
         this.state.window.close();
         this.state.window = null;
       }
-      
-      return { success: false, error: error.message };
+
+      return {success: false, error: error.message};
     }
   }
 
   // Новый метод для инъекции конфигурации пользователя
   private async injectUserConfig(options: JitsiOptions) {
     if (!this.state.window || this.state.window.isDestroyed()) return;
-    
+
     try {
       await this.state.window.webContents.executeJavaScript(`
         (function() {
@@ -263,21 +276,33 @@ export class JitsiPureManager {
           if (!window.interfaceConfig) window.interfaceConfig = {};
           
           // Устанавливаем данные пользователя
-          ${options.displayName ? `
+          ${
+            options.displayName
+              ? `
             window.config.displayName = '${options.displayName}';
             // Сохраняем для последующего использования
             window._jitsiUserDisplayName = '${options.displayName}';
-          ` : ''}
-          ${options.email ? `
+          `
+              : ""
+          }
+          ${
+            options.email
+              ? `
             window.config.email = '${options.email}';
             window._jitsiUserEmail = '${options.email}';
-          ` : ''}
-          ${options.avatarUrl ? `
+          `
+              : ""
+          }
+          ${
+            options.avatarUrl
+              ? `
             window.config.avatarURL = '${options.avatarUrl}';
             window.interfaceConfig.DEFAULT_LOCAL_AVATAR_URL = '${options.avatarUrl}';
             window.config.gravatar = { disabled: true };
             window._jitsiUserAvatar = '${options.avatarUrl}';
-          ` : ''}
+          `
+              : ""
+          }
           
           // Отключаем prejoin чтобы не было двойного подключения
           window.config.prejoinPageEnabled = false;
@@ -292,56 +317,72 @@ export class JitsiPureManager {
           console.log('[JITSI-SDK] User config injected before Jitsi init');
         })();
       `);
-      
-      log.info('[JITSI-SDK] User config injected');
+
+      log.info("[JITSI-SDK] User config injected");
     } catch (error: any) {
       log.error(`[JITSI-SDK] Failed to inject user config: ${error.message}`);
     }
   }
 
-  private buildConferenceUrl(server: string, roomName: string, options: JitsiOptions): string {
+  private buildConferenceUrl(
+    server: string,
+    roomName: string,
+    options: JitsiOptions,
+  ): string {
     let url = `${server}/${roomName}`;
 
     // Query параметры (JWT)
-    const queryParams = new URLSearchParams();
+    const queryParameters = new URLSearchParams();
     if (options.jwt) {
-      queryParams.append('jwt', options.jwt);
+      queryParameters.append("jwt", options.jwt);
     }
-    
-    if (queryParams.toString()) {
-      url += '?' + queryParams.toString();
+
+    if (queryParameters.toString()) {
+      url += "?" + queryParameters.toString();
     }
 
     // Hash параметры для конфигурации
-    const hashParams = new URLSearchParams();
+    const hashParameters = new URLSearchParams();
 
     // Базовые настройки
-    hashParams.append('config.disableDeepLinking', 'true');
-    hashParams.append('config.prejoinPageEnabled', 'false');
-    hashParams.append('config.startWithAudioMuted', 'false');
-    hashParams.append('config.startWithVideoMuted', 'true');
-    
+    hashParameters.append("config.disableDeepLinking", "true");
+    hashParameters.append("config.prejoinPageEnabled", "false");
+    hashParameters.append("config.startWithAudioMuted", "false");
+    hashParameters.append("config.startWithVideoMuted", "true");
+
     // UI настройки
-    hashParams.append('interfaceConfig.SHOW_JITSI_WATERMARK', 'false');
-    hashParams.append('interfaceConfig.SHOW_WATERMARK_FOR_GUESTS', 'false');
-    
+    hashParameters.append("interfaceConfig.SHOW_JITSI_WATERMARK", "false");
+    hashParameters.append("interfaceConfig.SHOW_WATERMARK_FOR_GUESTS", "false");
+
     // Кнопки тулбара
-    const toolbarButtons = ['camera', 'desktop', 'microphone', 'settings', 'fullscreen', 'hangup'];
-    hashParams.append('interfaceConfig.TOOLBAR_BUTTONS', JSON.stringify(toolbarButtons));
-    
+    const toolbarButtons = [
+      "camera",
+      "desktop",
+      "microphone",
+      "settings",
+      "fullscreen",
+      "hangup",
+    ];
+    hashParameters.append(
+      "interfaceConfig.TOOLBAR_BUTTONS",
+      JSON.stringify(toolbarButtons),
+    );
+
     // Информация о пользователе через hash (дублирование для надежности)
     if (options.displayName) {
-      hashParams.append('userInfo.displayName', options.displayName);
+      hashParameters.append("userInfo.displayName", options.displayName);
     }
+
     if (options.email) {
-      hashParams.append('userInfo.email', options.email);
+      hashParameters.append("userInfo.email", options.email);
     }
+
     if (options.avatarUrl) {
-      hashParams.append('userInfo.avatarURL', options.avatarUrl);
+      hashParameters.append("userInfo.avatarURL", options.avatarUrl);
     }
-    
-    if (hashParams.toString()) {
-      url += '#' + hashParams.toString();
+
+    if (hashParameters.toString()) {
+      url += "#" + hashParameters.toString();
     }
 
     return url;
@@ -349,7 +390,7 @@ export class JitsiPureManager {
 
   private async injectLoadingOverlay() {
     if (!this.state.window || this.state.window.isDestroyed()) return;
-    
+
     try {
       await this.state.window.webContents.executeJavaScript(`
         (function() {
@@ -389,22 +430,24 @@ export class JitsiPureManager {
           document.body.appendChild(overlay);
         })();
       `);
-      
-      log.info('[JITSI-SDK] Loading overlay injected');
+
+      log.info("[JITSI-SDK] Loading overlay injected");
     } catch (error: any) {
-      log.error(`[JITSI-SDK] Failed to inject loading overlay: ${error.message}`);
+      log.error(
+        `[JITSI-SDK] Failed to inject loading overlay: ${error.message}`,
+      );
     }
   }
 
   private async waitForJitsiAndHideLoader() {
     if (!this.state.window || this.state.window.isDestroyed()) return;
-    
+
     try {
       await this.waitForJitsiReady();
-      
+
       // ОПТИМИЗАЦИЯ: Уменьшаем дополнительную задержку
-      await new Promise(resolve => setTimeout(resolve, 300));
-      
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
       // Плавно скрываем загрузчик
       await this.state.window.webContents.executeJavaScript(`
         (function() {
@@ -416,14 +459,13 @@ export class JitsiPureManager {
           }
         })();
       `);
-      
-      log.info('[JITSI-SDK] Loading overlay hidden');
-      
+
+      log.info("[JITSI-SDK] Loading overlay hidden");
+
       // После скрытия загрузчика устанавливаем аватар если нужно
       if (this.state.window && !this.state.window.isDestroyed()) {
         await this.ensureUserSettings();
       }
-      
     } catch (error: any) {
       log.error(`[JITSI-SDK] Failed to hide loader: ${error.message}`);
     }
@@ -431,10 +473,10 @@ export class JitsiPureManager {
 
   private async waitForJitsiReady(): Promise<boolean> {
     if (!this.state.window || this.state.window.isDestroyed()) return false;
-    
+
     const maxAttempts = 20; // Уменьшаем количество попыток
     let attempts = 0;
-    
+
     while (attempts < maxAttempts) {
       try {
         const isReady = await this.state.window.webContents.executeJavaScript(`
@@ -456,27 +498,27 @@ export class JitsiPureManager {
             return false;
           })();
         `);
-        
+
         if (isReady) {
-          log.info('[JITSI-SDK] Jitsi is ready');
+          log.info("[JITSI-SDK] Jitsi is ready");
           return true;
         }
-      } catch (error) {
+      } catch {
         // Игнорируем ошибки
       }
-      
-      await new Promise(resolve => setTimeout(resolve, 150)); // Проверяем чаще
+
+      await new Promise((resolve) => setTimeout(resolve, 150)); // Проверяем чаще
       attempts++;
     }
-    
-    log.warn('[JITSI-SDK] Jitsi ready timeout');
+
+    log.warn("[JITSI-SDK] Jitsi ready timeout");
     return false;
   }
 
   // Новый метод для установки пользовательских настроек после инициализации
   private async ensureUserSettings() {
     if (!this.state.window || this.state.window.isDestroyed()) return;
-    
+
     try {
       await this.state.window.webContents.executeJavaScript(`
         (function() {
@@ -515,8 +557,8 @@ export class JitsiPureManager {
           }
         })();
       `);
-      
-      log.info('[JITSI-SDK] User settings ensured');
+
+      log.info("[JITSI-SDK] User settings ensured");
     } catch (error: any) {
       log.error(`[JITSI-SDK] Failed to ensure user settings: ${error.message}`);
     }
@@ -524,7 +566,7 @@ export class JitsiPureManager {
 
   private async injectConferenceHandlers() {
     if (!this.state.window || this.state.window.isDestroyed()) return;
-    
+
     try {
       await this.state.window.webContents.executeJavaScript(`
         (function() {
@@ -653,8 +695,8 @@ export class JitsiPureManager {
           setTimeout(() => clearInterval(checkInterval), 15000);
         })();
       `);
-      
-      log.info('[JITSI-SDK] Conference handlers injected');
+
+      log.info("[JITSI-SDK] Conference handlers injected");
     } catch (error: any) {
       log.error(`[JITSI-SDK] Failed to inject handlers: ${error.message}`);
     }
@@ -662,27 +704,29 @@ export class JitsiPureManager {
 
   async closeWindow(): Promise<void> {
     if (!this.state.window || this.state.window.isDestroyed()) {
-      log.info('[JITSI-SDK] Window already closed');
+      log.info("[JITSI-SDK] Window already closed");
       return;
     }
-    
-    log.info('[JITSI-SDK] Closing conference window');
-    
+
+    log.info("[JITSI-SDK] Closing conference window");
+
     try {
       // Сохраняем ссылку на окно локально
       const windowToClose = this.state.window;
-      
+
       // Сразу обнуляем state чтобы избежать повторных вызовов
       this.state.window = null;
       this.state.isSharing = false;
       this.state.conferenceUrl = null;
-      
+
       // ВАЖНО: Сначала корректно выходим из конференции
       if (!windowToClose.isDestroyed()) {
-        log.info('[JITSI-SDK] Leaving conference before closing...');
-        
+        log.info("[JITSI-SDK] Leaving conference before closing...");
+
         // Выполняем корректный выход из конференции и ждем завершения
-        await windowToClose.webContents.executeJavaScript(`
+        await windowToClose.webContents
+          .executeJavaScript(
+            `
           (async function() {
             return new Promise((resolve) => {
               try {
@@ -719,47 +763,51 @@ export class JitsiPureManager {
               }
             });
           })();
-        `).catch((err) => {
-          log.error(`[JITSI-SDK] Error executing leave script: ${err.message}`);
-        });
-        
-        log.info('[JITSI-SDK] Conference leave completed');
-        
+        `,
+          )
+          .catch((error) => {
+            log.error(
+              `[JITSI-SDK] Error executing leave script: ${error.message}`,
+            );
+          });
+
+        log.info("[JITSI-SDK] Conference leave completed");
+
         // Показываем экран закрытия ПОСЛЕ выхода
         await this.showClosingScreenForWindow(windowToClose);
-        
+
         // Ждем еще немного
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
+        await new Promise((resolve) => setTimeout(resolve, 500));
+
         // Очищаем данные
         try {
           await windowToClose.webContents.executeJavaScript(`
             localStorage.clear();
             sessionStorage.clear();
           `);
-        } catch (e) {
+        } catch {
           // Игнорируем ошибки очистки
         }
-        
+
         // Очищаем сессию
-        const session = windowToClose.webContents.session;
+        const {session} = windowToClose.webContents;
         await session.clearStorageData();
         await session.clearCache();
-        
+
         // Уничтожаем окно
         windowToClose.removeAllListeners();
         windowToClose.webContents.removeAllListeners();
         windowToClose.destroy();
       }
-      
-      log.info('[JITSI-SDK] Window closed and state cleared');
-      
+
+      log.info("[JITSI-SDK] Window closed and state cleared");
     } catch (error: any) {
       log.error(`[JITSI-SDK] Error in closeWindow: ${error.message}`);
       // Пытаемся уничтожить окно если что-то пошло не так
       if (this.state.window && !this.state.window.isDestroyed()) {
         this.state.window.destroy();
       }
+
       this.state.window = null;
       this.state.isSharing = false;
       this.state.conferenceUrl = null;
@@ -768,7 +816,7 @@ export class JitsiPureManager {
 
   private async showClosingScreenForWindow(window: BrowserWindow) {
     if (!window || window.isDestroyed()) return;
-    
+
     try {
       await window.webContents.executeJavaScript(`
         (function() {
@@ -839,8 +887,8 @@ export class JitsiPureManager {
           window.history.replaceState = function() {};
         })();
       `);
-      
-      log.info('[JITSI-SDK] Closing screen shown');
+
+      log.info("[JITSI-SDK] Closing screen shown");
     } catch (error: any) {
       log.error(`[JITSI-SDK] Failed to show closing screen: ${error.message}`);
     }
@@ -848,8 +896,9 @@ export class JitsiPureManager {
 
   async getStatus(): Promise<any> {
     return {
-      hasWindow: !!this.state.window && !this.state.window.isDestroyed(),
-      isSharing: this.state.isSharing
+      hasWindow:
+        Boolean(this.state.window) && !this.state.window?.isDestroyed(),
+      isSharing: this.state.isSharing,
     };
   }
 }

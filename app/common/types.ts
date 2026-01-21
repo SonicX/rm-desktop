@@ -4,10 +4,7 @@ export type MenuProperties = {
   enableMenu?: boolean;
 };
 
-export type NavigationItem =
-  | "General"
-  | "Network"
-  | "Shortcuts";
+export type NavigationItem = "General" | "Network" | "Shortcuts";
 
 export type ServerConfig = {
   url: string;

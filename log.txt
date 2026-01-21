@@ -16,7 +16,7 @@ build started...
 
 build started...
 
-  VITE v5.4.20  ready in 238 ms
+  VITE v5.4.20  ready in 1098 ms
 
   ➜  Local:   http://localhost:5173/
   ➜  Network: use --host to expose
@@ -27,100 +27,136 @@ transforming...
 ✓ 6 modules transformed.
 rendering chunks...
 computing gzip size...
-dist-electron/preload.js  95.08 kB │ gzip: 25.56 kB │ map: 51.42 kB
-built in 925ms.
+dist-electron/preload.js  95.50 kB │ gzip: 25.86 kB │ map: 51.66 kB
+built in 2334ms.
 ✓ 415 modules transformed.
-✓ 1990 modules transformed.
+✓ 1996 modules transformed.
 rendering chunks...
 computing gzip size...
 rendering chunks...
-dist-electron/index.js  2,160.19 kB │ map: 4,992.01 kB
-built in 5397ms.
-dist-electron/renderer.js  779.47 kB │ gzip: 166.59 kB │ map: 1,674.02 kB
-built in 5428ms.
+dist-electron/renderer.js  779.74 kB │ gzip: 166.69 kB │ map: 1,674.84 kB
+built in 8797ms.
+dist-electron/index.js  2,163.68 kB │ map: 4,998.53 kB
+built in 8916ms.
 Debugger attached.
-16:44:51.214 › 🎯[Jitsi SDK] Module loaded: object
-[16:44:51] 🔧 Custom config for mac: serverPath = /Users/jtereschenko/Documents/IDE/rm-desktop/node_modules/node-global-key-listener/bin/MacKeyServer
-[16:44:51] ✅ Lib binary chmod: /Users/jtereschenko/Documents/IDE/rm-desktop/node_modules/node-global-key-listener/bin/MacKeyServer
-[16:44:51] 🔧 Custom config for mac: serverPath = /Users/jtereschenko/Documents/IDE/rm-desktop/node_modules/node-global-key-listener/bin/MacKeyServer
-[16:44:51] ✅ Lib binary chmod: /Users/jtereschenko/Documents/IDE/rm-desktop/node_modules/node-global-key-listener/bin/MacKeyServer
-[16:44:51] [NativeCapture] Checking for addon in 3 locations:
-[16:44:51] [NativeCapture] Platform: darwin
-[16:44:51] [NativeCapture] Is Packaged: false
-[16:44:51] [NativeCapture] __dirname: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron
-[16:44:51] [NativeCapture] process.resourcesPath: /Users/jtereschenko/Documents/IDE/rm-desktop/node_modules/electron/dist/Electron.app/Contents/Resources
-[16:44:51] [NativeCapture] Checking: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron/native-addon.node - ✅ FOUND
-[16:44:51] [NativeCapture] Loading native addon from: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron/native-addon.node
+17:16:53.017 › 🎯[Jitsi SDK] Module loaded: object
+[17:16:53] 🔧 Custom config for mac: serverPath = /Users/jtereschenko/Documents/IDE/rm-desktop/node_modules/node-global-key-listener/bin/MacKeyServer
+[17:16:53] ✅ Lib binary chmod: /Users/jtereschenko/Documents/IDE/rm-desktop/node_modules/node-global-key-listener/bin/MacKeyServer
+[17:16:53] 🔧 Custom config for mac: serverPath = /Users/jtereschenko/Documents/IDE/rm-desktop/node_modules/node-global-key-listener/bin/MacKeyServer
+[17:16:53] ✅ Lib binary chmod: /Users/jtereschenko/Documents/IDE/rm-desktop/node_modules/node-global-key-listener/bin/MacKeyServer
+[17:16:53] [NativeCapture] Checking for addon in 3 locations:
+[17:16:53] [NativeCapture] Platform: darwin
+[17:16:53] [NativeCapture] Is Packaged: false
+[17:16:53] [NativeCapture] __dirname: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron
+[17:16:53] [NativeCapture] process.resourcesPath: /Users/jtereschenko/Documents/IDE/rm-desktop/node_modules/electron/dist/Electron.app/Contents/Resources
+[17:16:53] [NativeCapture] Checking: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron/native-addon.node - ✅ FOUND
+[17:16:53] [NativeCapture] Loading native addon from: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron/native-addon.node
 🪟 [detectAddonType] Start detect
 🪟 [detectAddonType] Start more
 Test from ScreenCaptureManager
 🍎 [detectAddonType] Detected macOS Swift addon
 🪟 [detectAddonType] End detect
-[16:44:51] [NativeCapture] ✅ Native addon loaded successfully
+[17:16:53] [NativeCapture] ✅ Native addon loaded successfully
 🪟 [detectAddonType] Start detect
 🪟 [detectAddonType] Start more
 Test from ScreenCaptureManager
 🍎 [detectAddonType] Detected macOS Swift addon
 🪟 [detectAddonType] End detect
-[16:44:51] [JITSI-SDK] Failed to setup always on top: Cannot read properties of undefined (reading 'webContents')
-[16:44:51] [JITSI-SDK] Failed to setup power monitor: Cannot read properties of undefined (reading 'on')
-[16:44:51] [JITSI-SDK] SDK helper functions initialized
-[16:44:51] [JITSI-SDK] Manager created
-[34534:1229/164451.852472:ERROR:sandbox/mac/system_services.cc:35] SetApplicationIsDaemon: Error Domain=NSOSStatusErrorDomain Code=-50 "paramErr: error in user parameter list" (-50)
-Attempting to call a function in a renderer window that has been closed or released.
-Function provided here: renderer.js:46:25
+[17:16:53] [JITSI-SDK] Failed to setup always on top: Cannot read properties of undefined (reading 'webContents')
+[17:16:53] [JITSI-SDK] Failed to setup power monitor: Cannot read properties of undefined (reading 'on')
+[17:16:53] [JITSI-SDK] SDK helper functions initialized
+[17:16:53] [JITSI-SDK] Manager created
+[93057:0121/171653.970272:ERROR:sandbox/mac/system_services.cc:35] SetApplicationIsDaemon: Error Domain=NSOSStatusErrorDomain Code=-50 "paramErr: error in user parameter list" (-50)
 ✅ Окно создано!
-[16:44:52] Tray created with icon: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron/resources/tray/traymacOSTemplate.png
-[16:44:52] Tray: Создан
+[17:16:54] Tray created with icon: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron/resources/tray/traymacOSTemplate.png
+[17:16:54] Tray: Создан
 ✅ Окно создано!
-[16:44:52] Main: WebView создается с URL: https://joinrm-svz.ru/
-[16:44:52] Main: Webview preload установлен: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron/preload.js
-[16:44:52] Main: WebView создается с URL: https://joinrm-svz.ru/
-[16:44:52] Main: Webview preload установлен: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron/preload.js
-[16:44:52] Main: Preload файл существует: true
-[16:44:52] Tray: Обновлён badge на 0
+[17:16:54] Main: WebView создается с URL: http://localhost:9991/login
+[17:16:54] Main: Webview preload установлен: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron/preload.js
+[17:16:54] Main: WebView создается с URL: http://localhost:9991/login
+[17:16:54] Main: Webview preload установлен: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron/preload.js
+[17:16:54] Main: Preload файл существует: true
+[17:16:54] Tray: Обновлён badge на 0
 Preload Log: ✅ Preload: Начало выполнения
-[16:44:53] Preload Log: ✅ Preload: Начало выполнения
-[16:44:53] Preload Log: ✅ Preload: Начало выполнения
+[17:16:55] Preload Log: ✅ Preload: Начало выполнения
+[17:16:55] Preload Log: ✅ Preload: Начало выполнения
 Preload Log: ✅ Preload: Начало выполнения
-Preload Log: ✅ Preload: Загружен для URL: https://joinrm-svz.ru/
-[16:44:53] Preload Log: ✅ Preload: Загружен для URL: https://joinrm-svz.ru/
-[16:44:53] Preload Log: ✅ Preload: Загружен для URL: https://joinrm-svz.ru/
-Preload Log: ✅ Preload: Загружен для URL: https://joinrm-svz.ru/
+Preload Log: ✅ Preload: Загружен для URL: http://localhost:9991/
+[17:16:55] Preload Log: ✅ Preload: Загружен для URL: http://localhost:9991/
+[17:16:55] Preload Log: ✅ Preload: Загружен для URL: http://localhost:9991/
+Preload Log: ✅ Preload: Загружен для URL: http://localhost:9991/
 Preload Log: ✅ Preload: Initialization complete
-[16:44:53] Preload Log: ✅ Preload: Initialization complete
-[16:44:53] Preload Log: ✅ Preload: Initialization complete
+[17:16:55] Preload Log: ✅ Preload: Initialization complete
+[17:16:55] Preload Log: ✅ Preload: Initialization complete
 Preload Log: ✅ Preload: Initialization complete
-[16:44:53] Tray: Обновлён badge на 0
-[16:44:53] Tray: Обновлён badge на 0
+[17:16:55] Tray: Обновлён badge на 0
 (electron) 'console-message' arguments are deprecated and will be removed. Please use Event<WebContentsConsoleMessageEventParams> object instead.
-[16:44:53] Tray: Обновлён badge на 0
+[17:16:56] Tray: Обновлён badge на 0
+Preload Log: Bridge: Отправлено событие: total_unread_count [20]
+[17:16:57] Preload Log: Bridge: Отправлено событие: total_unread_count [20]
+[17:16:57] Preload Log: Bridge: Отправлено событие: total_unread_count [20]
+Preload Log: Bridge: Отправлено событие: total_unread_count [20]
+[17:16:57] Tray: Обновлён badge на 20
+[17:16:57] Tray: Обновлён badge на 20
 Preload Log: Bridge: Отправлено событие: request-electron-version []
-[16:44:53] Preload Log: Bridge: Отправлено событие: request-electron-version []
-[16:44:53] Preload Log: Bridge: Отправлено событие: request-electron-version []
+[17:16:57] Preload Log: Bridge: Отправлено событие: request-electron-version []
+[17:16:57] Preload Log: Bridge: Отправлено событие: request-electron-version []
 Preload Log: Bridge: Отправлено событие: request-electron-version []
 Preload Log: 📦 Zulip requested Electron version
-[16:44:53] Preload Log: 📦 Zulip requested Electron version
-[16:44:53] Preload Log: 📦 Zulip requested Electron version
+[17:16:57] Preload Log: 📦 Zulip requested Electron version
+[17:16:57] Preload Log: 📦 Zulip requested Electron version
 Preload Log: 📦 Zulip requested Electron version
-Preload Log: Bridge: Отправлено событие: electron-version [{"version":"5.27.0"}]
-[16:44:54] Preload Log: Bridge: Отправлено событие: electron-version [{"version":"5.27.0"}]
-[16:44:54] Preload Log: Bridge: Отправлено событие: electron-version [{"version":"5.27.0"}]
-Preload Log: Bridge: Отправлено событие: electron-version [{"version":"5.27.0"}]
-Preload Log: Bridge: Отправлено событие: jitsi-log-event [{"level":"info","message":"Zulip Webview: Получена версия Electron: 5.27.0"}]
-[16:44:54] Preload Log: Bridge: Отправлено событие: jitsi-log-event [{"level":"info","message":"Zulip Webview: Получена версия Electron: 5.27.0"}]
-[16:44:54] Preload Log: Bridge: Отправлено событие: jitsi-log-event [{"level":"info","message":"Zulip Webview: Получена версия Electron: 5.27.0"}]
-Preload Log: Bridge: Отправлено событие: jitsi-log-event [{"level":"info","message":"Zulip Webview: Получена версия Electron: 5.27.0"}]
-Preload Log: 📦 Sent version back to Zulip via IPC: 5.27.0
-[16:44:54] Preload Log: 📦 Sent version back to Zulip via IPC: 5.27.0
-[16:44:54] Preload Log: 📦 Sent version back to Zulip via IPC: 5.27.0
-Preload Log: 📦 Sent version back to Zulip via IPC: 5.27.0
-Preload Log: Bridge: Отправлено событие: show-update-available [{"version":"5.27.1","downloadUrl":"https://storage.yandexcloud.net/rm-electron-desktop-win/%D0%A1%D0%B2%D1%8F%D0%B7%D1%8C%20%D0%A0%D0%9C%20Setup%205.27.1.zip","releaseNotes":"ура!! обнова\nПроверяем обнову - без паники"}]
-[16:44:54] Preload Log: Bridge: Отправлено событие: show-update-available [{"version":"5.27.1","downloadUrl":"https://storage.yandexcloud.net/rm-electron-desktop-win/%D0%A1%D0%B2%D1%8F%D0%B7%D1%8C%20%D0%A0%D0%9C%20Setup%205.27.1.zip","releaseNotes":"ура!! обнова\nПроверяем обнову - без паники"}]
-[16:44:54] Preload Log: Bridge: Отправлено событие: show-update-available [{"version":"5.27.1","downloadUrl":"https://storage.yandexcloud.net/rm-electron-desktop-win/%D0%A1%D0%B2%D1%8F%D0%B7%D1%8C%20%D0%A0%D0%9C%20Setup%205.27.1.zip","releaseNotes":"ура!! обнова\nПроверяем обнову - без паники"}]
-Preload Log: Bridge: Отправлено событие: show-update-available [{"version":"5.27.1","downloadUrl":"https://storage.yandexcloud.net/rm-electron-desktop-win/%D0%A1%D0%B2%D1%8F%D0%B7%D1%8C%20%D0%A0%D0%9C%20Setup%205.27.1.zip","releaseNotes":"ура!! обнова\nПроверяем обнову - без паники"}]
-Preload Log: 📦 Update available from Zulip: v5.27.1
-[16:44:54] Preload Log: 📦 Update available from Zulip: v5.27.1
-[16:44:54] Preload Log: 📦 Update available from Zulip: v5.27.1
-Preload Log: 📦 Update available from Zulip: v5.27.1
-[16:44:54] 📦 Main: Showing update button for version 5.27.1
+Preload Log: Bridge: Отправлено событие: electron-version [{"version":"5.27.1"}]
+[17:16:57] Preload Log: Bridge: Отправлено событие: electron-version [{"version":"5.27.1"}]
+[17:16:57] Preload Log: Bridge: Отправлено событие: electron-version [{"version":"5.27.1"}]
+Preload Log: Bridge: Отправлено событие: electron-version [{"version":"5.27.1"}]
+Preload Log: Bridge: Отправлено событие: jitsi-log-event [{"level":"info","message":"Zulip Webview: Получена версия Electron: 5.27.1"}]
+[17:16:57] Preload Log: Bridge: Отправлено событие: jitsi-log-event [{"level":"info","message":"Zulip Webview: Получена версия Electron: 5.27.1"}]
+[17:16:57] Preload Log: Bridge: Отправлено событие: jitsi-log-event [{"level":"info","message":"Zulip Webview: Получена версия Electron: 5.27.1"}]
+Preload Log: Bridge: Отправлено событие: jitsi-log-event [{"level":"info","message":"Zulip Webview: Получена версия Electron: 5.27.1"}]
+Preload Log: 📦 Sent version back to Zulip via IPC: 5.27.1
+[17:16:57] Preload Log: 📦 Sent version back to Zulip via IPC: 5.27.1
+[17:16:57] Preload Log: 📦 Sent version back to Zulip via IPC: 5.27.1
+Preload Log: 📦 Sent version back to Zulip via IPC: 5.27.1
+Preload Log: ✅ Preload: Начало выполнения
+[17:17:04] Preload Log: ✅ Preload: Начало выполнения
+[17:17:04] Preload Log: ✅ Preload: Начало выполнения
+Preload Log: ✅ Preload: Начало выполнения
+Preload Log: ✅ Preload: Загружен для URL: http://localhost:9991/devlogin/
+[17:17:04] Preload Log: ✅ Preload: Загружен для URL: http://localhost:9991/devlogin/
+[17:17:04] Preload Log: ✅ Preload: Загружен для URL: http://localhost:9991/devlogin/
+Preload Log: ✅ Preload: Загружен для URL: http://localhost:9991/devlogin/
+Preload Log: ✅ Preload: Initialization complete
+[17:17:04] Preload Log: ✅ Preload: Initialization complete
+[17:17:04] Preload Log: ✅ Preload: Initialization complete
+Preload Log: ✅ Preload: Initialization complete
+[17:17:04] Tray: Обновлён badge на 0
+[17:17:04] Tray: Обновлён badge на 0
+Preload Log: ✅ Preload: Начало выполнения
+[17:17:07] Preload Log: ✅ Preload: Начало выполнения
+[17:17:07] Preload Log: ✅ Preload: Начало выполнения
+Preload Log: ✅ Preload: Начало выполнения
+Preload Log: ✅ Preload: Загружен для URL: http://localhost:9991/login/
+[17:17:07] Preload Log: ✅ Preload: Загружен для URL: http://localhost:9991/login/
+[17:17:07] Preload Log: ✅ Preload: Загружен для URL: http://localhost:9991/login/
+Preload Log: ✅ Preload: Загружен для URL: http://localhost:9991/login/
+Preload Log: ✅ Preload: Initialization complete
+[17:17:07] Preload Log: ✅ Preload: Initialization complete
+[17:17:07] Preload Log: ✅ Preload: Initialization complete
+Preload Log: ✅ Preload: Initialization complete
+[17:17:07] Tray: Обновлён badge на 0
+[17:17:07] Tray: Обновлён badge на 0
+Preload Log: ✅ Preload: Начало выполнения
+[17:17:22] Preload Log: ✅ Preload: Начало выполнения
+[17:17:22] Preload Log: ✅ Preload: Начало выполнения
+Preload Log: ✅ Preload: Начало выполнения
+Preload Log: ✅ Preload: Загружен для URL: http://localhost:9991/accounts/login/
+[17:17:22] Preload Log: ✅ Preload: Загружен для URL: http://localhost:9991/accounts/login/
+[17:17:22] Preload Log: ✅ Preload: Загружен для URL: http://localhost:9991/accounts/login/
+Preload Log: ✅ Preload: Загружен для URL: http://localhost:9991/accounts/login/
+Preload Log: ✅ Preload: Initialization complete
+[17:17:22] Preload Log: ✅ Preload: Initialization complete
+[17:17:22] Preload Log: ✅ Preload: Initialization complete
+Preload Log: ✅ Preload: Initialization complete
+[17:17:22] Tray: Обновлён badge на 0
+[17:17:22] Tray: Обновлён badge на 0

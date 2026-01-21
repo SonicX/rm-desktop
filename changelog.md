@@ -1118,7 +1118,6 @@ Minor improvements
 **Fixes**:
 
 - Fixed :
-
   - Auto-updates
   - Spellchecker
   - Zooming functionality

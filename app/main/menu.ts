@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-empty-function */
 import {shell} from "electron/common";
 import {
   BrowserWindow,
@@ -58,7 +59,7 @@ function getHelpSubmenu(): MenuItemConstructorOptions[] {
           sendAction("open-about");
         }
       },
-    }
+    },
   ];
 }
 
@@ -296,7 +297,6 @@ function getOtherTpl(properties: MenuProperties): MenuItemConstructorOptions[] {
         },
       ],
     },
-    
   ];
 }
 
@@ -329,4 +329,4 @@ function getPreviousServer(tabs: TabData[], activeTabIndex: number): number {
   return activeTabIndex;
 }
 
-export function setMenu(properties: MenuProperties): void { }
+export function setMenu(properties: MenuProperties): void {}

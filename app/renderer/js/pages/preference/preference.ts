@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import type {IpcRendererEvent} from "electron/renderer";
 import process from "node:process";
 
@@ -54,7 +55,6 @@ export class PreferenceView {
     this.navigationItem = navigationItem;
     this.nav.select(navigationItem);
     switch (navigationItem) {
-
       case "General": {
         initGeneralSection({
           $root: this.$settingsContainer,

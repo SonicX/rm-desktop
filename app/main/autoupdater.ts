@@ -1,5 +1,6 @@
-import { shell } from "electron/common";
-import { app, dialog, session } from "electron/main";
+/* eslint-disable @typescript-eslint/no-unused-vars */
+import {shell} from "electron/common";
+import {app, dialog, session} from "electron/main";
 import process from "node:process";
 
 import log from "electron-log/main";
@@ -13,9 +14,9 @@ import {
 import * as ConfigUtil from "../common/config-util.js";
 import * as t from "../common/translation-util.js";
 
-import { linuxUpdateNotification } from "./linuxupdater.js";
+import {linuxUpdateNotification} from "./linuxupdater.js";
 
-let quitting = false;
+const quitting = false;
 
 export function shouldQuitForUpdate(): boolean {
   return quitting;

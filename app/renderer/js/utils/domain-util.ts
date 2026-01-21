@@ -10,10 +10,10 @@ import {z} from "zod";
 import * as EnterpriseUtil from "../../../common/enterprise-util.js";
 import Logger from "../../../common/logger-util.js";
 import * as Messages from "../../../common/messages.js";
+import {bundleUrl} from "../../../common/paths.js";
 import * as t from "../../../common/translation-util.js";
 import type {ServerConfig} from "../../../common/types.js";
-import { bundleUrl } from "../../../common/paths.js";
-import { ipcRenderer } from "../typed-ipc-renderer.js";
+import {ipcRenderer} from "../typed-ipc-renderer.js";
 
 const logger = new Logger({
   file: "domain-util.log",

@@ -1,11 +1,16 @@
-// trayManager.ts
-import { Tray, Menu, ipcMain, app } from 'electron/main';
-import { nativeImage, NativeImage } from 'electron/common'; // Исправленный импорт для nativeImage и NativeImage
-import path from 'node:path';
-import process from 'node:process';
-import * as ConfigUtil from '../common/config-util.js'; // Адаптируйте путь
-import { publicPath } from '../common/paths.js'; // Адаптируйте путь
-import log from 'electron-log';
+// TrayManager.ts
+/* eslint-disable unicorn/filename-case, import/no-duplicates, @typescript-eslint/no-unused-vars */
+
+import type {NativeImage} from "electron/common";
+import {nativeImage} from "electron/common"; // Исправленный импорт для nativeImage и NativeImage
+import {Menu, Tray, app, ipcMain} from "electron/main"; // eslint-disable-line no-restricted-imports
+import path from "node:path";
+import process from "node:process";
+
+import log from "electron-log/main";
+
+import * as ConfigUtil from "../common/config-util.js"; // Адаптируйте путь
+import {publicPath} from "../common/paths.js"; // Адаптируйте путь
 
 let tray: Tray | null = null;
 let unread = 0;
@@ -16,17 +21,31 @@ const iconPath = (): string => {
   if (process.platform === "linux") {
     return appIcon + "linux.png";
   }
-  return appIcon + (process.platform === "win32" ? "win.ico" : "macOSTemplate.png");
+
+  return (
+    appIcon + (process.platform === "win32" ? "win.ico" : "macOSTemplate.png")
+  );
 };
 
 const winUnreadTrayIconPath = (): string => appIcon + "unread.ico";
 
 const trayIconSize = (): number => {
   switch (process.platform) {
-    case "darwin": return 20;
-    case "win32": return 100;
-    case "linux": return 100;
-    default: return 80;
+    case "darwin": {
+      return 20;
+    }
+
+    case "win32": {
+      return 100;
+    }
+
+    case "linux": {
+      return 100;
+    }
+
+    default: {
+      return 80;
+    }
   }
 };
 
@@ -45,10 +64,12 @@ const config = {
 const unreadNativeImage = function (argument: number): NativeImage {
   if (process.platform === "win32") {
     return nativeImage.createFromPath(winUnreadTrayIconPath());
-  } else {
-    let iconFile = 'tray-unread.png';
-    return nativeImage.createFromPath(path.join(publicPath, `resources/tray/${iconFile}`));
   }
+
+  const iconFile = "tray-unread.png";
+  return nativeImage.createFromPath(
+    path.join(publicPath, `resources/tray/${iconFile}`),
+  );
 };
 
 const createTray = function (mainWindow: Electron.BrowserWindow): void {
@@ -60,7 +81,7 @@ const createTray = function (mainWindow: Electron.BrowserWindow): void {
         mainWindow.show();
       },
     },
-    { type: "separator" },
+    {type: "separator"},
     {
       label: "Закрыть",
       click() {
@@ -80,6 +101,7 @@ const createTray = function (mainWindow: Electron.BrowserWindow): void {
       }
     });
   }
+
   log.info("Tray: Создан");
 };
 
@@ -88,6 +110,7 @@ export function initializeTrayManager(mainWindow: Electron.BrowserWindow) {
   if (ConfigUtil.getConfigItem("trayIcon", true)) {
     createTray(mainWindow);
   }
+
   // IPC-обработчики
   ipcMain.on("update-badge", (event, count: number) => {
     if (!tray) return;
@@ -102,6 +125,7 @@ export function initializeTrayManager(mainWindow: Electron.BrowserWindow) {
         tray.setToolTip(`Сообщения ${count}`);
       }
     }
+
     log.info(`Tray: Обновлён badge на ${count}`);
   });
 
@@ -114,6 +138,7 @@ export function initializeTrayManager(mainWindow: Electron.BrowserWindow) {
       tray = null;
       ConfigUtil.setConfigItem("trayIcon", false);
     }
+
     // Отправляем событие в рендерер для обновления UI (например, preferences)
     mainWindow.webContents.send("tray-toggled", state);
     log.info(`Tray: Переключён на ${state}`);

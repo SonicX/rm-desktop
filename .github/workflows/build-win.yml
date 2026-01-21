@@ -2,130 +2,130 @@ name: Build Windows Native Module
 
 on:
   push:
-    branches: [ main, master, native-win-test, native-win-2 ]
+    branches: [main, master, native-win-test, native-win-2]
   pull_request:
-    branches: [ main, master, native-win-test, native-win-2 ]
+    branches: [main, master, native-win-test, native-win-2]
   workflow_dispatch:
 
 jobs:
   build-windows:
     runs-on: windows-2022
-    
+
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-    
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '18'
-        
-    - name: Setup Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-        
-    - name: Setup MSBuild
-      uses: microsoft/setup-msbuild@v2
-      with:
-        msbuild-architecture: x64
-        
-    - name: Install Windows SDK
-      uses: ChristopheLav/windows-sdk-install@v1
-      with:
-        version-sdk: '22621'
-        features: 'OptionId.DesktopCPPx64'
-        
-    - name: Install node-gyp globally
-      run: npm install -g node-gyp
-        
-    - name: Check directory structure
-      working-directory: native-addon/win
-      run: |
-        echo "=== Current directory ==="
-        pwd
-        echo ""
-        echo "=== Files in root ==="
-        dir
-        echo ""
-        echo "=== Files in src/ ==="
-        dir src
-        echo ""
-        echo "=== Checking main.cpp ==="
-        if (Test-Path "src\main.cpp") {
-          echo "✓ Found main.cpp in src/"
-          $size = (Get-Item "src\main.cpp").Length
-          echo "  Size: $size bytes"
-        } else {
-          echo "✗ main.cpp not found in src/!"
-          exit 1
-        }
-        echo ""
-        echo "=== Checking audio_format.h ==="
-        if (Test-Path "src\audio_format.h") {
-          echo "✓ Found audio_format.h in src/"
-        } else {
-          echo "✗ audio_format.h not found in src/!"
-          exit 1
-        }
-        echo ""
-        echo "=== Content of binding.gyp ==="
-        type binding.gyp
-      shell: pwsh
-        
-    - name: Install dependencies
-      working-directory: native-addon/win
-      run: |
-        npm install
-        npm install node-addon-api
-        
-    - name: Clean previous builds
-      working-directory: native-addon/win
-      run: |
-        if (Test-Path build) { 
-          echo "Removing old build directory..."
-          Remove-Item -Recurse -Force build 
-        }
-        node-gyp clean
-      shell: pwsh
-        
-    - name: Configure build
-      working-directory: native-addon/win
-      run: node-gyp configure --verbose
-        
-    - name: Build native module
-      working-directory: native-addon/win
-      run: node-gyp build --verbose
-        
-    - name: List build output
-      working-directory: native-addon/win
-      run: |
-        echo "Build output:"
-        dir build\Release
-        echo "File size:"
-        powershell -Command "(Get-Item build\Release\capture.node).Length"
-        
-    - name: Test module
-      working-directory: native-addon/win
-      run: |
-        echo "Running tests..."
-        npm test
-      continue-on-error: false
-        
-    - name: Upload artifact
-      uses: actions/upload-artifact@v4
-      if: success()
-      with:
-        name: windows-capture-module
-        path: native-addon/win/build/Release/capture.node
-        retention-days: 30
-        
-    - name: Upload build logs
-      uses: actions/upload-artifact@v4
-      if: failure()
-      with:
-        name: build-logs
-        path: |
-          native-addon/win/build/
-          native-addon/win/npm-debug.log
-        retention-days: 7
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+        with:
+          msbuild-architecture: x64
+
+      - name: Install Windows SDK
+        uses: ChristopheLav/windows-sdk-install@v1
+        with:
+          version-sdk: "22621"
+          features: "OptionId.DesktopCPPx64"
+
+      - name: Install node-gyp globally
+        run: npm install -g node-gyp
+
+      - name: Check directory structure
+        working-directory: native-addon/win
+        run: |
+          echo "=== Current directory ==="
+          pwd
+          echo ""
+          echo "=== Files in root ==="
+          dir
+          echo ""
+          echo "=== Files in src/ ==="
+          dir src
+          echo ""
+          echo "=== Checking main.cpp ==="
+          if (Test-Path "src\main.cpp") {
+            echo "✓ Found main.cpp in src/"
+            $size = (Get-Item "src\main.cpp").Length
+            echo "  Size: $size bytes"
+          } else {
+            echo "✗ main.cpp not found in src/!"
+            exit 1
+          }
+          echo ""
+          echo "=== Checking audio_format.h ==="
+          if (Test-Path "src\audio_format.h") {
+            echo "✓ Found audio_format.h in src/"
+          } else {
+            echo "✗ audio_format.h not found in src/!"
+            exit 1
+          }
+          echo ""
+          echo "=== Content of binding.gyp ==="
+          type binding.gyp
+        shell: pwsh
+
+      - name: Install dependencies
+        working-directory: native-addon/win
+        run: |
+          npm install
+          npm install node-addon-api
+
+      - name: Clean previous builds
+        working-directory: native-addon/win
+        run: |
+          if (Test-Path build) { 
+            echo "Removing old build directory..."
+            Remove-Item -Recurse -Force build 
+          }
+          node-gyp clean
+        shell: pwsh
+
+      - name: Configure build
+        working-directory: native-addon/win
+        run: node-gyp configure --verbose
+
+      - name: Build native module
+        working-directory: native-addon/win
+        run: node-gyp build --verbose
+
+      - name: List build output
+        working-directory: native-addon/win
+        run: |
+          echo "Build output:"
+          dir build\Release
+          echo "File size:"
+          powershell -Command "(Get-Item build\Release\capture.node).Length"
+
+      - name: Test module
+        working-directory: native-addon/win
+        run: |
+          echo "Running tests..."
+          npm test
+        continue-on-error: false
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: windows-capture-module
+          path: native-addon/win/build/Release/capture.node
+          retention-days: 30
+
+      - name: Upload build logs
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: build-logs
+          path: |
+            native-addon/win/build/
+            native-addon/win/npm-debug.log
+          retention-days: 7

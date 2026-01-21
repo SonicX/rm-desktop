@@ -194,6 +194,12 @@
   },
   "xo": {
     "prettier": true,
+    "ignores": [
+      "native-addon/**/*.js",
+      "scripts/**/*.js",
+      "afterpack.js",
+      "app/main/trayManager.ts"
+    ],
     "rules": {
       "@typescript-eslint/no-dynamic-delete": "off",
       "arrow-body-style": "error",

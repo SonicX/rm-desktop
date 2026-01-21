@@ -1,24 +1,24 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
-const path = require('path');
+const {app, BrowserWindow, ipcMain} = require("electron");
+const path = require("node:path");
 
 // Import the addon in the main process
-const addon = require('./addon.node');
+const addon = require("./addon.node");
 
 let mainWindow;
 
 function createWindow() {
-    mainWindow = new BrowserWindow({
-        width: 900,
-        height: 600,
-        webPreferences: {
-            nodeIntegration: false,
-            contextIsolation: true,
-            preload: path.join(__dirname, 'electron_preload.js')
-        }
-    });
+  mainWindow = new BrowserWindow({
+    width: 900,
+    height: 600,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, "electron_preload.js"),
+    },
+  });
 
-    // Create simple HTML for counter demo
-    const html = `
+  // Create simple HTML for counter demo
+  const html = `
     <!DOCTYPE html>
     <html>
     <head>
@@ -287,44 +287,38 @@ function createWindow() {
     </html>
     `;
 
-    mainWindow.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
-    mainWindow.webContents.openDevTools();
+  mainWindow.loadURL(
+    "data:text/html;charset=utf-8," + encodeURIComponent(html),
+  );
+  mainWindow.webContents.openDevTools();
 }
 
 // IPC handlers
-ipcMain.handle('test-interface', async () => {
-    return addon.testMethod();
+ipcMain.handle("test-interface", async () => addon.testMethod());
+
+ipcMain.handle("setup-counters", async () => {
+  // Set up the counter callbacks
+  addon.setWebRTCVideoCallback(() => {}); // Dummy function, counters work in C++
+  addon.setWebRTCAudioCallback(() => {}); // Dummy function, counters work in C++
+  return "Counters initialized";
 });
 
-ipcMain.handle('setup-counters', async () => {
-    // Set up the counter callbacks
-    addon.setWebRTCVideoCallback(() => {}); // Dummy function, counters work in C++
-    addon.setWebRTCAudioCallback(() => {}); // Dummy function, counters work in C++
-    return "Counters initialized";
-});
+ipcMain.handle("start-capture", async () => await addon.startCapture());
 
-ipcMain.handle('start-capture', async () => {
-    return await addon.startCapture();
-});
+ipcMain.handle("stop-capture", async () => await addon.stopCapture());
 
-ipcMain.handle('stop-capture', async () => {
-    return await addon.stopCapture();
-});
-
-ipcMain.handle('get-frame-stats', async () => {
-    return addon.getFrameStats();
-});
+ipcMain.handle("get-frame-stats", async () => addon.getFrameStats());
 
 app.whenReady().then(createWindow);
 
-app.on('window-all-closed', () => {
-    if (process.platform !== 'darwin') {
-        app.quit();
-    }
+app.on("window-all-closed", () => {
+  if (process.platform !== "darwin") {
+    app.quit();
+  }
 });
 
-app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-        createWindow();
-    }
+app.on("activate", () => {
+  if (BrowserWindow.getAllWindows().length === 0) {
+    createWindow();
+  }
 });

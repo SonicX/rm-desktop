@@ -1,27 +1,32 @@
-// app/renderer/js/native-integration/jitsi-native-integration.ts
+// App/renderer/js/native-integration/jitsi-native-integration.ts
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-argument, @typescript-eslint/naming-convention, @typescript-eslint/return-await, n/no-unsupported-features/node-builtins, @typescript-eslint/no-unused-vars, @typescript-eslint/member-ordering, no-return-await */
 
-import { NativeMediaStreamBridge } from './native-mediastream-bridge';
+import {NativeMediaStreamBridge} from "./native-mediastream-bridge.js";
 
-interface NativeCaptureAPI {
+type NativeCaptureAPI = {
   isAvailable(): Promise<boolean>;
-  getCapabilities(): Promise<{ video: boolean; audio: boolean; systemAudio: boolean }>;
+  getCapabilities(): Promise<{
+    video: boolean;
+    audio: boolean;
+    systemAudio: boolean;
+  }>;
   startFullCapture(sourceId: string, options?: any): Promise<string>;
   startAudioCapture(sourceId: string, options?: any): Promise<string>;
   stopCapture(): Promise<boolean>;
-}
+};
 
-interface JitsiAPI {
-  executeCommand(command: string, ...args: any[]): void;
+type JitsiAPI = {
+  executeCommand(command: string, ...arguments_: any[]): void;
   on(event: string, callback: (data: any) => void): void;
   addTrack(track: any): void;
-}
+};
 
 export class JitsiNativeIntegration {
-  private nativeCapture: NativeCaptureAPI;
+  private readonly nativeCapture: NativeCaptureAPI;
   private currentBridge: NativeMediaStreamBridge | null = null;
   private currentStream: MediaStream | null = null;
-  private captureMode: 'full' | 'hybrid' | 'standard' = 'hybrid';
-  private isCapturing: boolean = false;
+  private captureMode: "full" | "hybrid" | "standard" = "hybrid";
+  private isCapturing = false;
 
   constructor() {
     // Используем глобальный API из preload
@@ -30,8 +35,11 @@ export class JitsiNativeIntegration {
 
   // Метод 1: Полный нативный захват (видео + аудио)
   async startFullNativeCapture(sourceId: string): Promise<MediaStream> {
-    console.log('[JitsiNative] Starting full native capture for source:', sourceId);
-    
+    console.log(
+      "[JitsiNative] Starting full native capture for source:",
+      sourceId,
+    );
+
     try {
       // Останавливаем предыдущий захват
       await this.stopCapture();
@@ -39,7 +47,7 @@ export class JitsiNativeIntegration {
       // Проверяем доступность
       const isAvailable = await this.nativeCapture.isAvailable();
       if (!isAvailable) {
-        throw new Error('Native capture not available');
+        throw new Error("Native capture not available");
       }
 
       // Создаем мост для MediaStream
@@ -51,25 +59,31 @@ export class JitsiNativeIntegration {
         height: 1080,
         frameRate: 30,
         captureAudio: true,
-        audioDevice: 'system'
+        audioDevice: "system",
       };
 
       // Запускаем захват через IPC
-      const streamId = await this.nativeCapture.startFullCapture(sourceId, config);
-      console.log('[JitsiNative] Native capture started with streamId:', streamId);
+      const streamId = await this.nativeCapture.startFullCapture(
+        sourceId,
+        config,
+      );
+      console.log(
+        "[JitsiNative] Native capture started with streamId:",
+        streamId,
+      );
 
       // Создаем MediaStream из нативных данных
-      const { mediaStream } = await this.currentBridge.createFullNativeStream(config);
+      const {mediaStream} =
+        await this.currentBridge.createFullNativeStream(config);
 
       this.currentStream = mediaStream;
       this.isCapturing = true;
-      this.captureMode = 'full';
+      this.captureMode = "full";
 
-      console.log('[JitsiNative] Full native capture started successfully');
+      console.log("[JitsiNative] Full native capture started successfully");
       return mediaStream;
-
     } catch (error) {
-      console.error('[JitsiNative] Error starting full native capture:', error);
+      console.error("[JitsiNative] Error starting full native capture:", error);
       await this.stopCapture();
       throw error;
     }
@@ -77,56 +91,63 @@ export class JitsiNativeIntegration {
 
   // Метод 2: Гибридный подход (Electron видео + нативный аудио)
   async startHybridCapture(sourceId: string): Promise<MediaStream> {
-    console.log('[JitsiNative] Starting hybrid capture for source:', sourceId);
-    
+    console.log("[JitsiNative] Starting hybrid capture for source:", sourceId);
+
     try {
       // Останавливаем предыдущий захват
       await this.stopCapture();
 
       // Проверяем, что это не нативный источник
-      if (sourceId.startsWith('native:')) {
-        console.log('[JitsiNative] Native source detected, switching to full native mode');
+      if (sourceId.startsWith("native:")) {
+        console.log(
+          "[JitsiNative] Native source detected, switching to full native mode",
+        );
         return this.startFullNativeCapture(sourceId);
       }
 
       // Используем стандартный Electron для видео
-      const constraints = {
+      // Electron-specific constraints for desktop capture
+      const constraints: any = {
         audio: false,
         video: {
           mandatory: {
-            chromeMediaSource: 'desktop',
-            chromeMediaSourceId: sourceId
-          }
-        }
+            chromeMediaSource: "desktop",
+            chromeMediaSourceId: sourceId,
+          },
+        },
       };
 
-      const videoStream = await navigator.mediaDevices.getUserMedia(constraints);
-      console.log('[JitsiNative] Got Electron video stream');
+      const videoStream =
+        await navigator.mediaDevices.getUserMedia(constraints);
+      console.log("[JitsiNative] Got Electron video stream");
 
       // Проверяем доступность нативного аудио
       const isAvailable = await this.nativeCapture.isAvailable();
       if (!isAvailable) {
-        console.warn('[JitsiNative] Native audio not available, using standard capture');
-        // Добавляем стандартный аудио
-        const audioConstraints = {
+        console.warn(
+          "[JitsiNative] Native audio not available, using standard capture",
+        );
+        // Добавляем стандартный аудио (Electron-specific constraints)
+        const audioConstraints: any = {
           audio: {
             mandatory: {
-              chromeMediaSource: 'desktop'
-            }
+              chromeMediaSource: "desktop",
+            },
           },
-          video: false
+          video: false,
         };
-        
+
         try {
-          const audioStream = await navigator.mediaDevices.getUserMedia(audioConstraints);
+          const audioStream =
+            await navigator.mediaDevices.getUserMedia(audioConstraints);
           const audioTrack = audioStream.getAudioTracks()[0];
           videoStream.addTrack(audioTrack);
-        } catch (e) {
-          console.warn('[JitsiNative] Failed to get desktop audio:', e);
+        } catch (error) {
+          console.warn("[JitsiNative] Failed to get desktop audio:", error);
         }
-        
+
         this.currentStream = videoStream;
-        this.captureMode = 'standard';
+        this.captureMode = "standard";
         return videoStream;
       }
 
@@ -134,110 +155,135 @@ export class JitsiNativeIntegration {
       this.currentBridge = new NativeMediaStreamBridge();
 
       // Запускаем захват только аудио
-      const audioStreamId = await this.nativeCapture.startAudioCapture(sourceId, {
-        captureVideo: false,
-        audioDevice: 'system'
-      });
+      const audioStreamId = await this.nativeCapture.startAudioCapture(
+        sourceId,
+        {
+          captureVideo: false,
+          audioDevice: "system",
+        },
+      );
 
       // Создаем системный аудио трек
-      const systemAudioTrack = await this.currentBridge.createSystemAudioTrack();
+      const systemAudioTrack =
+        await this.currentBridge.createSystemAudioTrack();
 
       // Создаем новый MediaStream с видео от Electron и аудио от нативного плагина
       const videoTrack = videoStream.getVideoTracks()[0];
       this.currentStream = new MediaStream([videoTrack, systemAudioTrack]);
-      
+
       this.isCapturing = true;
-      this.captureMode = 'hybrid';
+      this.captureMode = "hybrid";
 
-      console.log('[JitsiNative] Hybrid capture started successfully');
+      console.log("[JitsiNative] Hybrid capture started successfully");
       return this.currentStream;
-
     } catch (error) {
-      console.error('[JitsiNative] Error starting hybrid capture:', error);
+      console.error("[JitsiNative] Error starting hybrid capture:", error);
       await this.stopCapture();
       throw error;
     }
   }
 
   // Автоматический выбор метода на основе возможностей
-  async startSmartCapture(sourceId: string, preferredMode: 'full' | 'hybrid' | 'standard' = 'hybrid'): Promise<MediaStream> {
-    console.log('[JitsiNative] Starting smart capture, preferred mode:', preferredMode);
+  async startSmartCapture(
+    sourceId: string,
+    preferredMode: "full" | "hybrid" | "standard" = "hybrid",
+  ): Promise<MediaStream> {
+    console.log(
+      "[JitsiNative] Starting smart capture, preferred mode:",
+      preferredMode,
+    );
 
     // Если выбран нативный источник
-    if (sourceId === 'native:system-audio') {
-      console.log('[JitsiNative] Native source selected, starting full native capture');
+    if (sourceId === "native:system-audio") {
+      console.log(
+        "[JitsiNative] Native source selected, starting full native capture",
+      );
       // Нужно выбрать реальный источник для видео
       const realSourceId = await this.selectRealSource();
       if (!realSourceId) {
-        throw new Error('No source selected');
+        throw new Error("No source selected");
       }
+
       return this.startFullNativeCapture(realSourceId);
     }
 
     // Проверяем возможности нативного аддона
     const capabilities = await this.checkNativeCapabilities();
-    console.log('[JitsiNative] Native capabilities:', capabilities);
+    console.log("[JitsiNative] Native capabilities:", capabilities);
 
-    if (preferredMode === 'full' && capabilities.canCaptureVideo && capabilities.canCaptureAudio) {
+    if (
+      preferredMode === "full" &&
+      capabilities.canCaptureVideo &&
+      capabilities.canCaptureAudio
+    ) {
       // Пробуем полный нативный захват
       try {
         return await this.startFullNativeCapture(sourceId);
       } catch (error) {
-        console.warn('[JitsiNative] Full native capture failed, falling back to hybrid:', error);
-        return await this.startHybridCapture(sourceId);
+        console.warn(
+          "[JitsiNative] Full native capture failed, falling back to hybrid:",
+          error,
+        );
+        return this.startHybridCapture(sourceId);
       }
     } else if (capabilities.canCaptureAudio) {
       // Используем гибридный подход
-      return await this.startHybridCapture(sourceId);
+      return this.startHybridCapture(sourceId);
     } else {
       // Fallback на обычный Electron захват
-      console.warn('[JitsiNative] Native audio not available, using standard capture');
-      return await this.startStandardCapture(sourceId);
+      console.warn(
+        "[JitsiNative] Native audio not available, using standard capture",
+      );
+      return this.startStandardCapture(sourceId);
     }
   }
 
   // Стандартный Electron захват (fallback)
   async startStandardCapture(sourceId: string): Promise<MediaStream> {
-    console.log('[JitsiNative] Starting standard Electron capture');
-    
-    const constraints = {
+    console.log("[JitsiNative] Starting standard Electron capture");
+
+    // Electron-specific constraints for desktop capture
+    const constraints: any = {
       audio: {
         mandatory: {
-          chromeMediaSource: 'desktop'
-        }
+          chromeMediaSource: "desktop",
+        },
       },
       video: {
         mandatory: {
-          chromeMediaSource: 'desktop',
-          chromeMediaSourceId: sourceId
-        }
-      }
+          chromeMediaSource: "desktop",
+          chromeMediaSourceId: sourceId,
+        },
+      },
     };
 
     const stream = await navigator.mediaDevices.getUserMedia(constraints);
     this.currentStream = stream;
     this.isCapturing = true;
-    this.captureMode = 'standard';
-    
+    this.captureMode = "standard";
+
     return stream;
   }
 
   // Проверка возможностей нативного аддона
-  async checkNativeCapabilities(): Promise<{ canCaptureVideo: boolean; canCaptureAudio: boolean }> {
+  async checkNativeCapabilities(): Promise<{
+    canCaptureVideo: boolean;
+    canCaptureAudio: boolean;
+  }> {
     try {
       const isAvailable = await this.nativeCapture.isAvailable();
       if (!isAvailable) {
-        return { canCaptureVideo: false, canCaptureAudio: false };
+        return {canCaptureVideo: false, canCaptureAudio: false};
       }
 
       const capabilities = await this.nativeCapture.getCapabilities();
       return {
         canCaptureVideo: capabilities.video,
-        canCaptureAudio: capabilities.audio || capabilities.systemAudio
+        canCaptureAudio: capabilities.audio || capabilities.systemAudio,
       };
     } catch (error) {
-      console.error('[JitsiNative] Error checking capabilities:', error);
-      return { canCaptureVideo: false, canCaptureAudio: false };
+      console.error("[JitsiNative] Error checking capabilities:", error);
+      return {canCaptureVideo: false, canCaptureAudio: false};
     }
   }
 
@@ -245,8 +291,8 @@ export class JitsiNativeIntegration {
   private async selectRealSource(): Promise<string | null> {
     return new Promise((resolve) => {
       // Запускаем процесс выбора источника
-      const event = new CustomEvent('select-native-source', {
-        detail: { callback: resolve }
+      const event = new CustomEvent("select-native-source", {
+        detail: {callback: resolve},
       });
       window.dispatchEvent(event);
     });
@@ -254,13 +300,14 @@ export class JitsiNativeIntegration {
 
   // Остановка захвата
   async stopCapture(): Promise<void> {
-    console.log('[JitsiNative] Stopping capture, mode:', this.captureMode);
+    console.log("[JitsiNative] Stopping capture, mode:", this.captureMode);
 
     if (this.currentStream) {
-      this.currentStream.getTracks().forEach(track => {
+      for (const track of this.currentStream.getTracks()) {
         track.stop();
         console.log(`[JitsiNative] Stopped track: ${track.kind}`);
-      });
+      }
+
       this.currentStream = null;
     }
 
@@ -269,11 +316,14 @@ export class JitsiNativeIntegration {
       this.currentBridge = null;
     }
 
-    if (this.isCapturing && (this.captureMode === 'full' || this.captureMode === 'hybrid')) {
+    if (
+      this.isCapturing &&
+      (this.captureMode === "full" || this.captureMode === "hybrid")
+    ) {
       try {
         await this.nativeCapture.stopCapture();
       } catch (error) {
-        console.error('[JitsiNative] Error stopping native capture:', error);
+        console.error("[JitsiNative] Error stopping native capture:", error);
       }
     }
 
@@ -296,10 +346,17 @@ export class JitsiNativeIntegration {
     return {
       isCapturing: this.isCapturing,
       mode: this.captureMode,
-      hasVideo: this.currentStream ? this.currentStream.getVideoTracks().length > 0 : false,
-      hasAudio: this.currentStream ? this.currentStream.getAudioTracks().length > 0 : false,
-      hasSystemAudio: this.currentStream ? 
-        this.currentStream.getAudioTracks().some(track => (track as any)._isSystemAudio) : false
+      hasVideo: this.currentStream
+        ? this.currentStream.getVideoTracks().length > 0
+        : false,
+      hasAudio: this.currentStream
+        ? this.currentStream.getAudioTracks().length > 0
+        : false,
+      hasSystemAudio: this.currentStream
+        ? this.currentStream
+            .getAudioTracks()
+            .some((track) => (track as any)._isSystemAudio)
+        : false,
     };
   }
 }
@@ -310,50 +367,57 @@ export function integrateWithJitsi(jitsiAPI: JitsiAPI): JitsiNativeIntegration {
 
   // Сохраняем оригинальный метод
   const originalExecuteCommand = jitsiAPI.executeCommand.bind(jitsiAPI);
-  
+
   // Переопределяем executeCommand
-  jitsiAPI.executeCommand = async function(command: string, ...args: any[]) {
-    if (command === 'toggleShareScreen' || command === 'startShareScreen') {
-      console.log('[JitsiNative] Intercepting screen share command');
-      
+  jitsiAPI.executeCommand = async function (
+    command: string,
+    ...arguments_: any[]
+  ) {
+    if (command === "toggleShareScreen" || command === "startShareScreen") {
+      console.log("[JitsiNative] Intercepting screen share command");
+
       try {
         // Ждем выбора источника если он не передан
-        let sourceId = args[0];
-        
+        const sourceId = arguments_[0];
+
         if (!sourceId) {
-          console.log('[JitsiNative] No source provided, waiting for selection...');
+          console.log(
+            "[JitsiNative] No source provided, waiting for selection...",
+          );
           // Здесь Jitsi сам покажет диалог выбора
-          originalExecuteCommand(command, ...args);
+          originalExecuteCommand(command, ...arguments_);
           return;
         }
 
         // Если выбран нативный источник или нужен системный звук
         const captureMode = await getCaptureMode();
-        
-        if (sourceId === 'native:system-audio' || captureMode !== 'standard') {
+
+        if (sourceId === "native:system-audio" || captureMode !== "standard") {
           // Запускаем нативный захват
-          const stream = await integration.startSmartCapture(sourceId, captureMode as any);
-          
+          const stream = await integration.startSmartCapture(
+            sourceId,
+            captureMode as any,
+          );
+
           // Заменяем поток в Jitsi
           replaceJitsiStream(jitsiAPI, stream);
         } else {
           // Используем стандартный метод
-          originalExecuteCommand(command, ...args);
+          originalExecuteCommand(command, ...arguments_);
         }
-        
       } catch (error) {
-        console.error('[JitsiNative] Error in screen share:', error);
-        originalExecuteCommand(command, ...args);
+        console.error("[JitsiNative] Error in screen share:", error);
+        originalExecuteCommand(command, ...arguments_);
       }
     } else {
-      originalExecuteCommand(command, ...args);
+      originalExecuteCommand(command, ...arguments_);
     }
   };
 
   // Обработчик остановки демонстрации
-  jitsiAPI.on('screenSharingStatusChanged', async (event: any) => {
+  jitsiAPI.on("screenSharingStatusChanged", async (event: any) => {
     if (!event.on) {
-      console.log('[JitsiNative] Screen sharing stopped');
+      console.log("[JitsiNative] Screen sharing stopped");
       await integration.stopCapture();
     }
   });
@@ -367,28 +431,31 @@ async function getCaptureMode(): Promise<string> {
   if ((window as any).JitsiNativeIntegration?.selectCaptureMode) {
     return await (window as any).JitsiNativeIntegration.selectCaptureMode();
   }
-  return 'standard';
+
+  return "standard";
 }
 
 function replaceJitsiStream(jitsiAPI: JitsiAPI, stream: MediaStream): void {
   // Здесь нужна интеграция с Jitsi API для замены потока
-  console.log('[JitsiNative] Replacing Jitsi stream with native stream');
-  
+  console.log("[JitsiNative] Replacing Jitsi stream with native stream");
+
   // Это зависит от версии Jitsi и доступных методов
   // Возможные варианты:
-  
+
   // 1. Через JitsiMeetJS
   if ((window as any).JitsiMeetJS) {
-    console.log('[JitsiNative] Using JitsiMeetJS to replace stream');
+    console.log("[JitsiNative] Using JitsiMeetJS to replace stream");
     // Код для замены через JitsiMeetJS
   }
-  
+
   // 2. Через внутренние методы
   if ((jitsiAPI as any)._replaceStream) {
-    console.log('[JitsiNative] Using internal _replaceStream method');
+    console.log("[JitsiNative] Using internal _replaceStream method");
     (jitsiAPI as any)._replaceStream(stream);
   }
-  
+
   // 3. Через события
-  window.dispatchEvent(new CustomEvent('jitsi-replace-stream', { detail: stream }));
+  window.dispatchEvent(
+    new CustomEvent("jitsi-replace-stream", {detail: stream}),
+  );
 }

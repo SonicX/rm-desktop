@@ -1,11 +1,14 @@
-// jitsi-manager.ts - Модуль для управления Jitsi окнами
-import { BrowserWindow, ipcMain, webContents } from "electron";
-import * as path from "path";
-import log from "electron-log";
-import { NativeCaptureManager } from "./native-capture";
-import { JitsiScreenShareMonitor } from "./jitsi-screen-share-monitor";
+// Jitsi-manager.ts - Модуль для управления Jitsi окнами
+/* eslint-disable @typescript-eslint/naming-convention, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/member-ordering, @typescript-eslint/prefer-nullish-coalescing, no-promise-executor-return, promise/prefer-await-to-then, @typescript-eslint/no-floating-promises, @typescript-eslint/await-thenable, @typescript-eslint/no-confusing-void-expression, @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires, n/prefer-global/process, @typescript-eslint/parameter-properties, @typescript-eslint/prefer-optional-chain, @typescript-eslint/use-unknown-in-catch-callback-variable, no-await-in-loop, @typescript-eslint/class-literal-property-style, @typescript-eslint/no-empty-function, unicorn/no-useless-spread, @typescript-eslint/restrict-template-expressions */
+import {BrowserWindow, ipcMain} from "electron/main"; // eslint-disable-line no-restricted-imports
+import * as path from "node:path";
 
-export interface JitsiOptions {
+import log from "electron-log/main";
+
+import {JitsiScreenShareMonitor} from "./jitsi-screen-share-monitor.js";
+import {CAPTURE_PRESETS, type NativeCaptureManager} from "./native-capture.js";
+
+export type JitsiOptions = {
   roomName: string;
   serverUrl?: string;
   displayName?: string;
@@ -13,387 +16,419 @@ export interface JitsiOptions {
     displayName: string;
     email: string;
     avatarUrl?: string;
-  }
+  };
   email?: string;
   avatarUrl?: string;
   jwt?: string;
   topic?: string;
   stream?: string;
-}
+};
 
-export interface JitsiResult {
-  success: boolean,  // Чтобы Zulip не запускал iframe
-  conferenceStarted: boolean,
-  error?: string
-}
+export type JitsiResult = {
+  success: boolean; // Чтобы Zulip не запускал iframe
+  conferenceStarted: boolean;
+  error?: string;
+};
 
-export interface JitsiState {
+export type JitsiState = {
   window: BrowserWindow | null;
   isStreamActive: boolean;
   streamId: string | null;
   lastSelectedSourceId?: string;
-  videoFrameCount?: number; 
+  videoFrameCount?: number;
   audioFrameCount?: number;
   qualityPreset?: string;
   useNativeAudio: boolean;
-}
+};
 
-enum AudioRoutingMode {
-  NORMAL = 'normal',           // Стандартная конференция
-  PRESENTER_MIX = 'presenter_mix'  // Демонстратор микширует все
-}
+// Enum for future use
+// enum AudioRoutingMode {
+//   NORMAL = "normal",
+//   PRESENTER_MIX = "presenter_mix",
+// }
 
-interface ScreenShareState {
-  presenterId: string | null;
-  routingMode: AudioRoutingMode;
-  privateTracks: Map<string, any>; // Приватные треки от участников
-}
+// Type for future use
+// type ScreenShareState = {
+//   presenterId: string | null;
+//   routingMode: AudioRoutingMode;
+//   privateTracks: Map<string, any>;
+// };
 
 // ===== ОПРЕДЕЛЕНИЕ ПРЕСЕТОВ КАЧЕСТВА ВИДЕО =====
-export interface VideoQualityPreset {
-    name: string;
-    description: string;
-    width: { min: number; max: number };
-    height: { min: number; max: number };
-    frameRate: { min: number; max: number };
-    bitrate?: number; // опционально для WebRTC
-}
+export type VideoQualityPreset = {
+  name: string;
+  description: string;
+  width: {min: number; max: number};
+  height: {min: number; max: number};
+  frameRate: {min: number; max: number};
+  bitrate?: number; // Опционально для WebRTC
+};
 
 // ===== КЛАСС УПРАВЛЕНИЯ КАЧЕСТВОМ =====
 export class VideoQualityManager {
-    private currentPreset: string = 'HIGH';
-    private customSettings: VideoQualityPreset | null = null;
-    
-    constructor() {
-        log.info("[VIDEO-QUALITY] Manager initialized with HIGH preset");
+  private currentPreset = "HIGH";
+  private customSettings: VideoQualityPreset | null = null;
+
+  constructor() {
+    log.info("[VIDEO-QUALITY] Manager initialized with HIGH preset");
+  }
+
+  // Установить пресет качества
+  setPreset(
+    presetName: keyof typeof VIDEO_QUALITY_PRESETS,
+  ): VideoQualityPreset {
+    if (!VIDEO_QUALITY_PRESETS[presetName]) {
+      log.error(`[VIDEO-QUALITY] Unknown preset: ${presetName}`);
+      return VIDEO_QUALITY_PRESETS.HIGH;
     }
-    
-    // Установить пресет качества
-    setPreset(presetName: keyof typeof VIDEO_QUALITY_PRESETS): VideoQualityPreset {
-        if (!VIDEO_QUALITY_PRESETS[presetName]) {
-            log.error(`[VIDEO-QUALITY] Unknown preset: ${presetName}`);
-            return VIDEO_QUALITY_PRESETS.HIGH;
-        }
-        
-        this.currentPreset = presetName;
-        this.customSettings = null;
-        
-        const preset = VIDEO_QUALITY_PRESETS[presetName];
-        log.info(`[VIDEO-QUALITY] Set preset: ${preset.name} - ${preset.description}`);
-        
-        return preset;
+
+    this.currentPreset = presetName;
+    this.customSettings = null;
+
+    const preset = VIDEO_QUALITY_PRESETS[presetName];
+    log.info(
+      `[VIDEO-QUALITY] Set preset: ${preset.name} - ${preset.description}`,
+    );
+
+    return preset;
+  }
+
+  // Установить кастомные настройки
+  setCustomQuality(settings: Partial<VideoQualityPreset>): VideoQualityPreset {
+    this.customSettings = {
+      name: "Custom",
+      description: "User defined settings",
+      width: settings.width || {min: 1280, max: 1920},
+      height: settings.height || {min: 720, max: 1080},
+      frameRate: settings.frameRate || {min: 15, max: 30},
+      bitrate: settings.bitrate,
+    };
+
+    log.info(
+      `[VIDEO-QUALITY] Set custom: ${this.customSettings.width.max}x${this.customSettings.height.max}@${this.customSettings.frameRate.max}fps`,
+    );
+
+    return this.customSettings;
+  }
+
+  // Получить текущие настройки
+  getCurrentSettings(): VideoQualityPreset {
+    if (this.customSettings) {
+      return this.customSettings;
     }
-    
-    // Установить кастомные настройки
-    setCustomQuality(settings: Partial<VideoQualityPreset>): VideoQualityPreset {
-        this.customSettings = {
-            name: 'Custom',
-            description: 'User defined settings',
-            width: settings.width || { min: 1280, max: 1920 },
-            height: settings.height || { min: 720, max: 1080 },
-            frameRate: settings.frameRate || { min: 15, max: 30 },
-            bitrate: settings.bitrate
-        };
-        
-        log.info(`[VIDEO-QUALITY] Set custom: ${this.customSettings.width.max}x${this.customSettings.height.max}@${this.customSettings.frameRate.max}fps`);
-        
-        return this.customSettings;
+
+    return VIDEO_QUALITY_PRESETS[this.currentPreset];
+  }
+
+  // Сформировать constraints для getUserMedia
+  getMediaConstraints(): any {
+    const settings = this.getCurrentSettings();
+
+    return {
+      mandatory: {
+        chromeMediaSource: "desktop",
+        minWidth: settings.width.min,
+        maxWidth: settings.width.max,
+        minHeight: settings.height.min,
+        maxHeight: settings.height.max,
+        minFrameRate: settings.frameRate.min,
+        maxFrameRate: settings.frameRate.max,
+      },
+    };
+  }
+
+  // Адаптивная настройка по пропускной способности
+  async adaptQualityToBandwidth(
+    availableBandwidth: number,
+  ): Promise<VideoQualityPreset> {
+    log.info(
+      `[VIDEO-QUALITY] Adapting to bandwidth: ${(availableBandwidth / 1_000_000).toFixed(2)} Mbps`,
+    );
+
+    // Выбираем подходящий пресет по битрейту
+    if (availableBandwidth < 300_000) {
+      return this.setPreset("ULTRALOW");
     }
-    
-    // Получить текущие настройки
-    getCurrentSettings(): VideoQualityPreset {
-        if (this.customSettings) {
-            return this.customSettings;
-        }
-        return VIDEO_QUALITY_PRESETS[this.currentPreset];
+
+    if (availableBandwidth < 700_000) {
+      return this.setPreset("LOW");
     }
-    
-    // Сформировать constraints для getUserMedia
-    getMediaConstraints(): any {
-        const settings = this.getCurrentSettings();
-        
-        return {
-            mandatory: {
-                chromeMediaSource: 'desktop',
-                minWidth: settings.width.min,
-                maxWidth: settings.width.max,
-                minHeight: settings.height.min,
-                maxHeight: settings.height.max,
-                minFrameRate: settings.frameRate.min,
-                maxFrameRate: settings.frameRate.max
-            }
-        };
+
+    if (availableBandwidth < 1_500_000) {
+      return this.setPreset("MEDIUM");
     }
-    
-    // Адаптивная настройка по пропускной способности
-    async adaptQualityToBandwidth(availableBandwidth: number): Promise<VideoQualityPreset> {
-        log.info(`[VIDEO-QUALITY] Adapting to bandwidth: ${(availableBandwidth / 1000000).toFixed(2)} Mbps`);
-        
-        // Выбираем подходящий пресет по битрейту
-        if (availableBandwidth < 300000) {
-            return this.setPreset('ULTRALOW');
-        } else if (availableBandwidth < 700000) {
-            return this.setPreset('LOW');
-        } else if (availableBandwidth < 1500000) {
-            return this.setPreset('MEDIUM');
-        } else if (availableBandwidth < 3000000) {
-            return this.setPreset('HIGH');
-        } else if (availableBandwidth < 5000000) {
-            return this.setPreset('ULTRA');
-        } else {
-            return this.setPreset('ULTRA_HD');
-        }
+
+    if (availableBandwidth < 3_000_000) {
+      return this.setPreset("HIGH");
     }
-    
-    // Мониторинг реального качества
-    analyzeActualQuality(videoTrack: MediaStreamTrack): {
-        preset: string;
-        actual: { width: number; height: number; frameRate: number };
-        match: boolean;
-    } {
-        const settings = videoTrack.getSettings();
-        const current = this.getCurrentSettings();
-        
-        const actualQuality = {
-            width: settings.width || 0,
-            height: settings.height || 0,
-            frameRate: settings.frameRate || 0
-        };
-        
-        // Проверяем соответствие
-        const match = 
-            actualQuality.width >= current.width.min &&
-            actualQuality.width <= current.width.max &&
-            actualQuality.height >= current.height.min &&
-            actualQuality.height <= current.height.max &&
-            actualQuality.frameRate >= current.frameRate.min &&
-            actualQuality.frameRate <= current.frameRate.max;
-        
-        log.info(`[VIDEO-QUALITY] Actual: ${actualQuality.width}x${actualQuality.height}@${actualQuality.frameRate}fps`);
-        log.info(`[VIDEO-QUALITY] Match preset: ${match ? 'YES' : 'NO'}`);
-        
-        return {
-            preset: this.customSettings ? 'Custom' : this.currentPreset,
-            actual: actualQuality,
-            match
-        };
+
+    if (availableBandwidth < 5_000_000) {
+      return this.setPreset("ULTRA");
     }
+
+    return this.setPreset("ULTRA_HD");
+  }
+
+  // Мониторинг реального качества
+  analyzeActualQuality(videoTrack: MediaStreamTrack): {
+    preset: string;
+    actual: {width: number; height: number; frameRate: number};
+    match: boolean;
+  } {
+    const settings = videoTrack.getSettings();
+    const current = this.getCurrentSettings();
+
+    const actualQuality = {
+      width: settings.width || 0,
+      height: settings.height || 0,
+      frameRate: settings.frameRate || 0,
+    };
+
+    // Проверяем соответствие
+    const match =
+      actualQuality.width >= current.width.min &&
+      actualQuality.width <= current.width.max &&
+      actualQuality.height >= current.height.min &&
+      actualQuality.height <= current.height.max &&
+      actualQuality.frameRate >= current.frameRate.min &&
+      actualQuality.frameRate <= current.frameRate.max;
+
+    log.info(
+      `[VIDEO-QUALITY] Actual: ${actualQuality.width}x${actualQuality.height}@${actualQuality.frameRate}fps`,
+    );
+    log.info(`[VIDEO-QUALITY] Match preset: ${match ? "YES" : "NO"}`);
+
+    return {
+      preset: this.customSettings ? "Custom" : this.currentPreset,
+      actual: actualQuality,
+      match,
+    };
+  }
 }
 
-export const VIDEO_QUALITY_PRESETS: { [key: string]: VideoQualityPreset } = {
-    // Ультра низкое - для экономии трафика
-    ULTRALOW: {
-        name: 'Ultra Low',
-        description: '360p @ 10fps - минимальный трафик',
-        width: { min: 360, max: 400 },
-        height: { min: 240, max: 260 },
-        frameRate: { min: 1, max: 3 },
-        bitrate: 200000 // 200 kbps
-    },
-    
-    // Низкое - базовое качество
-    LOW: {
-        name: 'Low',
-        description: '480p @ 15fps - экономия трафика',
-        width: { min: 640, max: 854 },
-        height: { min: 480, max: 480 },
-        frameRate: { min: 10, max: 15 },
-        bitrate: 500000 // 500 kbps
-    },
-    
-    // Среднее - оптимальный баланс
-    MEDIUM: {
-        name: 'Medium',
-        description: '720p @ 20fps - баланс качества и трафика',
-        width: { min: 1024, max: 1280 },
-        height: { min: 576, max: 720 },
-        frameRate: { min: 15, max: 20 },
-        bitrate: 1000000 // 1 Mbps
-    },
-    
-    // Высокое - для презентаций
-    HIGH: {
-        name: 'High',
-        description: '1080p @ 30fps - высокое качество',
-        width: { min: 1280, max: 1920 },
-        height: { min: 720, max: 1080 },
-        frameRate: { min: 15, max: 30 },
-        bitrate: 2500000 // 2.5 Mbps
-    },
-    
-    // Ультра - максимальное качество
-    ULTRA: {
-        name: 'Ultra',
-        description: '1080p @ 60fps - максимальное качество',
-        width: { min: 1920, max: 1920 },
-        height: { min: 1080, max: 1080 },
-        frameRate: { min: 30, max: 60 },
-        bitrate: 4000000 // 4 Mbps
-    },
-    
-    // 4K - для специальных случаев
-    ULTRA_HD: {
-        name: '4K',
-        description: '4K @ 30fps - ультра высокое разрешение',
-        width: { min: 2560, max: 3840 },
-        height: { min: 1440, max: 2160 },
-        frameRate: { min: 15, max: 30 },
-        bitrate: 8000000 // 8 Mbps
-    },
-    
-    // Презентация - оптимизировано для статичного контента
-    PRESENTATION: {
-        name: 'Presentation',
-        description: '1080p @ 5fps - для слайдов',
-        width: { min: 1920, max: 1920 },
-        height: { min: 1080, max: 1080 },
-        frameRate: { min: 3, max: 5 },
-        bitrate: 1000000 // 1 Mbps
-    },
-    
-    // Адаптивное - подстраивается под сеть
-    ADAPTIVE: {
-        name: 'Adaptive',
-        description: 'Автоматическая настройка',
-        width: { min: 640, max: 1920 },
-        height: { min: 480, max: 1080 },
-        frameRate: { min: 10, max: 30 },
-        bitrate: 0 // Автоматически
-    }
+export const VIDEO_QUALITY_PRESETS: Record<string, VideoQualityPreset> = {
+  // Ультра низкое - для экономии трафика
+  ULTRALOW: {
+    name: "Ultra Low",
+    description: "360p @ 10fps - минимальный трафик",
+    width: {min: 360, max: 400},
+    height: {min: 240, max: 260},
+    frameRate: {min: 1, max: 3},
+    bitrate: 200_000, // 200 kbps
+  },
+
+  // Низкое - базовое качество
+  LOW: {
+    name: "Low",
+    description: "480p @ 15fps - экономия трафика",
+    width: {min: 640, max: 854},
+    height: {min: 480, max: 480},
+    frameRate: {min: 10, max: 15},
+    bitrate: 500_000, // 500 kbps
+  },
+
+  // Среднее - оптимальный баланс
+  MEDIUM: {
+    name: "Medium",
+    description: "720p @ 20fps - баланс качества и трафика",
+    width: {min: 1024, max: 1280},
+    height: {min: 576, max: 720},
+    frameRate: {min: 15, max: 20},
+    bitrate: 1_000_000, // 1 Mbps
+  },
+
+  // Высокое - для презентаций
+  HIGH: {
+    name: "High",
+    description: "1080p @ 30fps - высокое качество",
+    width: {min: 1280, max: 1920},
+    height: {min: 720, max: 1080},
+    frameRate: {min: 15, max: 30},
+    bitrate: 2_500_000, // 2.5 Mbps
+  },
+
+  // Ультра - максимальное качество
+  ULTRA: {
+    name: "Ultra",
+    description: "1080p @ 60fps - максимальное качество",
+    width: {min: 1920, max: 1920},
+    height: {min: 1080, max: 1080},
+    frameRate: {min: 30, max: 60},
+    bitrate: 4_000_000, // 4 Mbps
+  },
+
+  // 4K - для специальных случаев
+  ULTRA_HD: {
+    name: "4K",
+    description: "4K @ 30fps - ультра высокое разрешение",
+    width: {min: 2560, max: 3840},
+    height: {min: 1440, max: 2160},
+    frameRate: {min: 15, max: 30},
+    bitrate: 8_000_000, // 8 Mbps
+  },
+
+  // Презентация - оптимизировано для статичного контента
+  PRESENTATION: {
+    name: "Presentation",
+    description: "1080p @ 5fps - для слайдов",
+    width: {min: 1920, max: 1920},
+    height: {min: 1080, max: 1080},
+    frameRate: {min: 3, max: 5},
+    bitrate: 1_000_000, // 1 Mbps
+  },
+
+  // Адаптивное - подстраивается под сеть
+  ADAPTIVE: {
+    name: "Adaptive",
+    description: "Автоматическая настройка",
+    width: {min: 640, max: 1920},
+    height: {min: 480, max: 1080},
+    frameRate: {min: 10, max: 30},
+    bitrate: 0, // Автоматически
+  },
 };
 
-export interface JitsiManagerConfig {
-    videoQuality?: keyof typeof VIDEO_QUALITY_PRESETS;
-    audioQuality?: keyof typeof CAPTURE_PRESETS;
-    useHybridMode?: boolean; // true = Electron video + Native audio, false = все от Native
-    enableDebugUI?: boolean;
-    enablePerformanceMonitoring?: boolean;
-    monitoringInterval?: number; // ms
-}
+export type JitsiManagerConfig = {
+  videoQuality?: keyof typeof VIDEO_QUALITY_PRESETS;
+  audioQuality?: keyof typeof CAPTURE_PRESETS;
+  useHybridMode?: boolean; // True = Electron video + Native audio, false = все от Native
+  enableDebugUI?: boolean;
+  enablePerformanceMonitoring?: boolean;
+  monitoringInterval?: number; // Ms
+  forceStandardJitsi?: boolean; // Force use standard Jitsi without native
+};
 
 // Настройки по умолчанию
 const DEFAULT_CONFIG: JitsiManagerConfig = {
-    videoQuality: 'MEDIUM',
-    audioQuality: 'MEDIUM', // для Native (не используется в hybrid mode)
-    useHybridMode: true,
-    enableDebugUI: true,
-    enablePerformanceMonitoring: false,
-    monitoringInterval: 5000
+  videoQuality: "MEDIUM",
+  audioQuality: "MEDIUM", // Для Native (не используется в hybrid mode)
+  useHybridMode: true,
+  enableDebugUI: true,
+  enablePerformanceMonitoring: false,
+  monitoringInterval: 5000,
 };
 
 export class JitsiManager {
-    private state: JitsiState = {
-        window: null,
-        isStreamActive: false,
-        streamId: null,
-        useNativeAudio: true
-    };
+  private state: JitsiState = {
+    window: null,
+    isStreamActive: false,
+    streamId: null,
+    useNativeAudio: true,
+  };
 
-    private nativeCapture: NativeCaptureManager;
-    private bundlePath: string;
-    private iconPath: string;
-    private config: JitsiManagerConfig;
-    private videoQualityManager: VideoQualityManager;
-    private performanceMonitoringInterval?: NodeJS.Timer;
+  private readonly nativeCapture: NativeCaptureManager;
+  private readonly bundlePath: string;
+  private readonly iconPath: string;
+  private config: JitsiManagerConfig;
+  private videoQualityManager: VideoQualityManager;
+  private performanceMonitoringInterval?: ReturnType<typeof setInterval>;
 
-    private useStandardJitsi: boolean = false;
-    private screenShareMonitor: JitsiScreenShareMonitor;
-    private activeMediaStreams: Set<string> = new Set(); 
-    private debugMonitoringStarted: boolean = false;
-    private debugMonitoringInterval?: NodeJS.Timer;
+  private readonly useStandardJitsi = false;
+  private readonly screenShareMonitor: JitsiScreenShareMonitor;
+  private readonly activeMediaStreams = new Set<string>();
+  private readonly debugMonitoringStarted = false;
+  private debugMonitoringInterval?: ReturnType<typeof setInterval>;
 
-    constructor(
-        nativeCapture: NativeCaptureManager,
-        bundlePath: string,
-        iconPath: string,
-        config?: Partial<JitsiManagerConfig> // Опциональные настройки
-    ) {
-        this.nativeCapture = nativeCapture;
-        this.bundlePath = bundlePath;
-        this.iconPath = iconPath;
-        
-        // Мержим дефолтные настройки с переданными
-        this.config = { ...DEFAULT_CONFIG, ...config };
-        
-        // Инициализируем менеджер качества с настройками
-        this.videoQualityManager = new VideoQualityManager();
-        if (this.config.videoQuality) {
-            this.videoQualityManager.setPreset(this.config.videoQuality);
-        }
-        
-        log.info("[JITSI-MANAGER] Initialized with config:", this.config);
-        
-        this.registerHandlers();
+  constructor(
+    nativeCapture: NativeCaptureManager,
+    bundlePath: string,
+    iconPath: string,
+    config?: Partial<JitsiManagerConfig>, // Опциональные настройки
+  ) {
+    this.nativeCapture = nativeCapture;
+    this.bundlePath = bundlePath;
+    this.iconPath = iconPath;
 
-        this.screenShareMonitor = new JitsiScreenShareMonitor();
+    // Мержим дефолтные настройки с переданными
+    this.config = {...DEFAULT_CONFIG, ...config};
 
-        if (this.config.enableDebugUI === undefined) {
-            this.config.enableDebugUI = process.env.NODE_ENV === 'development' || 
-                                    process.argv.includes('--debug-ui');
-        }
-        
-         this.debugMonitoringStarted = false;
-
-        log.info("[JITSI-MANAGER] Debug UI enabled:", this.config.enableDebugUI);
+    // Инициализируем менеджер качества с настройками
+    this.videoQualityManager = new VideoQualityManager();
+    if (this.config.videoQuality) {
+      this.videoQualityManager.setPreset(this.config.videoQuality);
     }
 
+    log.info("[JITSI-MANAGER] Initialized with config:", this.config);
 
-    private async shouldUseNativeCapture(): Promise<boolean> {
-        // Проверяем доступность плагина
-        if (!this.nativeCapture.isAvailable) {
-            log.warn("[JITSI-MANAGER] Native plugin not available, using standard Jitsi");
-            return false;
-        }
-        
-        // Проверяем здоровье плагина
-        const health = await this.nativeCapture.testAddonHealth();
-        if (!health.healthy) {
-            log.warn("[JITSI-MANAGER] Native plugin unhealthy, using standard Jitsi");
-            return false;
-        }
-        
-        // Проверяем настройки пользователя
-        if (this.config.forceStandardJitsi) {
-            return false;
-        }
-        
-        return true;
+    this.registerHandlers();
+
+    this.screenShareMonitor = new JitsiScreenShareMonitor();
+
+    if (this.config.enableDebugUI === undefined) {
+      this.config.enableDebugUI =
+        process.env.NODE_ENV === "development" ||
+        process.argv.includes("--debug-ui");
     }
 
-    private isWindowsPlatform(): boolean {
-        return process.platform === 'win32';
+    this.debugMonitoringStarted = false;
+
+    log.info("[JITSI-MANAGER] Debug UI enabled:", this.config.enableDebugUI);
+  }
+
+  private async shouldUseNativeCapture(): Promise<boolean> {
+    // Проверяем доступность плагина
+    if (!this.nativeCapture.isAvailable) {
+      log.warn(
+        "[JITSI-MANAGER] Native plugin not available, using standard Jitsi",
+      );
+      return false;
     }
 
-    // В jitsi-manager.ts, обновите метод injectDebugOverlay()
-    private async injectDebugOverlay(): Promise<void> {
-        log.info("[JITSI-MANAGER] Injecting debug indicator with quality controls...");
-        
-        if (!this.config.enableDebugUI) {
-            return;
-        }
-        
-        if (!this.state.window || this.state.window.isDestroyed()) {
-            return;
-        }
-        
-        // Проверяем доступность нативного плагина
-        const nativeAvailable = this.nativeCapture && this.nativeCapture.isNativeAvailable();
-        const showQualityControls = nativeAvailable && !this.useStandardJitsi;
-        
-        log.info(`[JITSI-MANAGER] Native available: ${nativeAvailable}, Show quality controls: ${showQualityControls}`);
-        
-        try {
-            // Проверяем, не инъектировано ли уже
-            const alreadyInjected = await this.state.window.webContents.executeJavaScript(`
+    // Проверяем здоровье плагина
+    const health = await this.nativeCapture.testAddonHealth();
+    if (!health.healthy) {
+      log.warn("[JITSI-MANAGER] Native plugin unhealthy, using standard Jitsi");
+      return false;
+    }
+
+    // Проверяем настройки пользователя
+    if (this.config.forceStandardJitsi) {
+      return false;
+    }
+
+    return true;
+  }
+
+  private isWindowsPlatform(): boolean {
+    return process.platform === "win32";
+  }
+
+  // В jitsi-manager.ts, обновите метод injectDebugOverlay()
+  private async injectDebugOverlay(): Promise<void> {
+    log.info(
+      "[JITSI-MANAGER] Injecting debug indicator with quality controls...",
+    );
+
+    if (!this.config.enableDebugUI) {
+      return;
+    }
+
+    if (!this.state.window || this.state.window.isDestroyed()) {
+      return;
+    }
+
+    // Проверяем доступность нативного плагина
+    const nativeAvailable =
+      this.nativeCapture && this.nativeCapture.isNativeAvailable();
+    const showQualityControls = nativeAvailable && !this.useStandardJitsi;
+
+    log.info(
+      `[JITSI-MANAGER] Native available: ${nativeAvailable}, Show quality controls: ${showQualityControls}`,
+    );
+
+    try {
+      // Проверяем, не инъектировано ли уже
+      const alreadyInjected = await this.state.window.webContents
+        .executeJavaScript(`
                 !!(document.getElementById('native-debug-indicator'))
             `);
-            
-            if (alreadyInjected) {
-                return;
-            }
-            
-            // ШАГ 1: Добавляем стили
-            await this.state.window.webContents.executeJavaScript(`
+
+      if (alreadyInjected) {
+        return;
+      }
+
+      // ШАГ 1: Добавляем стили
+      await this.state.window.webContents.executeJavaScript(`
                 (function() {
                     const style = document.createElement('style');
                     style.id = 'debug-indicator-styles';
@@ -475,9 +510,9 @@ export class JitsiManager {
                     return true;
                 })();
             `);
-            
-            // ШАГ 2: Создаем HTML структуру - передаем параметры через переменные
-            await this.state.window.webContents.executeJavaScript(`
+
+      // ШАГ 2: Создаем HTML структуру - передаем параметры через переменные
+      await this.state.window.webContents.executeJavaScript(`
                 (function() {
                     // Получаем параметры
                     const showQualityControls = ${showQualityControls};
@@ -563,10 +598,10 @@ export class JitsiManager {
                     return true;
                 })();
             `);
-            
-            // ШАГ 3: Создаем панель качества ТОЛЬКО если нативный плагин доступен
-            if (showQualityControls) {
-                await this.state.window.webContents.executeJavaScript(`
+
+      // ШАГ 3: Создаем панель качества ТОЛЬКО если нативный плагин доступен
+      if (showQualityControls) {
+        await this.state.window.webContents.executeJavaScript(`
                     (function() {
                         const container = document.getElementById('native-debug-indicator');
                         if (!container) {
@@ -680,10 +715,10 @@ export class JitsiManager {
                         return true;
                     })();
                 `);
-            }
-            
-            // ШАГ 4: Добавляем функциональность - передаем showQualityControls как переменную
-            await this.state.window.webContents.executeJavaScript(`
+      }
+
+      // ШАГ 4: Добавляем функциональность - передаем showQualityControls как переменную
+      await this.state.window.webContents.executeJavaScript(`
                 (function() {
                     const showQualityControls = ${showQualityControls};
                     
@@ -774,167 +809,201 @@ export class JitsiManager {
                     return true;
                 })();
             `);
-            
-            log.info(`✅ Debug indicator injected successfully (quality controls: ${showQualityControls})`);
-            
-            // Отправляем начальные данные
-            const debugInfo = await this.getDebugInfo();
-            await this.state.window.webContents.executeJavaScript(`
+
+      log.info(
+        `✅ Debug indicator injected successfully (quality controls: ${showQualityControls})`,
+      );
+
+      // Отправляем начальные данные
+      const debugInfo = await this.getDebugInfo();
+      await this.state.window.webContents.executeJavaScript(`
                 if (window.updateDebugIndicator) {
                     window.updateDebugIndicator(${JSON.stringify(debugInfo)});
                 }
             `);
-            
-            // Запускаем мониторинг
-            this.startDebugMonitoring();
-            
-        } catch (error: any) {
-            log.error(`[JITSI-MANAGER] Injection error: ${error.message}`);
-        }
-    }
 
-    // 🆕 НОВЫЙ МЕТОД - мониторинг статуса
-    private startDebugMonitoring(): void {
-        if (!this.config.enableDebugUI || this.debugMonitoringInterval) return;
-        
-        log.info("[JITSI-MANAGER] Starting minimal debug monitoring...");
-        
-        const updateInterval = 2000; // Обновляем каждые 2 секунды (реже чем раньше)
-        
-        this.debugMonitoringInterval = setInterval(async () => {
-            if (!this.state.window || this.state.window.isDestroyed()) {
-                clearInterval(this.debugMonitoringInterval);
-                this.debugMonitoringInterval = undefined;
-                return;
-            }
-            
-            try {
-                const debugInfo = await this.getDebugInfo();
-                
-                await this.state.window.webContents.executeJavaScript(`
+      // Запускаем мониторинг
+      this.startDebugMonitoring();
+    } catch (error: any) {
+      log.error(`[JITSI-MANAGER] Injection error: ${error.message}`);
+    }
+  }
+
+  // 🆕 НОВЫЙ МЕТОД - мониторинг статуса
+  private startDebugMonitoring(): void {
+    if (!this.config.enableDebugUI || this.debugMonitoringInterval) return;
+
+    log.info("[JITSI-MANAGER] Starting minimal debug monitoring...");
+
+    const updateInterval = 2000; // Обновляем каждые 2 секунды (реже чем раньше)
+
+    this.debugMonitoringInterval = setInterval(async () => {
+      if (!this.state.window || this.state.window.isDestroyed()) {
+        clearInterval(this.debugMonitoringInterval);
+        this.debugMonitoringInterval = undefined;
+        return;
+      }
+
+      try {
+        const debugInfo = await this.getDebugInfo();
+
+        await this.state.window.webContents.executeJavaScript(`
                     if (window.updateDebugIndicator) {
                         window.updateDebugIndicator(${JSON.stringify(debugInfo)});
                     }
                 `);
-                
-            } catch (error) {
-                // Тихо игнорируем ошибки мониторинга
-            }
-        }, updateInterval);
+      } catch {
+        // Тихо игнорируем ошибки мониторинга
+      }
+    }, updateInterval);
+  }
+
+  // Метод для обновления настроек на лету
+  updateConfig(newConfig: Partial<JitsiManagerConfig>): void {
+    log.info("[JITSI-MANAGER] Updating config:", newConfig);
+
+    const oldConfig = {...this.config};
+    this.config = {...this.config, ...newConfig};
+
+    // Применяем изменения
+    if (
+      newConfig.videoQuality &&
+      newConfig.videoQuality !== oldConfig.videoQuality
+    ) {
+      this.videoQualityManager.setPreset(newConfig.videoQuality);
+
+      // Если stream активен, применяем изменения сразу
+      if (this.state.isStreamActive) {
+        this.changeVideoQuality(newConfig.videoQuality).catch((error) => {
+          log.error("[JITSI-MANAGER] Failed to apply video quality:", error);
+        });
+      }
     }
 
-    // Метод для обновления настроек на лету
-    updateConfig(newConfig: Partial<JitsiManagerConfig>): void {
-        log.info("[JITSI-MANAGER] Updating config:", newConfig);
-        
-        const oldConfig = { ...this.config };
-        this.config = { ...this.config, ...newConfig };
-        
-        // Применяем изменения
-        if (newConfig.videoQuality && newConfig.videoQuality !== oldConfig.videoQuality) {
-            this.videoQualityManager.setPreset(newConfig.videoQuality);
-            
-            // Если stream активен, применяем изменения сразу
-            if (this.state.isStreamActive) {
-                this.changeVideoQuality(newConfig.videoQuality).catch(err => {
-                    log.error("[JITSI-MANAGER] Failed to apply video quality:", err);
-                });
-            }
+    // Обновляем мониторинг
+    if (newConfig.enablePerformanceMonitoring !== undefined) {
+      if (
+        newConfig.enablePerformanceMonitoring &&
+        !this.performanceMonitoringInterval
+      ) {
+        this.startPerformanceMonitoring();
+      } else if (
+        !newConfig.enablePerformanceMonitoring &&
+        this.performanceMonitoringInterval
+      ) {
+        this.stopPerformanceMonitoring();
+      }
+    }
+  }
+
+  // Геттер для получения текущих настроек
+  getConfig(): JitsiManagerConfig {
+    return {...this.config};
+  }
+
+  private startPerformanceMonitoring(): void {
+    if (this.performanceMonitoringInterval) return;
+
+    const interval = this.config.monitoringInterval || 5000;
+    this.performanceMonitoringInterval = setInterval(() => {
+      // Performance monitoring logic
+      log.info("[JITSI-MANAGER] Performance monitoring tick");
+    }, interval);
+
+    log.info("[JITSI-MANAGER] Performance monitoring started");
+  }
+
+  private stopPerformanceMonitoring(): void {
+    if (this.performanceMonitoringInterval) {
+      clearInterval(this.performanceMonitoringInterval);
+      this.performanceMonitoringInterval = undefined;
+      log.info("[JITSI-MANAGER] Performance monitoring stopped");
+    }
+  }
+
+  private registerHandlers(): void {
+    // Основной обработчик для создания окна
+    ipcMain.handle(
+      "jitsi:create-window",
+      async (event, options: JitsiOptions) => this.createWindow(options),
+    );
+
+    // Создание и инъекция native stream
+    ipcMain.handle("jitsi:inject-native-stream", async () =>
+      this.injectNativeStream(),
+    );
+
+    // Закрытие окна
+    ipcMain.handle("jitsi:close", async () => this.closeWindow());
+
+    // Получение статуса
+    ipcMain.handle("jitsi:get-status", async () => ({
+      hasWindow:
+        Boolean(this.state.window) && !this.state.window?.isDestroyed(),
+      isStreamActive: this.state.isStreamActive,
+      streamId: this.state.streamId,
+    }));
+
+    ipcMain.handle(
+      "jitsi:save-selected-source",
+      async (event, sourceId: string) => {
+        this.state.lastSelectedSourceId = sourceId;
+        log.info(`Saved selected source: ${sourceId}`);
+        return {success: true};
+      },
+    );
+
+    ipcMain.handle("jitsi:get-config", async () => this.getConfig());
+
+    ipcMain.handle(
+      "jitsi:update-config",
+      async (event, newConfig: Partial<JitsiManagerConfig>) => {
+        try {
+          this.updateConfig(newConfig);
+          return {success: true, config: this.getConfig()};
+        } catch (error: any) {
+          log.error("[JITSI-MANAGER] Failed to update config:", error);
+          return {success: false, error: error.message};
         }
-        
-        // Обновляем мониторинг
-        if (newConfig.enablePerformanceMonitoring !== undefined) {
-            if (newConfig.enablePerformanceMonitoring && !this.performanceMonitoringInterval) {
-                this.startPerformanceMonitoring();
-            } else if (!newConfig.enablePerformanceMonitoring && this.performanceMonitoringInterval) {
-                this.stopPerformanceMonitoring();
-            }
-        }
-    }
+      },
+    );
 
-    // Геттер для получения текущих настроек
-    getConfig(): JitsiManagerConfig {
-        return { ...this.config };
-    }
+    ipcMain.handle("jitsi:get-quality-presets", async () => ({
+      video: Object.entries(VIDEO_QUALITY_PRESETS).map(([key, preset]) => ({
+        key,
+        name: preset.name,
+        description: preset.description,
+        resolution: `${preset.width.max}x${preset.height.max}`,
+        fps: preset.frameRate.max,
+      })),
+      audio: Object.entries(CAPTURE_PRESETS).map(
+        ([key, preset]: [string, {name: string; description: string}]) => ({
+          key,
+          name: preset.name,
+          description: preset.description,
+        }),
+      ),
+    }));
 
-    private registerHandlers(): void {
+    ipcMain.handle(
+      "jitsi:change-video-quality",
+      async (_event, quality: keyof typeof VIDEO_QUALITY_PRESETS) =>
+        this.changeVideoQuality(quality),
+    );
 
-        // Основной обработчик для создания окна
-        ipcMain.handle("jitsi:create-window", async (event, options: JitsiOptions) => {
-            return this.createWindow(options);
-        });
+    ipcMain.handle(
+      "jitsi:set-custom-quality",
+      async (_event, width: number, height: number, fps: number) =>
+        this.setCustomVideoQuality(width, height, fps),
+    );
 
-        // Создание и инъекция native stream
-        ipcMain.handle("jitsi:inject-native-stream", async () => {
-            return this.injectNativeStream();
-        });
+    ipcMain.handle("jitsi:get-current-quality", async () => {
+      if (!this.state.window || this.state.window.isDestroyed()) {
+        return {success: false, error: "No window"};
+      }
 
-        // Закрытие окна
-        ipcMain.handle("jitsi:close", async () => {
-            return this.closeWindow();
-        });
-
-        // Получение статуса
-        ipcMain.handle("jitsi:get-status", async () => {
-        return {
-            hasWindow: !!this.state.window && !this.state.window.isDestroyed(),
-            isStreamActive: this.state.isStreamActive,
-            streamId: this.state.streamId
-        };
-        });
-
-        ipcMain.handle("jitsi:save-selected-source", async (event, sourceId: string) => {
-            this.state.lastSelectedSourceId = sourceId;
-            log.info(`Saved selected source: ${sourceId}`);
-            return { success: true };
-        });
-
-        ipcMain.handle("jitsi:get-config", async () => {
-            return this.getConfig();
-        });
-
-        ipcMain.handle("jitsi:update-config", async (event, newConfig: Partial<JitsiManagerConfig>) => {
-            try {
-                this.updateConfig(newConfig);
-                return { success: true, config: this.getConfig() };
-            } catch (error: any) {
-                log.error("[JITSI-MANAGER] Failed to update config:", error);
-                return { success: false, error: error.message };
-            }
-        });
-
-        ipcMain.handle("jitsi:get-quality-presets", async () => {
-            return {
-                video: Object.entries(VIDEO_QUALITY_PRESETS).map(([key, preset]) => ({
-                    key,
-                    name: preset.name,
-                    description: preset.description,
-                    resolution: `${preset.width.max}x${preset.height.max}`,
-                    fps: preset.frameRate.max
-                })),
-                audio: Object.entries(CAPTURE_PRESETS).map(([key, preset]) => ({
-                    key,
-                    name: preset.name,
-                    description: preset.description
-                }))
-            };
-        });
-
-        ipcMain.handle("jitsi:change-video-quality", async (event, quality: keyof typeof VIDEO_QUALITY_PRESETS) => {
-            return this.changeVideoQuality(quality);
-        });
-
-        ipcMain.handle("jitsi:set-custom-quality", async (event, width: number, height: number, fps: number) => {
-            return this.setCustomVideoQuality(width, height, fps);
-        });
-
-        ipcMain.handle("jitsi:get-current-quality", async () => {
-            if (!this.state.window || this.state.window.isDestroyed()) {
-                return { success: false, error: "No window" };
-            }
-            
-            try {
-                const result = await this.state.window.webContents.executeJavaScript(`
+      try {
+        const result = await this.state.window.webContents.executeJavaScript(`
                     (function() {
                         if (window.electronVideoStream || window.jitsiNativeMediaStream) {
                             const stream = window.electronVideoStream || window.jitsiNativeMediaStream;
@@ -952,73 +1021,75 @@ export class JitsiManager {
                         return { success: false, error: 'No video track' };
                     })();
                 `);
-                return result;
-            } catch (error: any) {
-                return { success: false, error: error.message };
-            }
-        });
+        return result;
+      } catch (error: any) {
+        return {success: false, error: error.message};
+      }
+    });
 
-        // Установить режим (hybrid или native)
-        ipcMain.handle("jitsi:set-stream-mode", async (event, useHybrid: boolean) => {
-            this.updateConfig({ useHybridMode: useHybrid });
-            
-            // Если stream активен, нужно его пересоздать
-            if (this.state.isStreamActive) {
-                log.info("[JITSI-MANAGER] Recreating stream with new mode...");
-                // Логика пересоздания потока
-            }
-            
-            return { success: true, mode: useHybrid ? 'hybrid' : 'native' };
-        });
+    // Установить режим (hybrid или native)
+    ipcMain.handle(
+      "jitsi:set-stream-mode",
+      async (event, useHybrid: boolean) => {
+        this.updateConfig({useHybridMode: useHybrid});
 
-        ipcMain.handle("jitsi:get-debug-info", async () => {
-            const debugInfo = {
-                hasWindow: !!this.state.window && !this.state.window.isDestroyed(),
-                isStreamActive: this.state.isStreamActive,
-                streamId: this.state.streamId,
-                nativeCaptureActive: this.nativeCapture.isCapturing,
-                videoFrameCount: this.state.videoFrameCount,
-                audioFrameCount: this.state.audioFrameCount,
-                lastSelectedSource: this.state.lastSelectedSourceId,
-                currentQuality: this.videoQualityManager.getCurrentSettings().name
-            };
-            
-            log.info("[STREAM-ELECTRON] Debug info:", debugInfo);
-            return debugInfo;
-        });
+        // Если stream активен, нужно его пересоздать
+        if (this.state.isStreamActive) {
+          log.info("[JITSI-MANAGER] Recreating stream with new mode...");
+          // Логика пересоздания потока
+        }
 
-        ipcMain.handle("jitsi:force-reset", async () => {
-            log.info("[STREAM-ELECTRON] Force reset requested");
-            await this.resetManager();
-            return { success: true };
-        });
+        return {success: true, mode: useHybrid ? "hybrid" : "native"};
+      },
+    );
 
-        ipcMain.handle("create-native-stream-for-jitsi", async () => {
-            log.info("[STREAM-ELECTRON] Create native stream requested");
-            
-            try {
-                // Проверяем состояние
-                if (this.state.isStreamActive) {
-                    log.warn("[STREAM-ELECTRON] Stream already active, resetting...");
-                    await this.cleanup();
-                    await new Promise(resolve => setTimeout(resolve, 500));
-                }
-                
-                return await this.injectNativeStream();
-                
-            } catch (error: any) {
-                log.error("[STREAM-ELECTRON] Error creating native stream:", error);
-                return { success: false, error: error.message };
-            }
-        });
+    ipcMain.handle("jitsi:get-debug-info", async () => {
+      const debugInfo = {
+        hasWindow:
+          Boolean(this.state.window) && !this.state.window?.isDestroyed(),
+        isStreamActive: this.state.isStreamActive,
+        streamId: this.state.streamId,
+        nativeCaptureActive: this.nativeCapture.isCapturing,
+        videoFrameCount: this.state.videoFrameCount,
+        audioFrameCount: this.state.audioFrameCount,
+        lastSelectedSource: this.state.lastSelectedSourceId,
+        currentQuality: this.videoQualityManager.getCurrentSettings().name,
+      };
 
+      log.info("[STREAM-ELECTRON] Debug info:", debugInfo);
+      return debugInfo;
+    });
 
-        ipcMain.handle("jitsi:conference-left", async () => {
-            log.info("[JITSI-MANAGER] Conference left event received");
-            
-            // Сбрасываем ВСЕ флаги в окне
-            if (this.state.window && !this.state.window.isDestroyed()) {
-                await this.state.window.webContents.executeJavaScript(`
+    ipcMain.handle("jitsi:force-reset", async () => {
+      log.info("[STREAM-ELECTRON] Force reset requested");
+      await this.resetManager();
+      return {success: true};
+    });
+
+    ipcMain.handle("create-native-stream-for-jitsi", async () => {
+      log.info("[STREAM-ELECTRON] Create native stream requested");
+
+      try {
+        // Проверяем состояние
+        if (this.state.isStreamActive) {
+          log.warn("[STREAM-ELECTRON] Stream already active, resetting...");
+          await this.cleanup();
+          await new Promise((resolve) => setTimeout(resolve, 500));
+        }
+
+        return await this.injectNativeStream();
+      } catch (error: any) {
+        log.error("[STREAM-ELECTRON] Error creating native stream:", error);
+        return {success: false, error: error.message};
+      }
+    });
+
+    ipcMain.handle("jitsi:conference-left", async () => {
+      log.info("[JITSI-MANAGER] Conference left event received");
+
+      // Сбрасываем ВСЕ флаги в окне
+      if (this.state.window && !this.state.window.isDestroyed()) {
+        await this.state.window.webContents.executeJavaScript(`
                     (function() {
                         window.__interceptorFlag = false;
                         window.isScreenShareActive = false;
@@ -1035,139 +1106,152 @@ export class JitsiManager {
                         console.log('[JITSI-MANAGER] All flags reset on conference leave');
                     })();
                 `);
-            }
-            
-            // Небольшая задержка для корректного завершения
-            setTimeout(async () => {
-                log.info("[JITSI-MANAGER] Closing window after conference leave");
-                await this.closeWindow();
-            }, 1000);
-            
-            return { success: true };
-        });
+      }
 
-        ipcMain.handle("jitsi:stop-native-capture", async () => {
-            log.info("[STREAM-ELECTRON] Stop native capture requested");
-            
-            try {
-                // Полная очистка всех потоков
-                await this.nukeClearAllStreams();
-                
-                // Остановка native capture
-                if (this.nativeCapture && this.nativeCapture.isCapturing) {
-                    const stopResult = await this.nativeCapture.stopCapture();
-                    log.info(`[STREAM-ELECTRON] Native capture stopped: ${JSON.stringify(stopResult)}`);
-                }
-                
-                // Принудительное освобождение ресурсов
-                await this.forceReleaseAllMediaResources();
-                
-                // Сброс состояния
-                this.state.isStreamActive = false;
-                this.state.streamId = null;
-                this.state.videoFrameCount = 0;
-                this.state.audioFrameCount = 0;
-                
-                this.nativeCapture.setFrameCallbacks(undefined, undefined);
-                this.activeMediaStreams.clear();
-                
-                return { success: true };
-                
-            } catch (error: any) {
-                log.error(`[STREAM-ELECTRON] Error stopping: ${error.message}`);
-                return { success: false, error: error.message };
-            }
-        });
+      // Небольшая задержка для корректного завершения
+      setTimeout(async () => {
+        log.info("[JITSI-MANAGER] Closing window after conference leave");
+        await this.closeWindow();
+      }, 1000);
 
-        ipcMain.handle("get-electron-desktop-sources", async () => {
-            const { desktopCapturer } = require('electron');
-            const sources = await desktopCapturer.getSources({
-                types: ['window', 'screen'],
-                thumbnailSize: { width: 200, height: 140 }
-            });
-            
-            // return sources.map(s => ({
-            //     id: s.id,
-            //     name: s.name,
-            //     display_id: s.display_id,
-            //     thumbnail: s.thumbnail.toDataURL()
-            // }));
+      return {success: true};
+    });
 
-            return sources.map(s => ({
-                id: s.id,
-                name: s.name,
-                display_id: s.display_id,
-                thumbnail: s.thumbnail.resize({ width: 200 }).toDataURL('image/jpeg', 0.7)
-            }));
-        });
+    ipcMain.handle("jitsi:stop-native-capture", async () => {
+      log.info("[STREAM-ELECTRON] Stop native capture requested");
 
-        ipcMain.handle("jitsi:toggle-audio-mode", async (event, useNative: boolean) => {
-            log.info(`[JITSI-MANAGER] Toggling audio mode to: ${useNative ? 'Native' : 'Standard'}`);
-            
-            const wasActive = this.state.isStreamActive;
-            
-            // Обновляем состояние
-            this.state.useNativeAudio = useNative;
-            
-            // Если поток активен, нужно его пересоздать
-            if (wasActive) {
-                log.info("[JITSI-MANAGER] Recreating stream with new audio mode...");
-                
-                // Останавливаем текущий поток
-                await this.cleanup();
-                await new Promise(resolve => setTimeout(resolve, 500));
-                
-                // Создаем новый поток с новыми настройками
-                const result = await this.injectNativeStream();
-                
-                return {
-                    success: result.success,
-                    mode: useNative ? 'native' : 'standard',
-                    error: result.error
-                };
-            }
-            
-            return {
-                success: true,
-                mode: useNative ? 'native' : 'standard'
-            };
-        });
+      try {
+        // Полная очистка всех потоков
+        await this.nukeClearAllStreams();
 
-        ipcMain.handle("jitsi:stop-screen-share-only", async () => {
-            log.info("[STREAM-ELECTRON] Stopping screen share only (keeping conference audio)");
-            
-            try {
-                // Останавливаем только native capture для демонстрации
-                if (this.nativeCapture && this.nativeCapture.isCapturing) {
-                    await this.nativeCapture.stopCapture();
-                }
-                
-                // НЕ очищаем всё состояние, только демонстрацию
-                this.state.isStreamActive = false;
-                this.state.streamId = null;
-                this.state.videoFrameCount = 0;
-                this.state.audioFrameCount = 0;
-                
-                // НЕ вызываем nukeClearAllStreams()
-                // НЕ вызываем forceReleaseAllMediaResources()
-                
-                return { success: true };
-                
-            } catch (error: any) {
-                log.error(`[STREAM-ELECTRON] Error stopping screen share: ${error.message}`);
-                return { success: false, error: error.message };
-            }
-        });
+        // Остановка native capture
+        if (this.nativeCapture && this.nativeCapture.isCapturing) {
+          const stopResult = await this.nativeCapture.stopCapture();
+          log.info(
+            `[STREAM-ELECTRON] Native capture stopped: ${JSON.stringify(stopResult)}`,
+          );
+        }
 
-        ipcMain.handle("jitsi:set-audio-mode", async (event, useNative: boolean) => {
-            log.info(`[JITSI-MANAGER] Setting audio mode to: ${useNative ? 'Native' : 'Standard'}`);
-            
-            // Просто устанавливаем режим, без пересоздания потока
-            this.state.useNativeAudio = useNative;
-            
-            // Обновляем визуальные индикаторы в UI
-            if (this.state.window && !this.state.window.isDestroyed()) {
-                await this.state.window.webContents.executeJavaScript(`
+        // Принудительное освобождение ресурсов
+        await this.forceReleaseAllMediaResources();
+
+        // Сброс состояния
+        this.state.isStreamActive = false;
+        this.state.streamId = null;
+        this.state.videoFrameCount = 0;
+        this.state.audioFrameCount = 0;
+
+        this.nativeCapture.setFrameCallbacks(undefined, undefined);
+        this.activeMediaStreams.clear();
+
+        return {success: true};
+      } catch (error: any) {
+        log.error(`[STREAM-ELECTRON] Error stopping: ${error.message}`);
+        return {success: false, error: error.message};
+      }
+    });
+
+    ipcMain.handle("get-electron-desktop-sources", async () => {
+      const {desktopCapturer} = require("electron");
+      const sources = await desktopCapturer.getSources({
+        types: ["window", "screen"],
+        thumbnailSize: {width: 200, height: 140},
+      });
+
+      // Return sources.map(s => ({
+      //     id: s.id,
+      //     name: s.name,
+      //     display_id: s.display_id,
+      //     thumbnail: s.thumbnail.toDataURL()
+      // }));
+
+      return sources.map((s: Electron.DesktopCapturerSource) => ({
+        id: s.id,
+        name: s.name,
+        display_id: s.display_id,
+        thumbnail: s.thumbnail.resize({width: 200}).toDataURL(),
+      }));
+    });
+
+    ipcMain.handle(
+      "jitsi:toggle-audio-mode",
+      async (event, useNative: boolean) => {
+        log.info(
+          `[JITSI-MANAGER] Toggling audio mode to: ${useNative ? "Native" : "Standard"}`,
+        );
+
+        const wasActive = this.state.isStreamActive;
+
+        // Обновляем состояние
+        this.state.useNativeAudio = useNative;
+
+        // Если поток активен, нужно его пересоздать
+        if (wasActive) {
+          log.info("[JITSI-MANAGER] Recreating stream with new audio mode...");
+
+          // Останавливаем текущий поток
+          await this.cleanup();
+          await new Promise((resolve) => setTimeout(resolve, 500));
+
+          // Создаем новый поток с новыми настройками
+          const result = await this.injectNativeStream();
+
+          return {
+            success: result.success,
+            mode: useNative ? "native" : "standard",
+            error: result.error,
+          };
+        }
+
+        return {
+          success: true,
+          mode: useNative ? "native" : "standard",
+        };
+      },
+    );
+
+    ipcMain.handle("jitsi:stop-screen-share-only", async () => {
+      log.info(
+        "[STREAM-ELECTRON] Stopping screen share only (keeping conference audio)",
+      );
+
+      try {
+        // Останавливаем только native capture для демонстрации
+        if (this.nativeCapture && this.nativeCapture.isCapturing) {
+          await this.nativeCapture.stopCapture();
+        }
+
+        // НЕ очищаем всё состояние, только демонстрацию
+        this.state.isStreamActive = false;
+        this.state.streamId = null;
+        this.state.videoFrameCount = 0;
+        this.state.audioFrameCount = 0;
+
+        // НЕ вызываем nukeClearAllStreams()
+        // НЕ вызываем forceReleaseAllMediaResources()
+
+        return {success: true};
+      } catch (error: any) {
+        log.error(
+          `[STREAM-ELECTRON] Error stopping screen share: ${error.message}`,
+        );
+        return {success: false, error: error.message};
+      }
+    });
+
+    ipcMain.handle(
+      "jitsi:set-audio-mode",
+      async (event, useNative: boolean) => {
+        log.info(
+          `[JITSI-MANAGER] Setting audio mode to: ${useNative ? "Native" : "Standard"}`,
+        );
+
+        // Просто устанавливаем режим, без пересоздания потока
+        this.state.useNativeAudio = useNative;
+
+        // Обновляем визуальные индикаторы в UI
+        if (this.state.window && !this.state.window.isDestroyed()) {
+          await this.state.window.webContents.executeJavaScript(`
                     (function() {
                         // Обновляем чекбокс если он есть
                         const checkbox = document.getElementById('native-audio-toggle');
@@ -1193,29 +1277,30 @@ export class JitsiManager {
                         console.log('[AudioMode] UI updated to:', ${useNative} ? 'Native' : 'Standard');
                     })();
                 `);
-            }
-            
-            return { 
-                success: true, 
-                mode: useNative ? 'native' : 'standard' 
-            };
-        });
+        }
 
-        ipcMain.handle("jitsi:screen-share-stopped", async () => {
-            log.info("[JITSI-MANAGER] Screen share stopped event received");
-            
-            // Сбрасываем состояние демонстрации
-            this.state.isStreamActive = false;
-            this.state.streamId = null;
-            
-            // Очищаем native capture если он активен
-            if (this.nativeCapture && this.nativeCapture.isCapturing) {
-                await this.nativeCapture.stopCapture();
-            }
-            
-            // Обновляем UI
-            if (this.state.window && !this.state.window.isDestroyed()) {
-                await this.state.window.webContents.executeJavaScript(`
+        return {
+          success: true,
+          mode: useNative ? "native" : "standard",
+        };
+      },
+    );
+
+    ipcMain.handle("jitsi:screen-share-stopped", async () => {
+      log.info("[JITSI-MANAGER] Screen share stopped event received");
+
+      // Сбрасываем состояние демонстрации
+      this.state.isStreamActive = false;
+      this.state.streamId = null;
+
+      // Очищаем native capture если он активен
+      if (this.nativeCapture && this.nativeCapture.isCapturing) {
+        await this.nativeCapture.stopCapture();
+      }
+
+      // Обновляем UI
+      if (this.state.window && !this.state.window.isDestroyed()) {
+        await this.state.window.webContents.executeJavaScript(`
                     (function() {
                         // Сбрасываем флаги
                         window.isScreenShareActive = false;
@@ -1227,31 +1312,30 @@ export class JitsiManager {
                         console.log('[JITSI-MANAGER] Screen share flags reset');
                     })();
                 `);
-            }
-            
-            return { success: true };
-        });
+      }
 
-    }
+      return {success: true};
+    });
+  }
 
-    async getDebugInfo(): Promise<any> {
-        const addonHealth = await this.nativeCapture.testAddonHealth();
-        
-        return {
-            hasAddon: this.nativeCapture.isAvailable && addonHealth.healthy,
-            nativeCaptureActive: this.nativeCapture.isCapturing,
-            audioFrameCount: this.state.audioFrameCount || 0,
-            isStreamActive: this.state.isStreamActive,
-            useNativeAudio: this.state.useNativeAudio, // ДОБАВЛЯЕМ
-            audioMode: this.state.useNativeAudio ? 'native' : 'standard' // ДОБАВЛЯЕМ
-        };
-    }
+  async getDebugInfo(): Promise<any> {
+    const addonHealth = await this.nativeCapture.testAddonHealth();
 
-    private async nukeClearAllStreams(): Promise<void> {
-        if (!this.state.window || this.state.window.isDestroyed()) return;
-        
-        try {
-            await this.state.window.webContents.executeJavaScript(`
+    return {
+      hasAddon: this.nativeCapture.isAvailable && addonHealth.healthy,
+      nativeCaptureActive: this.nativeCapture.isCapturing,
+      audioFrameCount: this.state.audioFrameCount || 0,
+      isStreamActive: this.state.isStreamActive,
+      useNativeAudio: this.state.useNativeAudio, // ДОБАВЛЯЕМ
+      audioMode: this.state.useNativeAudio ? "native" : "standard", // ДОБАВЛЯЕМ
+    };
+  }
+
+  private async nukeClearAllStreams(): Promise<void> {
+    if (!this.state.window || this.state.window.isDestroyed()) return;
+
+    try {
+      await this.state.window.webContents.executeJavaScript(`
                 (function() {
                     console.log('[NUKE] === SELECTIVE CLEANUP STARTING ===');
                     window.__interceptorFlag = false;
@@ -1282,25 +1366,27 @@ export class JitsiManager {
                     console.log('[NUKE] === SELECTIVE CLEANUP COMPLETED ===');
                 })();
             `);
-        } catch (error: any) {
-            log.error(`[STREAM-ELECTRON] Selective clear error: ${error.message}`);
-        }
+    } catch (error: any) {
+      log.error(`[STREAM-ELECTRON] Selective clear error: ${error.message}`);
+    }
+  }
+
+  // Метод для изменения качества видео
+  async changeVideoQuality(
+    presetName: keyof typeof VIDEO_QUALITY_PRESETS,
+  ): Promise<{success: boolean; quality?: string; error?: string}> {
+    log.info(`[STREAM-ELECTRON] Changing video quality to: ${presetName}`);
+
+    if (!this.state.window || this.state.window.isDestroyed()) {
+      return {success: false, error: "No window available"};
     }
 
-    // Метод для изменения качества видео
-    async changeVideoQuality(presetName: keyof typeof VIDEO_QUALITY_PRESETS): Promise<{ success: boolean; quality?: string; error?: string }> {
-        log.info(`[STREAM-ELECTRON] Changing video quality to: ${presetName}`);
-        
-        if (!this.state.window || this.state.window.isDestroyed()) {
-            return { success: false, error: "No window available" };
-        }
-        
-        try {
-            // Устанавливаем новый пресет
-            const preset = this.videoQualityManager.setPreset(presetName);
-            
-            // Применяем к существующему потоку
-            const result = await this.state.window.webContents.executeJavaScript(`
+    try {
+      // Устанавливаем новый пресет
+      const preset = this.videoQualityManager.setPreset(presetName);
+
+      // Применяем к существующему потоку
+      const result = await this.state.window.webContents.executeJavaScript(`
                 (async function() {
                     try {
                         // Проверяем наличие потока
@@ -1356,40 +1442,49 @@ export class JitsiManager {
                     }
                 })();
             `);
-            
-            if (result.success) {
-                log.info(`[STREAM-ELECTRON] Video quality changed successfully to: ${result.quality}`);
-                // Сохраняем текущий пресет в конфиге
-                this.config.videoQuality = presetName;
-            } else {
-                log.error(`[STREAM-ELECTRON] Failed to change quality: ${result.error}`);
-            }
-            
-            return result;
-            
-        } catch (error: any) {
-            log.error(`[STREAM-ELECTRON] Failed to change quality: ${error.message}`);
-            return { success: false, error: error.message };
-        }
+
+      if (result.success) {
+        log.info(
+          `[STREAM-ELECTRON] Video quality changed successfully to: ${result.quality}`,
+        );
+        // Сохраняем текущий пресет в конфиге
+        this.config.videoQuality = presetName;
+      } else {
+        log.error(
+          `[STREAM-ELECTRON] Failed to change quality: ${result.error}`,
+        );
+      }
+
+      return result;
+    } catch (error: any) {
+      log.error(`[STREAM-ELECTRON] Failed to change quality: ${error.message}`);
+      return {success: false, error: error.message};
+    }
+  }
+
+  async setCustomVideoQuality(
+    width: number,
+    height: number,
+    fps: number,
+  ): Promise<{success: boolean; quality?: string; error?: string}> {
+    log.info(
+      `[STREAM-ELECTRON] Setting custom video quality: ${width}x${height}@${fps}fps`,
+    );
+
+    if (!this.state.window || this.state.window.isDestroyed()) {
+      return {success: false, error: "No window available"};
     }
 
-    async setCustomVideoQuality(width: number, height: number, fps: number): Promise<{ success: boolean; quality?: string; error?: string }> {
-        log.info(`[STREAM-ELECTRON] Setting custom video quality: ${width}x${height}@${fps}fps`);
-        
-        if (!this.state.window || this.state.window.isDestroyed()) {
-            return { success: false, error: "No window available" };
-        }
-        
-        try {
-            // Устанавливаем кастомные настройки в менеджере
-            this.videoQualityManager.setCustomQuality({
-                width: { min: Math.floor(width * 0.8), max: width },
-                height: { min: Math.floor(height * 0.8), max: height },
-                frameRate: { min: Math.max(1, fps - 5), max: fps }
-            });
-            
-            // Применяем к потоку
-            const result = await this.state.window.webContents.executeJavaScript(`
+    try {
+      // Устанавливаем кастомные настройки в менеджере
+      this.videoQualityManager.setCustomQuality({
+        width: {min: Math.floor(width * 0.8), max: width},
+        height: {min: Math.floor(height * 0.8), max: height},
+        frameRate: {min: Math.max(1, fps - 5), max: fps},
+      });
+
+      // Применяем к потоку
+      const result = await this.state.window.webContents.executeJavaScript(`
                 (async function() {
                     try {
                         if (!window.electronVideoStream && !window.jitsiNativeMediaStream) {
@@ -1443,70 +1538,73 @@ export class JitsiManager {
                     }
                 })();
             `);
-            
-            if (result.success) {
-                log.info(`[STREAM-ELECTRON] Custom quality applied: ${result.quality}`);
-            }
-            
-            return result;
-            
-        } catch (error: any) {
-            log.error(`[STREAM-ELECTRON] Failed to set custom quality: ${error.message}`);
-            return { success: false, error: error.message };
-        }
+
+      if (result.success) {
+        log.info(`[STREAM-ELECTRON] Custom quality applied: ${result.quality}`);
+      }
+
+      return result;
+    } catch (error: any) {
+      log.error(
+        `[STREAM-ELECTRON] Failed to set custom quality: ${error.message}`,
+      );
+      return {success: false, error: error.message};
     }
+  }
 
-    async createWindow(options: JitsiOptions): Promise<{ success: boolean; error?: string }> {
-        try {
-            // Закрываем предыдущее окно если есть
-            await this.closeWindow();
+  async createWindow(
+    options: JitsiOptions,
+  ): Promise<{success: boolean; error?: string}> {
+    try {
+      // Закрываем предыдущее окно если есть
+      await this.closeWindow();
 
-            // Даем время на очистку
-            await new Promise(resolve => setTimeout(resolve, 500));
+      // Даем время на очистку
+      await new Promise((resolve) => setTimeout(resolve, 500));
 
-            const server = options.serverUrl || 'https://jitsi-connectrm.ru';
-            const roomName = options.roomName.replace(/[^a-zA-Z0-9-_]/g, '');
-            const displayName = options.displayName || 'Guest';
-            const topic = options.topic || '';
-            const stream = options.stream || '';
+      const server = options.serverUrl || "https://jitsi-connectrm.ru";
+      const roomName = options.roomName.replaceAll(/[^\w-]/g, "");
+      // DisplayName is used via options.displayName in buildConferenceUrl
+      const topic = options.topic || "";
+      const stream = options.stream || "";
 
-            log.info(`Creating Jitsi window: ${server}/${roomName}`);
+      log.info(`Creating Jitsi window: ${server}/${roomName}`);
 
-            // Создаем окно
-            this.state.window = new BrowserWindow({
-            width: 1200,
-            height: 800,
-            minWidth: 800,
-            minHeight: 600,
-            title: `Трансляция: ${stream} - ${topic}`,
-            icon: this.iconPath,
-            webPreferences: {
-                nodeIntegration: false,
-                contextIsolation: true,
-                sandbox: false,
-                webSecurity: false,
-                partition: `jitsi-${Date.now()}`,
-                preload: path.join(this.bundlePath, "preload.js")
-            },
-            backgroundColor: '#000000', // Темный фон
-            show: true,
-            paintWhenInitiallyHidden: true,
-            center: true
-            });
+      // Создаем окно
+      this.state.window = new BrowserWindow({
+        width: 1200,
+        height: 800,
+        minWidth: 800,
+        minHeight: 600,
+        title: `Трансляция: ${stream} - ${topic}`,
+        icon: this.iconPath,
+        webPreferences: {
+          nodeIntegration: false,
+          contextIsolation: true,
+          sandbox: false,
+          webSecurity: false,
+          partition: `jitsi-${Date.now()}`,
+          preload: path.join(this.bundlePath, "preload.js"),
+        },
+        backgroundColor: "#000000", // Темный фон
+        show: true,
+        paintWhenInitiallyHidden: true,
+        center: true,
+      });
 
-            this.state.window.on('page-title-updated', (event) => {
-                event.preventDefault(); // Предотвращаем изменение заголовка
-            });
+      this.state.window.on("page-title-updated", (event) => {
+        event.preventDefault(); // Предотвращаем изменение заголовка
+      });
 
-            // Инжектируем HTML с индикатором загрузки ПЕРЕД загрузкой Jitsi
-            await this.injectLoadingScreen();
+      // Инжектируем HTML с индикатором загрузки ПЕРЕД загрузкой Jitsi
+      await this.injectLoadingScreen();
 
-            // Показываем окно с индикатором загрузки
-            this.state.window.show();
+      // Показываем окно с индикатором загрузки
+      this.state.window.show();
 
-            // Перед загрузкой URL инжектируем CSS
-            this.state.window.webContents.on('did-start-loading', () => {
-                this.state.window.webContents.insertCSS(`
+      // Перед загрузкой URL инжектируем CSS
+      this.state.window.webContents.on("did-start-loading", () => {
+        this.state.window?.webContents.insertCSS(`
                     html, body {
                         background: #1a1a2e !important;
                         transition: opacity 0.3s ease-in-out;
@@ -1522,115 +1620,117 @@ export class JitsiManager {
                         to { opacity: 1; }
                     }
                 `);
-            });
+      });
 
-            // Формируем URL
-            const conferenceUrl = this.buildConferenceUrl(server, roomName, options);
-            
-            log.info(`Loading conference URL: ${conferenceUrl}`);
-            
-            let isLoaded = false;
+      // Формируем URL
+      const conferenceUrl = this.buildConferenceUrl(server, roomName, options);
 
-            this.state.window.webContents.on('did-finish-load', async () => {
-                log.info("[JITSI-MANAGER] Page loaded, injecting debug overlay...");
-                
-                // Ждем полной инициализации Jitsi
-                await this.waitForJitsiReady();
-                
-                // Плавно скрываем индикатор загрузки
-                await this.hideLoadingScreen();
-                
-                isLoaded = true;
+      log.info(`Loading conference URL: ${conferenceUrl}`);
 
-                // Небольшая задержка для инициализации DOM
-                setTimeout(async () => {
-                    await this.injectDebugOverlay();
-                    await this.startDebugMonitoring();
-                }, 500);
-            });
+      this.state.window.webContents.on("did-finish-load", async () => {
+        log.info("[JITSI-MANAGER] Page loaded, injecting debug overlay...");
 
-            // ВАЖНО: Ждем полной загрузки страницы
-            await this.state.window.loadURL(conferenceUrl);
+        // Ждем полной инициализации Jitsi
+        await this.waitForJitsiReady();
 
-            // Также пробуем инъектировать при навигации
-            this.state.window.webContents.on('did-navigate', async () => {
-                log.info("[JITSI-MANAGER] Navigation detected, re-injecting debug overlay...");
-                setTimeout(async () => {
-                    await this.injectDebugOverlay();
-                }, 1000);
-            });
-            
-            // Ждем загрузки Jitsi и инжектируем обработчики несколько раз
-            // Первая попытка через 3 секунды
-            setTimeout(() => {
-            log.info("First injection attempt (3s)...");
-            this.injectHandlers();
-            }, 3000);
-            
-            // Вторая попытка через 5 секунд (если первая не сработала)
-            setTimeout(() => {
-            log.info("Second injection attempt (5s)...");
-            this.injectHandlers();
-            }, 5000);
-            
-            // Третья попытка через 8 секунд (для медленного интернета)
-            setTimeout(() => {
-            log.info("Third injection attempt (8s)...");
-            this.injectHandlers();
-            }, 8000);
+        // Плавно скрываем индикатор загрузки
+        await this.hideLoadingScreen();
 
-            this.state.window.on('close', async (event) => {
-                log.info("[STREAM-ELECTRON] Window close event triggered");
-                
-                // Предотвращаем немедленное закрытие
-                event.preventDefault();
+        // Небольшая задержка для инициализации DOM
+        setTimeout(async () => {
+          await this.injectDebugOverlay();
+          await this.startDebugMonitoring();
+        }, 500);
+      });
 
-                const left = await this.leaveConference();
-                if (left) {
-                    log.info("[STREAM-ELECTRON] Successfully left conference");
-                    // Даем время на отправку пакетов выхода
-                    await new Promise(resolve => setTimeout(resolve, 500));
-                }
-                
-                // Выполняем cleanup асинхронно
-                await this.cleanup();
-                
-                // Теперь разрешаем закрытие
-                if (this.state.window && !this.state.window.isDestroyed()) {
-                    this.state.window.destroy();
-                }
-                
-                this.state.window = null;
-            });
+      // ВАЖНО: Ждем полной загрузки страницы
+      await this.state.window.loadURL(conferenceUrl);
 
-            // Обработчик закрытия
-            this.state.window.on('closed', () => {
-                log.info("[STREAM-ELECTRON] Window closed event");
-                this.state.window = null;
-            });
+      // Также пробуем инъектировать при навигации
+      this.state.window.webContents.on("did-navigate", async () => {
+        log.info(
+          "[JITSI-MANAGER] Navigation detected, re-injecting debug overlay...",
+        );
+        setTimeout(async () => {
+          await this.injectDebugOverlay();
+        }, 1000);
+      });
 
-            // Слушаем консоль для отладки
-            this.state.window.webContents.on('console-message', (event, level, message) => {
-            if (message.includes('[JitsiDebug]') || 
-                message.includes('[JitsiManager]') || 
-                message.includes('[NativeStream]') ||
-                message.includes('[SourcePicker]')) {
-                log.info(`Jitsi Console: ${message}`);
-            }
-            });
+      // Ждем загрузки Jitsi и инжектируем обработчики несколько раз
+      // Первая попытка через 3 секунды
+      setTimeout(() => {
+        log.info("First injection attempt (3s)...");
+        this.injectHandlers();
+      }, 3000);
 
-            return { success: true };
+      // Вторая попытка через 5 секунд (если первая не сработала)
+      setTimeout(() => {
+        log.info("Second injection attempt (5s)...");
+        this.injectHandlers();
+      }, 5000);
 
-        } catch (error: any) {
-            log.error(`Failed to create Jitsi window: ${error.message}`);
-            return { success: false, error: error.message };
+      // Третья попытка через 8 секунд (для медленного интернета)
+      setTimeout(() => {
+        log.info("Third injection attempt (8s)...");
+        this.injectHandlers();
+      }, 8000);
+
+      this.state.window.on("close", async (event) => {
+        log.info("[STREAM-ELECTRON] Window close event triggered");
+
+        // Предотвращаем немедленное закрытие
+        event.preventDefault();
+
+        const left = await this.leaveConference();
+        if (left) {
+          log.info("[STREAM-ELECTRON] Successfully left conference");
+          // Даем время на отправку пакетов выхода
+          await new Promise((resolve) => setTimeout(resolve, 500));
         }
-    }
 
-    private async injectLoadingScreen(): Promise<void> {
-        if (!this.state.window || this.state.window.isDestroyed()) return;
-        
-        const loadingHTML = `
+        // Выполняем cleanup асинхронно
+        await this.cleanup();
+
+        // Теперь разрешаем закрытие
+        if (this.state.window && !this.state.window.isDestroyed()) {
+          this.state.window.destroy();
+        }
+
+        this.state.window = null;
+      });
+
+      // Обработчик закрытия
+      this.state.window.on("closed", () => {
+        log.info("[STREAM-ELECTRON] Window closed event");
+        this.state.window = null;
+      });
+
+      // Слушаем консоль для отладки
+      this.state.window.webContents.on(
+        "console-message",
+        (event, level, message) => {
+          if (
+            message.includes("[JitsiDebug]") ||
+            message.includes("[JitsiManager]") ||
+            message.includes("[NativeStream]") ||
+            message.includes("[SourcePicker]")
+          ) {
+            log.info(`Jitsi Console: ${message}`);
+          }
+        },
+      );
+
+      return {success: true};
+    } catch (error: any) {
+      log.error(`Failed to create Jitsi window: ${error.message}`);
+      return {success: false, error: error.message};
+    }
+  }
+
+  private async injectLoadingScreen(): Promise<void> {
+    if (!this.state.window || this.state.window.isDestroyed()) return;
+
+    const loadingHTML = `
             <!DOCTYPE html>
             <html>
             <head>
@@ -1818,20 +1918,22 @@ export class JitsiManager {
             </body>
             </html>
         `;
-        
-        await this.state.window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(loadingHTML)}`);
-    }
 
-    // Метод для ожидания готовности Jitsi
-    private async waitForJitsiReady(): Promise<boolean> {
-        if (!this.state.window || this.state.window.isDestroyed()) return false;
-        
-        let attempts = 0;
-        const maxAttempts = 100; // 5 секунд максимум
-        
-        while (attempts < maxAttempts) {
-            try {
-                const isReady = await this.state.window.webContents.executeJavaScript(`
+    await this.state.window.loadURL(
+      `data:text/html;charset=utf-8,${encodeURIComponent(loadingHTML)}`,
+    );
+  }
+
+  // Метод для ожидания готовности Jitsi
+  private async waitForJitsiReady(): Promise<boolean> {
+    if (!this.state.window || this.state.window.isDestroyed()) return false;
+
+    let attempts = 0;
+    const maxAttempts = 100; // 5 секунд максимум
+
+    while (attempts < maxAttempts) {
+      try {
+        const isReady = await this.state.window.webContents.executeJavaScript(`
                     (function() {
                         // Проверяем различные индикаторы готовности Jitsi
                         const checks = {
@@ -1864,30 +1966,30 @@ export class JitsiManager {
                         return isReady;
                     })();
                 `);
-                
-                if (isReady) {
-                    await new Promise(resolve => setTimeout(resolve, 1500)); // 1.5 секунды дополнительно
-                    log.info("[JITSI-MANAGER] Jitsi is ready!");
-                    return true;
-                }
-            } catch (error) {
-                // Игнорируем ошибки во время загрузки
-            }
-            
-            await new Promise(resolve => setTimeout(resolve, 100));
-            attempts++;
+
+        if (isReady) {
+          await new Promise((resolve) => setTimeout(resolve, 1500)); // 1.5 секунды дополнительно
+          log.info("[JITSI-MANAGER] Jitsi is ready!");
+          return true;
         }
-        
-        log.warn("[JITSI-MANAGER] Jitsi initialization timeout, proceeding anyway");
-        return false;
+      } catch {
+        // Игнорируем ошибки во время загрузки
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      attempts++;
     }
 
-    // Метод для плавного скрытия индикатора загрузки
-    private async hideLoadingScreen(): Promise<void> {
-        if (!this.state.window || this.state.window.isDestroyed()) return;
-        
-        try {
-            await this.state.window.webContents.executeJavaScript(`
+    log.warn("[JITSI-MANAGER] Jitsi initialization timeout, proceeding anyway");
+    return false;
+  }
+
+  // Метод для плавного скрытия индикатора загрузки
+  private async hideLoadingScreen(): Promise<void> {
+    if (!this.state.window || this.state.window.isDestroyed()) return;
+
+    try {
+      await this.state.window.webContents.executeJavaScript(`
                 (function() {
                     // Создаем элемент для плавного перехода
                     const fadeOverlay = document.createElement('div');
@@ -1915,18 +2017,18 @@ export class JitsiManager {
                     console.log('[LOADING] Loading screen hidden with smooth transition');
                 })();
             `);
-        } catch (error) {
-            log.error("[JITSI-MANAGER] Error hiding loading screen:", error);
-        }
+    } catch (error) {
+      log.error("[JITSI-MANAGER] Error hiding loading screen:", error);
+    }
+  }
+
+  private async leaveConference(): Promise<boolean> {
+    if (!this.state.window || this.state.window.isDestroyed()) {
+      return false;
     }
 
-    private async leaveConference(): Promise<boolean> {
-        if (!this.state.window || this.state.window.isDestroyed()) {
-            return false;
-        }
-        
-        try {
-            const result = await this.state.window.webContents.executeJavaScript(`
+    try {
+      const result = await this.state.window.webContents.executeJavaScript(`
                 (async function() {
                     console.log('[JitsiManager] Attempting to leave conference...');
                     
@@ -1959,185 +2061,226 @@ export class JitsiManager {
                     return false;
                 })();
             `);
-            
-            return result;
-            
-        } catch (error: any) {
-            log.error(`[JitsiManager] Error leaving conference: ${error.message}`);
-            return false;
-        }
+
+      return result;
+    } catch (error: any) {
+      log.error(`[JitsiManager] Error leaving conference: ${error.message}`);
+      return false;
+    }
+  }
+
+  async resetManager(): Promise<void> {
+    log.info("[STREAM-ELECTRON] >>> Full reset initiated");
+
+    try {
+      // Останавливаем все
+      await this.closeWindow();
+
+      // Ждем немного
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+
+      // Сбрасываем все состояния
+      this.state = {
+        window: null,
+        isStreamActive: false,
+        streamId: null,
+        lastSelectedSourceId: undefined,
+        videoFrameCount: 0,
+        audioFrameCount: 0,
+        useNativeAudio: true,
+      };
+
+      // Переинициализируем менеджер качества
+      this.videoQualityManager = new VideoQualityManager();
+      if (this.config.videoQuality) {
+        this.videoQualityManager.setPreset(this.config.videoQuality);
+      }
+
+      log.info("[STREAM-ELECTRON] <<< Reset completed");
+    } catch (error: any) {
+      log.error(`[STREAM-ELECTRON] Reset error: ${error.message}`);
+    }
+  }
+
+  private buildConferenceUrl(
+    server: string,
+    roomName: string,
+    options: JitsiOptions,
+  ): string {
+    let url = `${server}/${roomName}`;
+
+    // Query параметры (JWT токен)
+    const queryParameters = new URLSearchParams();
+    if (options.jwt) queryParameters.append("jwt", options.jwt);
+
+    if (queryParameters.toString()) {
+      url += "?" + queryParameters.toString();
     }
 
-    async resetManager(): Promise<void> {
-        log.info("[STREAM-ELECTRON] >>> Full reset initiated");
-        
-        try {
-            // Останавливаем все
-            await this.closeWindow();
-            
-            // Ждем немного
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            
-            // Сбрасываем все состояния
-            this.state = {
-                window: null,
-                isStreamActive: false,
-                streamId: null,
-                lastSelectedSourceId: undefined,
-                videoFrameCount: 0,
-                audioFrameCount: 0
-            };
-            
-            // Переинициализируем менеджер качества
-            this.videoQualityManager = new VideoQualityManager();
-            if (this.config.videoQuality) {
-                this.videoQualityManager.setPreset(this.config.videoQuality);
-            }
-            
-            log.info("[STREAM-ELECTRON] <<< Reset completed");
-            
-        } catch (error: any) {
-            log.error(`[STREAM-ELECTRON] Reset error: ${error.message}`);
-        }
+    // Hash параметры для конфигурации
+    const hashParameters = new URLSearchParams();
+
+    // === ОСНОВНЫЕ НАСТРОЙКИ ===
+    hashParameters.append("config.prejoinPageEnabled", "false");
+    hashParameters.append("config.startWithAudioMuted", "false");
+    hashParameters.append("config.startWithVideoMuted", "true");
+
+    // === НАСТРОЙКИ ЛОГИРОВАНИЯ ===
+    hashParameters.append("config.apiLogLevels", JSON.stringify(["error"]));
+    hashParameters.append("config.logging.defaultLogLevel", "error");
+
+    // === НАСТРОЙКИ ВИДЕО И АУДИО ===
+    hashParameters.append("config.disableSimulcast", "true");
+    hashParameters.append("config.disableAudioLevels", "false");
+    hashParameters.append("config.stereo", "false");
+    hashParameters.append("config.resolution", "720");
+
+    // === НАСТРОЙКИ ОБРАБОТКИ АУДИО ===
+    hashParameters.append("config.echoCancellation", "true");
+    hashParameters.append("config.noiseSuppression", "true");
+    hashParameters.append("config.highpassFilter", "true");
+    hashParameters.append("config.autoGainControl", "true");
+    hashParameters.append("config.enableLipSync", "false");
+
+    // === НАСТРОЙКИ ДЕМОНСТРАЦИИ ЭКРАНА ===
+    hashParameters.append("config.desktopSharingFrameRate.min", "15");
+    hashParameters.append("config.desktopSharingFrameRate.max", "30");
+
+    // Разрешение для демонстрации экрана
+    hashParameters.append("config.constraints.video.width.min", "480");
+    hashParameters.append("config.constraints.video.width.ideal", "800");
+    hashParameters.append("config.constraints.video.width.max", "900");
+    hashParameters.append("config.constraints.video.height.min", "360");
+    hashParameters.append("config.constraints.video.height.ideal", "500");
+    hashParameters.append("config.constraints.video.height.max", "720");
+    hashParameters.append("config.constraints.video.frameRate.min", "15");
+    hashParameters.append("config.constraints.video.frameRate.max", "30");
+
+    // Настройки для desktop sharing
+    hashParameters.append(
+      "config.desktopSharingConstraints.video.width.min",
+      "360",
+    );
+    hashParameters.append(
+      "config.desktopSharingConstraints.video.width.ideal",
+      "800",
+    );
+    hashParameters.append(
+      "config.desktopSharingConstraints.video.width.max",
+      "900",
+    );
+    hashParameters.append(
+      "config.desktopSharingConstraints.video.height.min",
+      "480",
+    );
+    hashParameters.append(
+      "config.desktopSharingConstraints.video.height.ideal",
+      "500",
+    );
+    hashParameters.append(
+      "config.desktopSharingConstraints.video.height.max",
+      "800",
+    );
+    hashParameters.append(
+      "config.desktopSharingConstraints.video.frameRate.min",
+      "15",
+    );
+    hashParameters.append(
+      "config.desktopSharingConstraints.video.frameRate.max",
+      "30",
+    );
+
+    // === ОТКЛЮЧЕНИЕ ФУНКЦИЙ ИНТЕРФЕЙСА ===
+    hashParameters.append("config.hideConferenceSubject", "true");
+    hashParameters.append("config.deeplinking.disabled", "true");
+    hashParameters.append("config.disableRemoteMute", "true");
+    hashParameters.append("config.disableKick", "true");
+    hashParameters.append("config.disableGrantModerator", "true");
+    hashParameters.append("config.disablePrivateChat", "true");
+    hashParameters.append("config.disableSelfViewSettings", "true");
+    hashParameters.append("config.disableLocalVideoFlip", "true");
+    hashParameters.append("config.disableLocalStats", "true");
+    hashParameters.append("config.disableAVModeration", "true");
+    hashParameters.append("config.disableInviteFunctions", "true");
+
+    // Настройки панели участников
+    hashParameters.append(
+      "config.participantsPane.hideMoreActionsButton",
+      "true",
+    );
+    hashParameters.append("config.breakoutRooms.hideMoreActionsButton", "true");
+
+    // Настройки filmstrip
+    hashParameters.append("config.filmstrip.disableStageFilmstrip", "true");
+    hashParameters.append("config.filmstrip.disableResizable", "true");
+
+    // === НАСТРОЙКИ ИНТЕРФЕЙСА ===
+    hashParameters.append("interfaceConfig.DISABLE_VIDEO_BACKGROUND", "true");
+    hashParameters.append(
+      "interfaceConfig.DISABLE_DOMINANT_SPEAKER_INDICATOR",
+      "true",
+    );
+
+    // Кнопки тулбара - только необходимые
+    const toolbarButtons = [
+      "camera",
+      "desktop",
+      "microphone",
+      "settings",
+      "fullscreen",
+      "hangup",
+    ];
+    hashParameters.append(
+      "interfaceConfig.TOOLBAR_BUTTONS",
+      JSON.stringify(toolbarButtons),
+    );
+
+    // === ИНФОРМАЦИЯ О ПОЛЬЗОВАТЕЛЕ ===
+    if (options.displayName) {
+      hashParameters.append("userInfo.displayName", options.displayName);
     }
 
-    private buildConferenceUrl(server: string, roomName: string, options: JitsiOptions): string {
-        let url = `${server}/${roomName}`;
-
-        // Query параметры (JWT токен)
-        const queryParams = new URLSearchParams();
-        if (options.jwt) queryParams.append('jwt', options.jwt);
-        
-        if (queryParams.toString()) {
-            url += '?' + queryParams.toString();
-        }
-
-        // Hash параметры для конфигурации
-        const hashParams = new URLSearchParams();
-        
-        // === ОСНОВНЫЕ НАСТРОЙКИ ===
-        hashParams.append('config.prejoinPageEnabled', 'false');
-        hashParams.append('config.startWithAudioMuted', 'false');
-        hashParams.append('config.startWithVideoMuted', 'true');
-        
-        // === НАСТРОЙКИ ЛОГИРОВАНИЯ ===
-        hashParams.append('config.apiLogLevels', JSON.stringify(['error']));
-        hashParams.append('config.logging.defaultLogLevel', 'error');
-        
-        // === НАСТРОЙКИ ВИДЕО И АУДИО ===
-        hashParams.append('config.disableSimulcast', 'true');
-        hashParams.append('config.disableAudioLevels', 'false');
-        hashParams.append('config.stereo', 'false');
-        hashParams.append('config.resolution', '720');
-        
-        // === НАСТРОЙКИ ОБРАБОТКИ АУДИО ===
-        hashParams.append('config.echoCancellation', 'true');
-        hashParams.append('config.noiseSuppression', 'true');
-        hashParams.append('config.highpassFilter', 'true');
-        hashParams.append('config.autoGainControl', 'true');
-        hashParams.append('config.enableLipSync', 'false');
-        
-        // === НАСТРОЙКИ ДЕМОНСТРАЦИИ ЭКРАНА ===
-        hashParams.append('config.desktopSharingFrameRate.min', '15');
-        hashParams.append('config.desktopSharingFrameRate.max', '30');
-        
-        // Разрешение для демонстрации экрана
-        hashParams.append('config.constraints.video.width.min', '480');
-        hashParams.append('config.constraints.video.width.ideal', '800');
-        hashParams.append('config.constraints.video.width.max', '900');
-        hashParams.append('config.constraints.video.height.min', '360');
-        hashParams.append('config.constraints.video.height.ideal', '500');
-        hashParams.append('config.constraints.video.height.max', '720');
-        hashParams.append('config.constraints.video.frameRate.min', '15');
-        hashParams.append('config.constraints.video.frameRate.max', '30');
-        
-        // Настройки для desktop sharing
-        hashParams.append('config.desktopSharingConstraints.video.width.min', '360');
-        hashParams.append('config.desktopSharingConstraints.video.width.ideal', '800');
-        hashParams.append('config.desktopSharingConstraints.video.width.max', '900');
-        hashParams.append('config.desktopSharingConstraints.video.height.min', '480');
-        hashParams.append('config.desktopSharingConstraints.video.height.ideal', '500');
-        hashParams.append('config.desktopSharingConstraints.video.height.max', '800');
-        hashParams.append('config.desktopSharingConstraints.video.frameRate.min', '15');
-        hashParams.append('config.desktopSharingConstraints.video.frameRate.max', '30');
-        
-        // === ОТКЛЮЧЕНИЕ ФУНКЦИЙ ИНТЕРФЕЙСА ===
-        hashParams.append('config.hideConferenceSubject', 'true');
-        hashParams.append('config.deeplinking.disabled', 'true');
-        hashParams.append('config.disableRemoteMute', 'true');
-        hashParams.append('config.disableKick', 'true');
-        hashParams.append('config.disableGrantModerator', 'true');
-        hashParams.append('config.disablePrivateChat', 'true');
-        hashParams.append('config.disableSelfViewSettings', 'true');
-        hashParams.append('config.disableLocalVideoFlip', 'true');
-        hashParams.append('config.disableLocalStats', 'true');
-        hashParams.append('config.disableAVModeration', 'true');
-        hashParams.append('config.disableInviteFunctions', 'true');
-        
-        // Настройки панели участников
-        hashParams.append('config.participantsPane.hideMoreActionsButton', 'true');
-        hashParams.append('config.breakoutRooms.hideMoreActionsButton', 'true');
-        
-        // Настройки filmstrip
-        hashParams.append('config.filmstrip.disableStageFilmstrip', 'true');
-        hashParams.append('config.filmstrip.disableResizable', 'true');
-        
-        // === НАСТРОЙКИ ИНТЕРФЕЙСА ===
-        hashParams.append('interfaceConfig.DISABLE_VIDEO_BACKGROUND', 'true');
-        hashParams.append('interfaceConfig.DISABLE_DOMINANT_SPEAKER_INDICATOR', 'true');
-        
-        // Кнопки тулбара - только необходимые
-        const toolbarButtons = [
-            'camera',
-            'desktop',
-            'microphone', 
-            'settings',
-            'fullscreen',
-            'hangup'
-        ];
-        hashParams.append('interfaceConfig.TOOLBAR_BUTTONS', JSON.stringify(toolbarButtons));
-        
-        // === ИНФОРМАЦИЯ О ПОЛЬЗОВАТЕЛЕ ===
-        if (options.displayName) {
-            hashParams.append('userInfo.displayName', options.displayName);
-        }
-        if (options.email) {
-            hashParams.append('userInfo.email', options.email);
-        }
-        if (options.avatarUrl) {
-            hashParams.append('userInfo.avatarURL', options.avatarUrl);
-        }
-        
-        // === ИСТОЧНИКИ ДЛЯ ДЕМОНСТРАЦИИ ===
-        hashParams.append('config.desktopSharingSources', JSON.stringify(['screen', 'window']));
-        
-        // === ДОПОЛНИТЕЛЬНЫЕ НАСТРОЙКИ ===
-        hashParams.append('config.enableWelcomePage', 'false');
-        hashParams.append('config.enableClosePage', 'false');
-        hashParams.append('config.fileRecordingsEnabled', 'false');
-        hashParams.append('config.liveStreamingEnabled', 'false');
-        hashParams.append('config.transcribingEnabled', 'false');
-        hashParams.append('config.enableCalendarIntegration', 'false');
-        hashParams.append('config.enableNoAudioDetection', 'false');
-        hashParams.append('config.enableNoisyMicDetection', 'false');
-        hashParams.append('config.enableSaveLogs', 'false');
-        hashParams.append('config.disableThirdPartyRequests', 'true');
-        hashParams.append('config.p2p.enabled', 'false');
-        
-        // Добавляем hash параметры к URL
-        if (hashParams.toString()) {
-            url += '#' + hashParams.toString();
-        }
-
-        return url;
+    if (options.email) {
+      hashParameters.append("userInfo.email", options.email);
     }
 
-    private async injectHandlers(): Promise<void> {
-        if (!this.state.window || this.state.window.isDestroyed()) return;
+    if (options.avatarUrl) {
+      hashParameters.append("userInfo.avatarURL", options.avatarUrl);
+    }
 
-        try {
-            // Проверяем готовность Jitsi
-            const isReady = await this.state.window.webContents.executeJavaScript(`
+    // === ИСТОЧНИКИ ДЛЯ ДЕМОНСТРАЦИИ ===
+    hashParameters.append(
+      "config.desktopSharingSources",
+      JSON.stringify(["screen", "window"]),
+    );
+
+    // === ДОПОЛНИТЕЛЬНЫЕ НАСТРОЙКИ ===
+    hashParameters.append("config.enableWelcomePage", "false");
+    hashParameters.append("config.enableClosePage", "false");
+    hashParameters.append("config.fileRecordingsEnabled", "false");
+    hashParameters.append("config.liveStreamingEnabled", "false");
+    hashParameters.append("config.transcribingEnabled", "false");
+    hashParameters.append("config.enableCalendarIntegration", "false");
+    hashParameters.append("config.enableNoAudioDetection", "false");
+    hashParameters.append("config.enableNoisyMicDetection", "false");
+    hashParameters.append("config.enableSaveLogs", "false");
+    hashParameters.append("config.disableThirdPartyRequests", "true");
+    hashParameters.append("config.p2p.enabled", "false");
+
+    // Добавляем hash параметры к URL
+    if (hashParameters.toString()) {
+      url += "#" + hashParameters.toString();
+    }
+
+    return url;
+  }
+
+  private async injectHandlers(): Promise<void> {
+    if (!this.state.window || this.state.window.isDestroyed()) return;
+
+    try {
+      // Проверяем готовность Jitsi
+      const isReady = await this.state.window.webContents.executeJavaScript(`
                 (function() {
                     const ready = !!(window.JitsiMeetJS && window.APP && window.APP.conference);
                     console.log('[JitsiDebug] Checking readiness:', {
@@ -2150,19 +2293,19 @@ export class JitsiManager {
                 })();
             `);
 
-            if (!isReady) {
-                log.warn("Jitsi not ready yet, skipping injection");
-                return;
-            }
+      if (!isReady) {
+        log.warn("Jitsi not ready yet, skipping injection");
+        return;
+      }
 
-            log.info("Jitsi is ready, injecting handlers...");
+      log.info("Jitsi is ready, injecting handlers...");
 
-            // ========== РАЗДЕЛЕНИЕ ЛОГИКИ ПО РЕЖИМАМ ==========
-            if (!this.state.useNativeAudio) {
-                // === СТАНДАРТНЫЙ РЕЖИМ - МИНИМАЛЬНАЯ ИНЪЕКЦИЯ ===
-                log.info("Injecting STANDARD mode handlers (minimal)");
-                
-                await this.state.window.webContents.executeJavaScript(`
+      // ========== РАЗДЕЛЕНИЕ ЛОГИКИ ПО РЕЖИМАМ ==========
+      if (!this.state.useNativeAudio) {
+        // === СТАНДАРТНЫЙ РЕЖИМ - МИНИМАЛЬНАЯ ИНЪЕКЦИЯ ===
+        log.info("Injecting STANDARD mode handlers (minimal)");
+
+        await this.state.window.webContents.executeJavaScript(`
                     (function() {
                         if (window.standardHandlersInjected) return;
                         window.standardHandlersInjected = true;
@@ -2223,29 +2366,30 @@ export class JitsiManager {
                         setTimeout(() => clearInterval(checkInterval), 10000);
                     })();
                 `);
-                
-                // Инъекция debug overlay если включен
-                await this.injectDebugOverlay();
-                
-                log.info("✅ Standard handlers injected successfully");
-                return; // Выходим здесь для стандартного режима
-            }
 
-            // ========== НАТИВНЫЙ РЕЖИМ - ПОЛНАЯ ИНЪЕКЦИЯ ==========
-            log.info("Injecting NATIVE mode handlers (full)");
+        // Инъекция debug overlay если включен
+        await this.injectDebugOverlay();
 
-            // Проверяем, не инжектировали ли уже
-            const alreadyInjected = await this.state.window.webContents.executeJavaScript(`
+        log.info("✅ Standard handlers injected successfully");
+        return; // Выходим здесь для стандартного режима
+      }
+
+      // ========== НАТИВНЫЙ РЕЖИМ - ПОЛНАЯ ИНЪЕКЦИЯ ==========
+      log.info("Injecting NATIVE mode handlers (full)");
+
+      // Проверяем, не инжектировали ли уже
+      const alreadyInjected = await this.state.window.webContents
+        .executeJavaScript(`
                 !!(window.jitsiHandlersInjected)
             `);
 
-            if (alreadyInjected) {
-                log.info("Handlers already injected, skipping");
-                return;
-            }
+      if (alreadyInjected) {
+        log.info("Handlers already injected, skipping");
+        return;
+      }
 
-            // Полная инъекция для нативного режима (без изменений)
-            await this.state.window.webContents.executeJavaScript(`
+      // Полная инъекция для нативного режима (без изменений)
+      await this.state.window.webContents.executeJavaScript(`
                 (function() {
                     // Помечаем, что инжекция выполнена
                     if (window.jitsiHandlersInjected) {
@@ -2456,13 +2600,13 @@ export class JitsiManager {
                 })();
             `);
 
-            // Инжектируем перехватчик выбора источников
-            await this.state.window.webContents.executeJavaScript(
-                this.getScreenShareInterceptorCode()
-            );
+      // Инжектируем перехватчик выбора источников
+      await this.state.window.webContents.executeJavaScript(
+        this.getScreenShareInterceptorCode(),
+      );
 
-            // Обработчик выхода из конференции
-            await this.state.window.webContents.executeJavaScript(`
+      // Обработчик выхода из конференции
+      await this.state.window.webContents.executeJavaScript(`
                 (function() {
                     console.log('[JitsiManager] Setting up conference leave handler...');
                     
@@ -2520,50 +2664,59 @@ export class JitsiManager {
                 })();
             `);
 
-            // Остальные инъекции для нативного режима
-            await this.screenShareMonitor.injectMonitor(this.state.window);
+      // Остальные инъекции для нативного режима
+      await this.screenShareMonitor.injectMonitor(this.state.window);
 
-            // Инъекция debug overlay
-            await this.injectDebugOverlay();
+      // Инъекция debug overlay
+      await this.injectDebugOverlay();
 
-            // Настройка debug callback для native capture
-            if (this.nativeCapture) {
-                this.nativeCapture.setDebugCallback((packetInfo) => {
-                    if (this.state.window && !this.state.window.isDestroyed()) {
-                        this.state.window.webContents.executeJavaScript(`
+      // Настройка debug callback для native capture
+      if (this.nativeCapture) {
+        this.nativeCapture.setDebugCallback((packetInfo) => {
+          if (this.state.window && !this.state.window.isDestroyed()) {
+            this.state.window.webContents
+              .executeJavaScript(
+                `
                             if (window.updateAudioPacket) {
                                 window.updateAudioPacket(${JSON.stringify(packetInfo)});
                             }
-                        `).catch(() => {});
-                    }
-                });
-            }
+                        `,
+              )
+              .catch(() => {});
+          }
+        });
+      }
 
-            log.info("✅ Native handlers injected successfully");
-
-        } catch (error: any) {
-            log.error(`Failed to inject handlers: ${error.message}`);
-        }
+      log.info("✅ Native handlers injected successfully");
+    } catch (error: any) {
+      log.error(`Failed to inject handlers: ${error.message}`);
     }
+  }
 
-    // ===== ГЛАВНАЯ ФУНКЦИЯ =====
-    async injectNativeStream(): Promise<{ success: boolean; error?: string; streamId?: string }> {
-        log.info(`[STREAM-ELECTRON] === START injectNativeStream (audio mode: ${this.state.useNativeAudio ? 'NATIVE' : 'STANDARD'}) ===`);
-        
-        // Проверяем доступность нативного плагина
-        const useNative = await this.shouldUseNativeCapture();
-        
-        // ========== СТАНДАРТНЫЙ РЕЖИМ (УПРОЩЕННЫЙ) ==========
-        if (!useNative || !this.state.useNativeAudio) {
-            log.info("[STREAM-ELECTRON] Using STANDARD mode (simplified)");
-            
-            if (!this.state.window || this.state.window.isDestroyed()) {
-                return { success: false, error: "No window" };
-            }
-            
-            try {
-                // Минимальная инъекция для стандартного режима
-                const result = await this.state.window.webContents.executeJavaScript(`
+  // ===== ГЛАВНАЯ ФУНКЦИЯ =====
+  async injectNativeStream(): Promise<{
+    success: boolean;
+    error?: string;
+    streamId?: string;
+  }> {
+    log.info(
+      `[STREAM-ELECTRON] === START injectNativeStream (audio mode: ${this.state.useNativeAudio ? "NATIVE" : "STANDARD"}) ===`,
+    );
+
+    // Проверяем доступность нативного плагина
+    const useNative = await this.shouldUseNativeCapture();
+
+    // ========== СТАНДАРТНЫЙ РЕЖИМ (УПРОЩЕННЫЙ) ==========
+    if (!useNative || !this.state.useNativeAudio) {
+      log.info("[STREAM-ELECTRON] Using STANDARD mode (simplified)");
+
+      if (!this.state.window || this.state.window.isDestroyed()) {
+        return {success: false, error: "No window"};
+      }
+
+      try {
+        // Минимальная инъекция для стандартного режима
+        const result = await this.state.window.webContents.executeJavaScript(`
                     (async function() {
                         console.log('[STANDARD] Initializing standard screen sharing');
                         
@@ -2621,69 +2774,78 @@ export class JitsiManager {
                         }
                     })();
                 `);
-                
-                if (result.success) {
-                    this.state.isStreamActive = true;
-                    this.state.streamId = result.streamId;
-                    log.info(`[STREAM-ELECTRON] Standard mode activated: ${result.streamId}`);
-                }
-                
-                return result;
-                
-            } catch (error: any) {
-                log.error(`[STREAM-ELECTRON] Standard mode error: ${error.message}`);
-                return { success: false, error: error.message };
-            }
-        }
-        
-        // ========== НАТИВНЫЙ РЕЖИМ (БЕЗ ИЗМЕНЕНИЙ) ==========
-        log.info("[STREAM-ELECTRON] Using NATIVE audio mode");
-        
-        // Проверяем, не активен ли уже stream
-        if (this.state.isStreamActive) {
-            log.warn("[STREAM-ELECTRON] Stream already active, stopping previous...");
-            await this.cleanup();
-            await new Promise(resolve => setTimeout(resolve, 500));
+
+        if (result.success) {
+          this.state.isStreamActive = true;
+          this.state.streamId = result.streamId;
+          log.info(
+            `[STREAM-ELECTRON] Standard mode activated: ${result.streamId}`,
+          );
         }
 
-        if (!this.state.window || this.state.window.isDestroyed()) {
-            log.error("[STREAM-ELECTRON] No active Jitsi window");
-            return { success: false, error: "No active Jitsi window" };
-        }
+        return result;
+      } catch (error: any) {
+        log.error(`[STREAM-ELECTRON] Standard mode error: ${error.message}`);
+        return {success: false, error: error.message};
+      }
+    }
 
-        try {
-            const electronSourceId = this.state.lastSelectedSourceId;
-            if (!electronSourceId) {
-                log.error("[STREAM-ELECTRON] No source selected");
-                return { success: false, error: "No source selected" };
-            }
-            
-            log.info(`[STREAM-ELECTRON] Using Electron source: ${electronSourceId}`);
-            
-            // 1. Запускаем Native аудио захват
-            const audioResult = await this.startNativeAudioCapture(electronSourceId);
-            if (!audioResult.success) {
-                return { success: false, error: audioResult.error };
-            }
+    // ========== НАТИВНЫЙ РЕЖИМ (БЕЗ ИЗМЕНЕНИЙ) ==========
+    log.info("[STREAM-ELECTRON] Using NATIVE audio mode");
 
-            // Проверка окна
-            if (!this.state.window || this.state.window.isDestroyed()) {
-                log.error("[STREAM-ELECTRON] Window lost after audio capture start");
-                await this.nativeCapture.stopCapture();
-                return { success: false, error: "Window lost" };
-            }
-            
-            // 2. Создаем гибридный поток в Jitsi
-            const streamResult = await this.createHybridStreamInJitsi(electronSourceId);
+    // Проверяем, не активен ли уже stream
+    if (this.state.isStreamActive) {
+      log.warn("[STREAM-ELECTRON] Stream already active, stopping previous...");
+      await this.cleanup();
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
 
-            if (!streamResult || !streamResult.success) {
-                log.error("[STREAM-ELECTRON] Failed to create hybrid stream:", streamResult);
-                await this.nativeCapture.stopCapture();
-                return { success: false, error: streamResult?.error || "Failed to create stream" };
-            }
+    if (!this.state.window || this.state.window.isDestroyed()) {
+      log.error("[STREAM-ELECTRON] No active Jitsi window");
+      return {success: false, error: "No active Jitsi window"};
+    }
 
-            // 3. Проверяем буферы
-            const bufferCheck = await this.state.window.webContents.executeJavaScript(`
+    try {
+      const electronSourceId = this.state.lastSelectedSourceId;
+      if (!electronSourceId) {
+        log.error("[STREAM-ELECTRON] No source selected");
+        return {success: false, error: "No source selected"};
+      }
+
+      log.info(`[STREAM-ELECTRON] Using Electron source: ${electronSourceId}`);
+
+      // 1. Запускаем Native аудио захват
+      const audioResult = await this.startNativeAudioCapture(electronSourceId);
+      if (!audioResult.success) {
+        return {success: false, error: audioResult.error};
+      }
+
+      // Проверка окна
+      if (!this.state.window || this.state.window.isDestroyed()) {
+        log.error("[STREAM-ELECTRON] Window lost after audio capture start");
+        await this.nativeCapture.stopCapture();
+        return {success: false, error: "Window lost"};
+      }
+
+      // 2. Создаем гибридный поток в Jitsi
+      const streamResult =
+        await this.createHybridStreamInJitsi(electronSourceId);
+
+      if (!streamResult?.success) {
+        log.error(
+          "[STREAM-ELECTRON] Failed to create hybrid stream:",
+          streamResult,
+        );
+        await this.nativeCapture.stopCapture();
+        return {
+          success: false,
+          error: streamResult?.error || "Failed to create stream",
+        };
+      }
+
+      // 3. Проверяем буферы
+      const bufferCheck = await this.state.window.webContents
+        .executeJavaScript(`
                 (function() {
                     const check = {
                         hasLeftBuffer: !!window.leftRingBuffer,
@@ -2697,192 +2859,221 @@ export class JitsiManager {
                     return check;
                 })();
             `);
-            
-            log.info("[STREAM-ELECTRON] Buffer check:", bufferCheck);
 
-            if (!bufferCheck.hasLeftBuffer || !bufferCheck.hasRightBuffer) {
-                log.error("[STREAM-ELECTRON] Buffers not created!");
-                await this.nativeCapture.stopCapture();
-                return { success: false, error: "Audio buffers not initialized" };
-            }
-            
-            // 4. Настраиваем callbacks для аудио
-            this.setupAudioCallbacks();
-            
-            // Сохраняем состояние
-            this.state.isStreamActive = true;
-            this.state.streamId = streamResult.streamId;
-            
-            log.info("[STREAM-ELECTRON] === SUCCESS injectNativeStream (NATIVE) ===");
-            log.info(`[STREAM-ELECTRON] Stream ID: ${streamResult.streamId}`);
-            
-            return streamResult;
-            
-        } catch (error: any) {
-            log.error(`[STREAM-ELECTRON] === ERROR injectNativeStream: ${error.message} ===`);
-            await this.nativeCapture.stopCapture();
-            return { success: false, error: error.message };
-        }
+      log.info("[STREAM-ELECTRON] Buffer check:", bufferCheck);
+
+      if (!bufferCheck.hasLeftBuffer || !bufferCheck.hasRightBuffer) {
+        log.error("[STREAM-ELECTRON] Buffers not created!");
+        await this.nativeCapture.stopCapture();
+        return {success: false, error: "Audio buffers not initialized"};
+      }
+
+      // 4. Настраиваем callbacks для аудио
+      this.setupAudioCallbacks();
+
+      // Сохраняем состояние
+      this.state.isStreamActive = true;
+      this.state.streamId = streamResult.streamId;
+
+      log.info("[STREAM-ELECTRON] === SUCCESS injectNativeStream (NATIVE) ===");
+      log.info(`[STREAM-ELECTRON] Stream ID: ${streamResult.streamId}`);
+
+      return streamResult;
+    } catch (error: any) {
+      log.error(
+        `[STREAM-ELECTRON] === ERROR injectNativeStream: ${error.message} ===`,
+      );
+      await this.nativeCapture.stopCapture();
+      return {success: false, error: error.message};
     }
+  }
 
-    private async forceReleaseAllMediaResources(): Promise<void> {
-        if (!this.state.window || this.state.window.isDestroyed()) return;
-        
-        try {
-            // Используем Chrome DevTools Protocol для принудительной остановки
-            const cdp = this.state.window.webContents.debugger;
-            
-            try {
-                if (!cdp.isAttached()) {
-                    await cdp.attach('1.3');
-                }
-                
-                // Останавливаем все медиа сессии
-                await cdp.sendCommand('Page.stopScreencast');
-                await cdp.sendCommand('Browser.resetPermissions');
-                
-                await cdp.detach();
-            } catch (cdpError) {
-                log.warn(`[STREAM-ELECTRON] CDP cleanup error: ${cdpError}`);
-            }
-            
-            // Принудительно вызываем Garbage Collection
-            await this.state.window.webContents.executeJavaScript(`
+  private async forceReleaseAllMediaResources(): Promise<void> {
+    if (!this.state.window || this.state.window.isDestroyed()) return;
+
+    try {
+      // Используем Chrome DevTools Protocol для принудительной остановки
+      const cdp = this.state.window.webContents.debugger;
+
+      try {
+        if (!cdp.isAttached()) {
+          await cdp.attach("1.3");
+        }
+
+        // Останавливаем все медиа сессии
+        await cdp.sendCommand("Page.stopScreencast");
+        await cdp.sendCommand("Browser.resetPermissions");
+
+        await cdp.detach();
+      } catch (cdpError) {
+        log.warn(`[STREAM-ELECTRON] CDP cleanup error: ${cdpError}`);
+      }
+
+      // Принудительно вызываем Garbage Collection
+      await this.state.window.webContents.executeJavaScript(`
                 if (typeof gc !== 'undefined') {
                     gc();
                     gc(); // Вызываем дважды для полной очистки
                 }
             `);
-            
-            // Сбрасываем медиа сессию
-            const session = this.state.window.webContents.session;
-            await session.clearCache();
-            
-            log.info("[STREAM-ELECTRON] Forced release of all media resources");
-            
-        } catch (error: any) {
-            log.error(`[STREAM-ELECTRON] Error releasing media resources: ${error.message}`);
+
+      // Сбрасываем медиа сессию
+      const {session} = this.state.window.webContents;
+      await session.clearCache();
+
+      log.info("[STREAM-ELECTRON] Forced release of all media resources");
+    } catch (error: any) {
+      log.error(
+        `[STREAM-ELECTRON] Error releasing media resources: ${error.message}`,
+      );
+    }
+  }
+
+  // ===== 1. ЗАПУСК NATIVE АУДИО =====
+  private async startNativeAudioCapture(
+    sourceId: string,
+  ): Promise<{success: boolean; error?: string}> {
+    log.info("[STREAM-ELECTRON] >>> startNativeAudioCapture");
+    log.info(`[STREAM-ELECTRON] Electron sourceId: ${sourceId}`);
+
+    try {
+      // Конвертируем Electron ID в формат для нативного плагина
+      const nativeSourceId = await this.convertElectronToNativeId(sourceId);
+      log.info(`[STREAM-ELECTRON] Converted to native ID: ${nativeSourceId}`);
+
+      if (this.config.useHybridMode) {
+        log.info(
+          "[STREAM-ELECTRON] Using optimized audio-only capture for hybrid mode",
+        );
+        const result =
+          await this.nativeCapture.startAudioOnlyCapture(nativeSourceId);
+
+        if (result.success) {
+          log.info(
+            "[STREAM-ELECTRON] ✅ Audio-only capture started (CPU optimized)",
+          );
+        } else {
+          log.error(
+            `[STREAM-ELECTRON] ❌ Audio-only capture failed: ${result.error}`,
+          );
         }
+
+        return result;
+      }
+
+      // Для non-hybrid режима используем полный захват
+      log.info(
+        "[STREAM-ELECTRON] Using full audio+video capture for native mode",
+      );
+      const result =
+        await this.nativeCapture.startAudioVideoCapture(nativeSourceId);
+
+      if (result.success) {
+        log.info("[STREAM-ELECTRON] ✅ Audio+Video capture started");
+      } else {
+        log.error(`[STREAM-ELECTRON] ❌ Capture failed: ${result.error}`);
+      }
+
+      return result;
+    } catch (error: any) {
+      log.error(
+        `[STREAM-ELECTRON] startNativeAudioCapture ERROR: ${error.message}`,
+      );
+      return {success: false, error: error.message};
+    }
+  }
+
+  // ===== 2. ПОЛУЧЕНИЕ ИНФОРМАЦИИ ОБ ИСТОЧНИКЕ =====
+  private async convertElectronToNativeId(
+    electronSourceId: string,
+  ): Promise<string> {
+    log.info(`[CONVERT-ID] Converting Electron ID: ${electronSourceId}`);
+
+    // Electron формат: "screen:0:0" или "window:12345:0"
+    // Native формат зависит от плагина
+
+    if (electronSourceId.startsWith("screen:")) {
+      // Для экранов
+      const parts = electronSourceId.split(":");
+      const displayId = parts[1] || "0";
+
+      if (this.isWindowsPlatform()) {
+        // Windows плагин ожидает числовой ID
+        return `screen:${displayId}:0`;
+      }
+
+      // MacOS плагин может использовать другой формат
+      return `display:${displayId}`;
     }
 
-    // ===== 1. ЗАПУСК NATIVE АУДИО =====
-    private async startNativeAudioCapture(sourceId: string): Promise<{ success: boolean; error?: string }> {
-        log.info("[STREAM-ELECTRON] >>> startNativeAudioCapture");
-        log.info(`[STREAM-ELECTRON] Electron sourceId: ${sourceId}`);
-        
-        try {
-            // Конвертируем Electron ID в формат для нативного плагина
-            const nativeSourceId = await this.convertElectronToNativeId(sourceId);
-            log.info(`[STREAM-ELECTRON] Converted to native ID: ${nativeSourceId}`);
-            
-            if (this.config.useHybridMode) {
-                log.info("[STREAM-ELECTRON] Using optimized audio-only capture for hybrid mode");
-                const result = await this.nativeCapture.startAudioOnlyCapture(nativeSourceId);
-                
-                if (result.success) {
-                    log.info("[STREAM-ELECTRON] ✅ Audio-only capture started (CPU optimized)");
-                } else {
-                    log.error(`[STREAM-ELECTRON] ❌ Audio-only capture failed: ${result.error}`);
-                }
-                
-                return result;
-            }
-            
-            // Для non-hybrid режима используем полный захват
-            log.info("[STREAM-ELECTRON] Using full audio+video capture for native mode");
-            const result = await this.nativeCapture.startAudioVideoCapture(nativeSourceId);
-            
-            if (result.success) {
-                log.info("[STREAM-ELECTRON] ✅ Audio+Video capture started");
-            } else {
-                log.error(`[STREAM-ELECTRON] ❌ Capture failed: ${result.error}`);
-            }
-            
-            return result;
-            
-        } catch (error: any) {
-            log.error(`[STREAM-ELECTRON] startNativeAudioCapture ERROR: ${error.message}`);
-            return { success: false, error: error.message };
+    if (electronSourceId.startsWith("window:")) {
+      // Для окон
+      const parts = electronSourceId.split(":");
+      const windowId = parts[1] || "0";
+
+      if (this.isWindowsPlatform()) {
+        // Windows - нужно найти соответствующее окно по ID
+        const nativeSources = await this.nativeCapture.getSources();
+
+        // Пытаемся найти окно по частичному совпадению ID или названия
+        const electronSources = await this.getElectronSources();
+        const electronWindow = electronSources.find(
+          (s) => s.id === electronSourceId,
+        );
+
+        if (electronWindow) {
+          // Ищем по названию в нативных источниках
+          const nativeWindow = nativeSources.find(
+            (ns) =>
+              ns.name &&
+              electronWindow.name &&
+              ns.name.includes(electronWindow.name),
+          );
+
+          if (nativeWindow) {
+            return `window:${nativeWindow.id}:0`;
+          }
         }
+
+        // Fallback на ID
+        return `window:${windowId}:0`;
+      }
+
+      // MacOS
+      return `window:${windowId}`;
     }
 
-    // ===== 2. ПОЛУЧЕНИЕ ИНФОРМАЦИИ ОБ ИСТОЧНИКЕ =====
-    private async convertElectronToNativeId(electronSourceId: string): Promise<string> {
-        log.info(`[CONVERT-ID] Converting Electron ID: ${electronSourceId}`);
-        
-        // Electron формат: "screen:0:0" или "window:12345:0"
-        // Native формат зависит от плагина
-        
-        if (electronSourceId.startsWith('screen:')) {
-            // Для экранов
-            const parts = electronSourceId.split(':');
-            const displayId = parts[1] || '0';
-            
-            if (this.isWindowsPlatform()) {
-                // Windows плагин ожидает числовой ID
-                return `screen:${displayId}:0`;
-            } else {
-                // macOS плагин может использовать другой формат
-                return `display:${displayId}`;
-            }
-        } else if (electronSourceId.startsWith('window:')) {
-            // Для окон
-            const parts = electronSourceId.split(':');
-            const windowId = parts[1] || '0';
-            
-            if (this.isWindowsPlatform()) {
-                // Windows - нужно найти соответствующее окно по ID
-                const nativeSources = await this.nativeCapture.getSources();
-                
-                // Пытаемся найти окно по частичному совпадению ID или названия
-                const electronSources = await this.getElectronSources();
-                const electronWindow = electronSources.find(s => s.id === electronSourceId);
-                
-                if (electronWindow) {
-                    // Ищем по названию в нативных источниках
-                    const nativeWindow = nativeSources.find(ns => 
-                        ns.name && electronWindow.name && 
-                        ns.name.includes(electronWindow.name)
-                    );
-                    
-                    if (nativeWindow) {
-                        return `window:${nativeWindow.id}:0`;
-                    }
-                }
-                
-                // Fallback на ID
-                return `window:${windowId}:0`;
-            } else {
-                // macOS
-                return `window:${windowId}`;
-            }
-        }
-        
-        // Если не можем распознать формат, возвращаем как есть
-        log.warn(`[CONVERT-ID] Unknown format, returning as-is: ${electronSourceId}`);
-        return electronSourceId;
+    // Если не можем распознать формат, возвращаем как есть
+    log.warn(
+      `[CONVERT-ID] Unknown format, returning as-is: ${electronSourceId}`,
+    );
+    return electronSourceId;
+  }
+
+  private async getElectronSources(): Promise<any[]> {
+    const {desktopCapturer} = require("electron");
+    return desktopCapturer.getSources({
+      types: ["window", "screen"],
+    });
+  }
+
+  // ===== 4. СОЗДАНИЕ ГИБРИДНОГО ПОТОКА =====
+  private async createHybridStreamInJitsi(
+    electronSourceId: string,
+  ): Promise<any> {
+    log.info(
+      `[STREAM-ELECTRON] >>> createHybridStreamInJitsi: ${electronSourceId}`,
+    );
+
+    if (!this.state.window || this.state.window.isDestroyed()) {
+      log.error("[STREAM-ELECTRON] No window");
+      return {success: false, error: "No window"};
     }
 
-    private async getElectronSources(): Promise<any[]> {
-        const { desktopCapturer } = require('electron');
-        return await desktopCapturer.getSources({
-            types: ['window', 'screen']
-        });
-    }
+    const qualitySettings = this.videoQualityManager.getCurrentSettings();
 
-    // ===== 4. СОЗДАНИЕ ГИБРИДНОГО ПОТОКА =====
-    private async createHybridStreamInJitsi(electronSourceId: string): Promise<any> {
-        log.info(`[STREAM-ELECTRON] >>> createHybridStreamInJitsi: ${electronSourceId}`);
-        
-        if (!this.state.window || this.state.window.isDestroyed()) {
-            log.error("[STREAM-ELECTRON] No window");
-            return { success: false, error: "No window" };
-        }
-        
-        const qualitySettings = this.videoQualityManager.getCurrentSettings();
-        
-        try {
-            const result = await this.state.window.webContents.executeJavaScript(`
+    try {
+      const result = await this.state.window.webContents.executeJavaScript(`
                 (async function() {
                     const isWindows = ${this.isWindowsPlatform()};
                     window.__creatingHybridStream = true;
@@ -3232,34 +3423,35 @@ export class JitsiManager {
                     }
                 })();
             `);
-            
-            // НОВОЕ: Уведомление о начале демонстрации
-            await this.notifyScreenShareStart();
-            
-            // НОВОЕ: Настройка приватных каналов
-            await this.setupPrivateAudioChannels();
 
-            log.info(`[STREAM-ELECTRON] Hybrid stream result:`, result);
+      // НОВОЕ: Уведомление о начале демонстрации
+      await this.notifyScreenShareStart();
 
-            // Только если поток создан успешно
-            if (result && result.success) {
-                // ИСПРАВЛЕННЫЙ код уведомления
-                await this.notifyScreenShareStart();
-            }
+      // НОВОЕ: Настройка приватных каналов
+      await this.setupPrivateAudioChannels();
 
-            return result;
-            
-        } catch (error: any) {
-            log.error(`[STREAM-ELECTRON] createHybridStreamInJitsi ERROR: ${error.message}`);
-            return { success: false, error: error.message };
-        }
+      log.info(`[STREAM-ELECTRON] Hybrid stream result:`, result);
+
+      // Только если поток создан успешно
+      if (result?.success) {
+        // ИСПРАВЛЕННЫЙ код уведомления
+        await this.notifyScreenShareStart();
+      }
+
+      return result;
+    } catch (error: any) {
+      log.error(
+        `[STREAM-ELECTRON] createHybridStreamInJitsi ERROR: ${error.message}`,
+      );
+      return {success: false, error: error.message};
     }
+  }
 
-    private async notifyScreenShareStart(): Promise<void> {
-        if (!this.state.window || this.state.window.isDestroyed()) return;
-        
-        try {
-            await this.state.window.webContents.executeJavaScript(`
+  private async notifyScreenShareStart(): Promise<void> {
+    if (!this.state.window || this.state.window.isDestroyed()) return;
+
+    try {
+      await this.state.window.webContents.executeJavaScript(`
                 (function() {
                     if (window.APP?.conference?._room) {
                         const room = window.APP.conference._room;
@@ -3290,15 +3482,17 @@ export class JitsiManager {
                     return true;
                 })();
             `);
-        } catch (error: any) {
-            log.error(`[STREAM-ELECTRON] notifyScreenShareStart error: ${error.message}`);
-        }
+    } catch (error: any) {
+      log.error(
+        `[STREAM-ELECTRON] notifyScreenShareStart error: ${error.message}`,
+      );
     }
+  }
 
-    private async setupPrivateAudioChannels(): Promise<void> {
-        if (!this.state.window || this.state.window.isDestroyed()) return;
-        
-        await this.state.window.webContents.executeJavaScript(`
+  private async setupPrivateAudioChannels(): Promise<void> {
+    if (!this.state.window || this.state.window.isDestroyed()) return;
+
+    await this.state.window.webContents.executeJavaScript(`
             (function() {
                 // ИСПРАВЛЕНО: используем правильные события через JitsiMeetJS.events
                 if (window.APP?.conference?._room && window.JitsiMeetJS?.events?.track) {
@@ -3360,108 +3554,125 @@ export class JitsiManager {
                 }
             })();
         `);
-    }
+  }
 
-    getAvailableQualityPresets(): Array<{ key: string; name: string; description: string }> {
-        return Object.entries(VIDEO_QUALITY_PRESETS).map(([key, preset]) => ({
-            key,
-            name: preset.name,
-            description: preset.description
-        }));
-    }
+  getAvailableQualityPresets(): Array<{
+    key: string;
+    name: string;
+    description: string;
+  }> {
+    return Object.entries(VIDEO_QUALITY_PRESETS).map(([key, preset]) => ({
+      key,
+      name: preset.name,
+      description: preset.description,
+    }));
+  }
 
-    getCurrentVideoQuality(): string {
-        const settings = this.videoQualityManager.getCurrentSettings();
-        return `${settings.width.max}x${settings.height.max}@${settings.frameRate.max}fps`;
-    }
+  getCurrentVideoQuality(): string {
+    const settings = this.videoQualityManager.getCurrentSettings();
+    return `${settings.width.max}x${settings.height.max}@${settings.frameRate.max}fps`;
+  }
 
-    async setQualityForScenario(scenario: 'gaming' | 'presentation' | 'video' | 'coding'): Promise<void> {
-        const scenarioMap = {
-            'gaming': 'ULTRA',        // Высокий FPS
-            'presentation': 'PRESENTATION', // Низкий FPS, высокое разрешение
-            'video': 'HIGH',          // Баланс
-            'coding': 'MEDIUM'        // Экономия ресурсов
-        };
-        
-        const preset = scenarioMap[scenario] as keyof typeof VIDEO_QUALITY_PRESETS;
-        await this.changeVideoQuality(preset);
-    }
+  async setQualityForScenario(
+    scenario: "gaming" | "presentation" | "video" | "coding",
+  ): Promise<void> {
+    const scenarioMap = {
+      gaming: "ULTRA", // Высокий FPS
+      presentation: "PRESENTATION", // Низкий FPS, высокое разрешение
+      video: "HIGH", // Баланс
+      coding: "MEDIUM", // Экономия ресурсов
+    };
 
+    const preset = scenarioMap[scenario];
+    await this.changeVideoQuality(preset);
+  }
 
-    // ===== 5. НАСТРОЙКА AUDIO CALLBACKS =====
-    private setupAudioCallbacks(): void {
-        log.info("[STREAM-ELECTRON] >>> setupAudioCallbacks");
-        
-        this.state.videoFrameCount = 0;
-        this.state.audioFrameCount = 0;
-        
-        this.nativeCapture.setFrameCallbacks(
-            // Video callback - игнорируем
-            (videoData: any) => {
-                this.state.videoFrameCount++;
-                if (this.state.videoFrameCount === 1) {
-                    log.info("[STREAM-ELECTRON] Ignoring native video (using Electron)");
-                }
-            },
-            
-            // Audio callback - обрабатываем
-            (audioData: any) => {
-                this.processNativeAudio(audioData);
-            }
+  // ===== 5. НАСТРОЙКА AUDIO CALLBACKS =====
+  private setupAudioCallbacks(): void {
+    log.info("[STREAM-ELECTRON] >>> setupAudioCallbacks");
+
+    this.state.videoFrameCount = 0;
+    this.state.audioFrameCount = 0;
+
+    this.nativeCapture.setFrameCallbacks(
+      // Video callback - игнорируем
+      (_videoData: any) => {
+        this.state.videoFrameCount = (this.state.videoFrameCount || 0) + 1;
+        if (this.state.videoFrameCount === 1) {
+          log.info("[STREAM-ELECTRON] Ignoring native video (using Electron)");
+        }
+      },
+
+      // Audio callback - обрабатываем
+      (audioData: any) => {
+        this.processNativeAudio(audioData);
+      },
+    );
+
+    log.info("[STREAM-ELECTRON] <<< setupAudioCallbacks DONE");
+  }
+
+  // ===== 6. ОБРАБОТКА NATIVE АУДИО =====
+  private processNativeAudio(audioData: any): void {
+    if (!this.state.window || this.state.window.isDestroyed()) return;
+
+    this.state.audioFrameCount = (this.state.audioFrameCount || 0) + 1;
+
+    try {
+      const arrayBuffer = audioData.data;
+      // КРИТИЧНО: Разное количество сэмплов для разных платформ
+      const samples = this.isWindowsPlatform()
+        ? audioData.numSamples || 480 // Windows: 480 samples
+        : audioData.numSamples || 960; // MacOS: 960 samples
+      const channels = audioData.channels || 2;
+
+      // Проверка для отладки
+      if (
+        this.state.audioFrameCount === 1 ||
+        this.state.audioFrameCount % 100 === 0
+      ) {
+        const float32 = new Float32Array(arrayBuffer);
+        let maxAmp = 0;
+        for (let i = 0; i < Math.min(100, float32.length); i++) {
+          maxAmp = Math.max(maxAmp, Math.abs(float32[i]));
+        }
+
+        log.info(
+          `[AUDIO-CHECK] Frame ${this.state.audioFrameCount}: platform=${this.isWindowsPlatform() ? "Windows" : "macOS"}, samples=${samples}, bytes=${arrayBuffer.byteLength}, maxAmp=${maxAmp.toFixed(4)}`,
         );
-        
-        log.info("[STREAM-ELECTRON] <<< setupAudioCallbacks DONE");
-    }
+      }
 
-    // ===== 6. ОБРАБОТКА NATIVE АУДИО =====
-    private processNativeAudio(audioData: any): void {
-        if (!this.state.window || this.state.window.isDestroyed()) return;
-        
-        this.state.audioFrameCount++;
-        
-        try {
-            const arrayBuffer = audioData.data;
-            // КРИТИЧНО: Разное количество сэмплов для разных платформ
-            const samples = this.isWindowsPlatform() 
-                ? (audioData.numSamples || 480)  // Windows: 480 samples
-                : (audioData.numSamples || 960); // macOS: 960 samples
-            const channels = audioData.channels || 2;
-            
-            // Проверка для отладки
-            if (this.state.audioFrameCount === 1 || this.state.audioFrameCount % 100 === 0) {
-                const float32 = new Float32Array(arrayBuffer);
-                let maxAmp = 0;
-                for (let i = 0; i < Math.min(100, float32.length); i++) {
-                    maxAmp = Math.max(maxAmp, Math.abs(float32[i]));
-                }
-                log.info(`[AUDIO-CHECK] Frame ${this.state.audioFrameCount}: platform=${this.isWindowsPlatform() ? 'Windows' : 'macOS'}, samples=${samples}, bytes=${arrayBuffer.byteLength}, maxAmp=${maxAmp.toFixed(4)}`);
-            }
-            
-            // КРИТИЧНО: Используем правильный метод декодирования для каждой платформы
-            const { leftChannel, rightChannel } = this.isWindowsPlatform()
-                ? this.decodeWindowsAudio(arrayBuffer, samples, channels)
-                : this.decodeMacOSAudio(arrayBuffer, samples, channels);
-            
-            // Анализируем уровни
-            const levels = this.analyzeAudioLevels(leftChannel, rightChannel);
-            
-            if (this.state.audioFrameCount % 50 === 0) {
-                log.info(`[AUDIO] Frame ${this.state.audioFrameCount}: L=${levels.maxLeft.toFixed(4)}, R=${levels.maxRight.toFixed(4)}, hasAudio=${levels.hasAudio}`);
-            }
-            
-            // Если нет звука, пропускаем нормализацию
-            if (!levels.hasAudio) {
-                log.warn(`[AUDIO] No audio detected in frame ${this.state.audioFrameCount}`);
-            }
-            
-            const { processedLeft, processedRight } = this.normalizeAudio(
-                leftChannel, 
-                rightChannel, 
-                levels
-            );
+      // КРИТИЧНО: Используем правильный метод декодирования для каждой платформы
+      const {leftChannel, rightChannel} = this.isWindowsPlatform()
+        ? this.decodeWindowsAudio(arrayBuffer, samples, channels)
+        : this.decodeMacOSAudio(arrayBuffer, samples, channels);
 
-            if (this.state.window && !this.state.window.isDestroyed()) {
-                this.state.window.webContents.executeJavaScript(`
+      // Анализируем уровни
+      const levels = this.analyzeAudioLevels(leftChannel, rightChannel);
+
+      if (this.state.audioFrameCount % 50 === 0) {
+        log.info(
+          `[AUDIO] Frame ${this.state.audioFrameCount}: L=${levels.maxLeft.toFixed(4)}, R=${levels.maxRight.toFixed(4)}, hasAudio=${levels.hasAudio}`,
+        );
+      }
+
+      // Если нет звука, пропускаем нормализацию
+      if (!levels.hasAudio) {
+        log.warn(
+          `[AUDIO] No audio detected in frame ${this.state.audioFrameCount}`,
+        );
+      }
+
+      const {processedLeft, processedRight} = this.normalizeAudio(
+        leftChannel,
+        rightChannel,
+        levels,
+      );
+
+      if (this.state.window && !this.state.window.isDestroyed()) {
+        this.state.window.webContents
+          .executeJavaScript(
+            `
                 (function() {
                     if (window.participantAudioMixer && window.audioRoutingMode === 'presenter_mix') {
                     // Получаем смикшированные голоса участников
@@ -3472,19 +3683,22 @@ export class JitsiManager {
                     window.pendingParticipantAudio = participantMix;
                     }
                 })();
-                `).catch(() => {});
-            }
-                        
-            // Отправляем в Jitsi
-            this.sendAudioToJitsi(processedLeft, processedRight, samples);
-        } catch (error: any) {
-            log.error(`[AUDIO] processNativeAudio ERROR: ${error.message}`);
-        }
-    }
+                `,
+          )
+          .catch(() => {});
+      }
 
-    // Добавить обработчик команд для участников
-    private async setupParticipantHandlers(): Promise<void> {
-        await this.state.window.webContents.executeJavaScript(`
+      // Отправляем в Jitsi
+      this.sendAudioToJitsi(processedLeft, processedRight, samples);
+    } catch (error: any) {
+      log.error(`[AUDIO] processNativeAudio ERROR: ${error.message}`);
+    }
+  }
+
+  // Добавить обработчик команд для участников
+  private async setupParticipantHandlers(): Promise<void> {
+    if (!this.state.window || this.state.window.isDestroyed()) return;
+    await this.state.window.webContents.executeJavaScript(`
             (function() {
             // Слушаем команды от демонстратора
             window.APP.conference.addCommandListener(
@@ -3555,164 +3769,172 @@ export class JitsiManager {
             }
             })();
         `);
+  }
+
+  private decodeWindowsAudio(
+    arrayBuffer: ArrayBuffer,
+    samples: number,
+    channels: number,
+  ): {leftChannel: Float32Array; rightChannel: Float32Array} {
+    const float32Data = new Float32Array(arrayBuffer);
+    const leftChannel = new Float32Array(samples);
+    const rightChannel = new Float32Array(samples);
+
+    // Windows использует INTERLEAVED формат (L,R,L,R,L,R...)
+    if (arrayBuffer.byteLength === samples * channels * 4) {
+      // Interleaved формат
+      for (let i = 0; i < samples; i++) {
+        leftChannel[i] = float32Data[i * 2];
+        rightChannel[i] = float32Data[i * 2 + 1];
+      }
+
+      // Проверка на валидность
+      let hasData = false;
+      for (let i = 0; i < Math.min(100, samples); i++) {
+        if (
+          Math.abs(leftChannel[i]) > 0.000_01 ||
+          Math.abs(rightChannel[i]) > 0.000_01
+        ) {
+          hasData = true;
+          break;
+        }
+      }
+
+      if (!hasData) {
+        log.warn("[AUDIO] No data in interleaved format, trying planar...");
+        // Пробуем planar формат как fallback
+        const halfSize = float32Data.length / 2;
+        for (let i = 0; i < samples && i < halfSize; i++) {
+          leftChannel[i] = float32Data[i];
+          rightChannel[i] = float32Data[halfSize + i];
+        }
+      }
+    } else {
+      log.warn(
+        `[AUDIO] Unexpected buffer size: ${arrayBuffer.byteLength} bytes for ${samples} samples`,
+      );
+      // Пробуем прочитать как есть
+      for (let i = 0; i < samples && i < float32Data.length / 2; i++) {
+        leftChannel[i] = float32Data[i * 2] || 0;
+        rightChannel[i] = float32Data[i * 2 + 1] || 0;
+      }
     }
 
-    private decodeWindowsAudio(
-        arrayBuffer: ArrayBuffer, 
-        samples: number, 
-        channels: number
-    ): { leftChannel: Float32Array; rightChannel: Float32Array } {
-        
-        const float32Data = new Float32Array(arrayBuffer);
-        const leftChannel = new Float32Array(samples);
-        const rightChannel = new Float32Array(samples);
-        
-        // Windows использует INTERLEAVED формат (L,R,L,R,L,R...)
-        if (arrayBuffer.byteLength === samples * channels * 4) {
-            // Interleaved формат
-            for (let i = 0; i < samples; i++) {
-                leftChannel[i] = float32Data[i * 2];
-                rightChannel[i] = float32Data[i * 2 + 1];
-            }
-            
-            // Проверка на валидность
-            let hasData = false;
-            for (let i = 0; i < Math.min(100, samples); i++) {
-                if (Math.abs(leftChannel[i]) > 0.00001 || Math.abs(rightChannel[i]) > 0.00001) {
-                    hasData = true;
-                    break;
-                }
-            }
-            
-            if (!hasData) {
-                log.warn("[AUDIO] No data in interleaved format, trying planar...");
-                // Пробуем planar формат как fallback
-                const halfSize = float32Data.length / 2;
-                for (let i = 0; i < samples && i < halfSize; i++) {
-                    leftChannel[i] = float32Data[i];
-                    rightChannel[i] = float32Data[halfSize + i];
-                }
-            }
-        } else {
-            log.warn(`[AUDIO] Unexpected buffer size: ${arrayBuffer.byteLength} bytes for ${samples} samples`);
-            // Пробуем прочитать как есть
-            for (let i = 0; i < samples && i < float32Data.length / 2; i++) {
-                leftChannel[i] = float32Data[i * 2] || 0;
-                rightChannel[i] = float32Data[i * 2 + 1] || 0;
-            }
+    return {leftChannel, rightChannel};
+  }
+
+  private decodeMacOSAudio(
+    arrayBuffer: ArrayBuffer,
+    samples: number,
+    channels: number,
+  ): {leftChannel: Float32Array; rightChannel: Float32Array} {
+    const leftChannel = new Float32Array(samples);
+    const rightChannel = new Float32Array(samples);
+
+    if (arrayBuffer.byteLength === samples * channels * 4) {
+      // Float32 формат для macOS - ПЛАНАРНЫЙ формат
+      const dataView = new DataView(arrayBuffer);
+
+      // Планарный формат: сначала все левые сэмплы, потом все правые
+      const halfSize = arrayBuffer.byteLength / 2;
+      for (let i = 0; i < samples; i++) {
+        leftChannel[i] = dataView.getFloat32(i * 4, true);
+        rightChannel[i] = dataView.getFloat32(halfSize + i * 4, true);
+      }
+
+      // Проверка на валидность данных
+      let hasData = false;
+      for (let i = 0; i < samples; i++) {
+        if (
+          Math.abs(leftChannel[i]) > 0.000_01 ||
+          Math.abs(rightChannel[i]) > 0.000_01
+        ) {
+          hasData = true;
+          break;
         }
-        
-        return { leftChannel, rightChannel };
+      }
+
+      // Если планарный формат пустой, пробуем интерливд
+      if (!hasData) {
+        for (let i = 0; i < samples; i++) {
+          leftChannel[i] = dataView.getFloat32(i * 8, true);
+          rightChannel[i] = dataView.getFloat32(i * 8 + 4, true);
+        }
+      }
     }
 
-    private decodeMacOSAudio(
-        arrayBuffer: ArrayBuffer, 
-        samples: number, 
-        channels: number
-    ): { leftChannel: Float32Array; rightChannel: Float32Array } {
-        
-        let leftChannel = new Float32Array(samples);
-        let rightChannel = new Float32Array(samples);
-        
-        if (arrayBuffer.byteLength === samples * channels * 4) {
-            // Float32 формат для macOS - ПЛАНАРНЫЙ формат
-            const dataView = new DataView(arrayBuffer);
-            
-            // Планарный формат: сначала все левые сэмплы, потом все правые
-            const halfSize = arrayBuffer.byteLength / 2;
-            for (let i = 0; i < samples; i++) {
-                leftChannel[i] = dataView.getFloat32(i * 4, true);
-                rightChannel[i] = dataView.getFloat32(halfSize + i * 4, true);
-            }
-            
-            // Проверка на валидность данных
-            let hasData = false;
-            for (let i = 0; i < samples; i++) {
-                if (Math.abs(leftChannel[i]) > 0.00001 || Math.abs(rightChannel[i]) > 0.00001) {
-                    hasData = true;
-                    break;
-                }
-            }
-            
-            // Если планарный формат пустой, пробуем интерливд
-            if (!hasData) {
-                for (let i = 0; i < samples; i++) {
-                    leftChannel[i] = dataView.getFloat32(i * 8, true);
-                    rightChannel[i] = dataView.getFloat32(i * 8 + 4, true);
-                }
-            }
-        }
-        
-        return { leftChannel, rightChannel };
-    }
-    
-    // ===== 8. АНАЛИЗ УРОВНЕЙ =====
-    private analyzeAudioLevels(
-        leftChannel: Float32Array, 
-        rightChannel: Float32Array
-    ): { maxLeft: number; maxRight: number; hasAudio: boolean } {
-        
-        let maxLeft = 0, maxRight = 0;
-        
-        for (let i = 0; i < leftChannel.length; i++) {
-            maxLeft = Math.max(maxLeft, Math.abs(leftChannel[i]));
-            maxRight = Math.max(maxRight, Math.abs(rightChannel[i]));
-        }
-        
-        const hasAudio = maxLeft > 0.00001 || maxRight > 0.00001;
-        
-        return { maxLeft, maxRight, hasAudio };
+    return {leftChannel, rightChannel};
+  }
+
+  // ===== 8. АНАЛИЗ УРОВНЕЙ =====
+  private analyzeAudioLevels(
+    leftChannel: Float32Array,
+    rightChannel: Float32Array,
+  ): {maxLeft: number; maxRight: number; hasAudio: boolean} {
+    let maxLeft = 0;
+    let maxRight = 0;
+
+    for (const [i, element] of leftChannel.entries()) {
+      maxLeft = Math.max(maxLeft, Math.abs(element));
+      maxRight = Math.max(maxRight, Math.abs(rightChannel[i]));
     }
 
-    // ===== 9. НОРМАЛИЗАЦИЯ =====
-    private normalizeAudio(
-        leftChannel: Float32Array,
-        rightChannel: Float32Array,
-        levels: { maxLeft: number; maxRight: number; hasAudio: boolean }
-    ): { processedLeft: Float32Array; processedRight: Float32Array } {
-        
-        const samples = leftChannel.length;
-        const processedLeft = new Float32Array(samples);
-        const processedRight = new Float32Array(samples);
-        
-        if (levels.hasAudio) {
-            const targetPeak = 0.7;
-            const currentPeak = Math.max(levels.maxLeft, levels.maxRight);
-            const gain = currentPeak > 0.001 ? Math.min(targetPeak / currentPeak, 3.0) : 1.0;
-            
-            for (let i = 0; i < samples; i++) {
-                processedLeft[i] = Math.max(-1, Math.min(1, leftChannel[i] * gain));
-                processedRight[i] = Math.max(-1, Math.min(1, rightChannel[i] * gain));
-            }
-        } else {
-            processedLeft.set(leftChannel);
-            processedRight.set(rightChannel);
-        }
-        
-        return { processedLeft, processedRight };
+    const hasAudio = maxLeft > 0.000_01 || maxRight > 0.000_01;
+
+    return {maxLeft, maxRight, hasAudio};
+  }
+
+  // ===== 9. НОРМАЛИЗАЦИЯ =====
+  private normalizeAudio(
+    leftChannel: Float32Array,
+    rightChannel: Float32Array,
+    levels: {maxLeft: number; maxRight: number; hasAudio: boolean},
+  ): {processedLeft: Float32Array; processedRight: Float32Array} {
+    const samples = leftChannel.length;
+    const processedLeft = new Float32Array(samples);
+    const processedRight = new Float32Array(samples);
+
+    if (levels.hasAudio) {
+      const targetPeak = 0.7;
+      const currentPeak = Math.max(levels.maxLeft, levels.maxRight);
+      const gain =
+        currentPeak > 0.001 ? Math.min(targetPeak / currentPeak, 3) : 1;
+
+      for (let i = 0; i < samples; i++) {
+        processedLeft[i] = Math.max(-1, Math.min(1, leftChannel[i] * gain));
+        processedRight[i] = Math.max(-1, Math.min(1, rightChannel[i] * gain));
+      }
+    } else {
+      processedLeft.set(leftChannel);
+      processedRight.set(rightChannel);
     }
 
-    // ===== 10. ОТПРАВКА В JITSI =====
-    private sendAudioToJitsi(
-        leftData: Float32Array, 
-        rightData: Float32Array, 
-        samples: number
-    ): void {
-        
-        if (!this.state.window || this.state.window.isDestroyed()) return;
-        
-        // Проверяем, что есть реальные данные перед отправкой
-        let maxAmp = 0;
-        for (let i = 0; i < Math.min(100, samples); i++) {
-            maxAmp = Math.max(maxAmp, Math.abs(leftData[i]), Math.abs(rightData[i]));
-        }
-        
-        if (this.state.audioFrameCount === 1 || this.state.audioFrameCount % 100 === 0) {
-            log.info(`[SEND-TO-JITSI] Frame ${this.state.audioFrameCount}: maxAmp=${maxAmp.toFixed(4)}, samples=${samples}`);
-        }
-        
-        // КРИТИЧНО: Для больших массивов используем более эффективный способ
-        const jsCode = `
+    return {processedLeft, processedRight};
+  }
+
+  // ===== 10. ОТПРАВКА В JITSI =====
+  private sendAudioToJitsi(
+    leftData: Float32Array,
+    rightData: Float32Array,
+    samples: number,
+  ): void {
+    if (!this.state.window || this.state.window.isDestroyed()) return;
+
+    // Проверяем, что есть реальные данные перед отправкой
+    let maxAmp = 0;
+    for (let i = 0; i < Math.min(100, samples); i++) {
+      maxAmp = Math.max(maxAmp, Math.abs(leftData[i]), Math.abs(rightData[i]));
+    }
+
+    const frameCount = this.state.audioFrameCount || 0;
+    if (frameCount === 1 || frameCount % 100 === 0) {
+      log.info(
+        `[SEND-TO-JITSI] Frame ${frameCount}: maxAmp=${maxAmp.toFixed(4)}, samples=${samples}`,
+      );
+    }
+
+    // КРИТИЧНО: Для больших массивов используем более эффективный способ
+    const jsCode = `
             (function() {
                 if (!window.isNativeActive || !window.leftRingBuffer || !window.rightRingBuffer) {
                     console.log('[JITSI] Buffer not ready');
@@ -3725,8 +3947,8 @@ export class JitsiManager {
                     const rightData = new Float32Array(${samples});
                     
                     // Заполняем данными (ограничиваем первые 1000 сэмплов для производительности)
-                    const leftSamples = [${Array.from(leftData.slice(0, Math.min(1000, samples))).join(',')}];
-                    const rightSamples = [${Array.from(rightData.slice(0, Math.min(1000, samples))).join(',')}];
+                    const leftSamples = [${[...leftData.slice(0, Math.min(1000, samples))].join(",")}];
+                    const rightSamples = [${[...rightData.slice(0, Math.min(1000, samples))].join(",")}];
                     
                     for (let i = 0; i < Math.min(${samples}, leftSamples.length); i++) {
                         leftData[i] = leftSamples[i];
@@ -3771,25 +3993,25 @@ export class JitsiManager {
                 }
             })();
         `;
-        
-        this.state.window.webContents.executeJavaScript(jsCode).catch((err) => {
-            log.error(`[SEND-TO-JITSI] Execute error: ${err.message}`);
-        });
+
+    this.state.window.webContents.executeJavaScript(jsCode).catch((error) => {
+      log.error(`[SEND-TO-JITSI] Execute error: ${error.message}`);
+    });
+  }
+
+  async handleSourceSelection(sourceId: string): Promise<void> {
+    this.state.lastSelectedSourceId = sourceId;
+    log.info(`Saved selected source: ${sourceId}`);
+  }
+
+  async sendSourcesToWindow(sources: any[]): Promise<void> {
+    if (!this.state.window || this.state.window.isDestroyed()) {
+      log.warn("No Jitsi window to send sources to");
+      return;
     }
 
-    async handleSourceSelection(sourceId: string): void {
-        this.state.lastSelectedSourceId = sourceId;
-        log.info(`Saved selected source: ${sourceId}`);
-    }
-
-    async sendSourcesToWindow(sources: any[]): Promise<void> {
-        if (!this.state.window || this.state.window.isDestroyed()) {
-            log.warn("No Jitsi window to send sources to");
-            return;
-        }
-
-        try {
-            await this.state.window.webContents.executeJavaScript(`
+    try {
+      await this.state.window.webContents.executeJavaScript(`
                 (function() {
                     console.log('🔍 Received ${sources.length} sources in Jitsi');
                     
@@ -3961,27 +4183,27 @@ export class JitsiManager {
                     return { success: true, count: ${sources.length} };
                 })();
             `);
-            
-            log.info(`Sent ${sources.length} sources to Jitsi window`);
-            
-        } catch (error: any) {
-            log.error(`Failed to send sources to Jitsi: ${error.message}`);
-        }
-    }
 
-    async getStatus(): Promise<any> {
-        return {
-            hasWindow: !!this.state.window && !this.state.window.isDestroyed(),
-            isStreamActive: this.state.isStreamActive,
-            streamId: this.state.streamId
-        };
+      log.info(`Sent ${sources.length} sources to Jitsi window`);
+    } catch (error: any) {
+      log.error(`Failed to send sources to Jitsi: ${error.message}`);
     }
+  }
 
-    async triggerScreenShare(): Promise<void> {
-        if (!this.state.window || this.state.window.isDestroyed()) return;
-        
-        try {
-            await this.state.window.webContents.executeJavaScript(`
+  async getStatus(): Promise<any> {
+    return {
+      hasWindow:
+        Boolean(this.state.window) && !this.state.window?.isDestroyed(),
+      isStreamActive: this.state.isStreamActive,
+      streamId: this.state.streamId,
+    };
+  }
+
+  async triggerScreenShare(): Promise<void> {
+    if (!this.state.window || this.state.window.isDestroyed()) return;
+
+    try {
+      await this.state.window.webContents.executeJavaScript(`
             (async function() {
                 console.log('[Trigger] Attempting to start screen share...');
                 
@@ -4062,16 +4284,15 @@ export class JitsiManager {
                 return { success: false, error: 'No method available' };
             })();
             `);
-            
-            log.info("Screen share trigger attempted");
-            
-        } catch (error: any) {
-            log.error(`Failed to trigger screen share: ${error.message}`);
-        }
-    }
 
-    private getScreenShareInterceptorCode(): string {
-        return `
+      log.info("Screen share trigger attempted");
+    } catch (error: any) {
+      log.error(`Failed to trigger screen share: ${error.message}`);
+    }
+  }
+
+  private getScreenShareInterceptorCode(): string {
+    return `
             (function() {
                 console.log('[JitsiManager] Installing screen share interceptor...');
                 
@@ -4796,142 +5017,140 @@ export class JitsiManager {
                 return { success: true };
             })();
         `;
-    }
+  }
 
-    private async cleanup(): Promise<void> {
-        log.info("[STREAM-ELECTRON] >>> Starting comprehensive cleanup...");
-        
-        try {
+  private async cleanup(): Promise<void> {
+    log.info("[STREAM-ELECTRON] >>> Starting comprehensive cleanup...");
 
-            // Для стандартного режима - минимальная очистка
-            if (this.state.window && !this.state.window.isDestroyed()) {
-                const isStandardMode = await this.state.window.webContents.executeJavaScript(`
+    try {
+      // Для стандартного режима - минимальная очистка
+      if (this.state.window && !this.state.window.isDestroyed()) {
+        const isStandardMode = await this.state.window.webContents
+          .executeJavaScript(`
                     window.isStandardMode === true
                 `);
-                
-                if (isStandardMode) {
-                    // Просто сбрасываем флаги
-                    await this.state.window.webContents.executeJavaScript(`
+
+        if (isStandardMode) {
+          // Просто сбрасываем флаги
+          await this.state.window.webContents.executeJavaScript(`
                         window.isStandardMode = false;
                         window.isScreenShareActive = false;
                         window.__interceptorFlag = false;
                     `);
-                    
-                    this.state.isStreamActive = false;
-                    this.state.streamId = null;
-                    
-                    log.info("[STREAM-ELECTRON] Standard mode cleanup completed");
-                    return;
-                }
-            }
 
-            // 1. Сначала "ядерная" очистка всех потоков
-            await this.nukeClearAllStreams();
-            
-            // 2. Ждем немного для завершения всех операций
-            await new Promise(resolve => setTimeout(resolve, 200));
-            
-            // 3. Останавливаем native capture
-            if (this.nativeCapture && this.nativeCapture.isCapturing) {
-                await this.nativeCapture.stopCapture();
-            }
-            
-            // 4. Принудительное освобождение ресурсов
-            await this.forceReleaseAllMediaResources();
-            
-            // 5. Очищаем callbacks
-            this.nativeCapture.setFrameCallbacks(undefined, undefined);
-            
-            // 6. Сбрасываем состояние
-            this.state.isStreamActive = false;
-            this.state.streamId = null;
-            this.state.videoFrameCount = 0;
-            this.state.audioFrameCount = 0;
-            this.activeMediaStreams.clear();
+          this.state.isStreamActive = false;
+          this.state.streamId = null;
 
-            if (this.debugMonitoringInterval) {
-                clearInterval(this.debugMonitoringInterval);
-                this.debugMonitoringInterval = undefined;
-            }
-            
-            log.info("[STREAM-ELECTRON] <<< Cleanup completed");
-            
-        } catch (error: any) {
-            log.error(`[STREAM-ELECTRON] Cleanup error: ${error.message}`);
+          log.info("[STREAM-ELECTRON] Standard mode cleanup completed");
+          return;
         }
+      }
+
+      // 1. Сначала "ядерная" очистка всех потоков
+      await this.nukeClearAllStreams();
+
+      // 2. Ждем немного для завершения всех операций
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      // 3. Останавливаем native capture
+      if (this.nativeCapture && this.nativeCapture.isCapturing) {
+        await this.nativeCapture.stopCapture();
+      }
+
+      // 4. Принудительное освобождение ресурсов
+      await this.forceReleaseAllMediaResources();
+
+      // 5. Очищаем callbacks
+      this.nativeCapture.setFrameCallbacks(undefined, undefined);
+
+      // 6. Сбрасываем состояние
+      this.state.isStreamActive = false;
+      this.state.streamId = null;
+      this.state.videoFrameCount = 0;
+      this.state.audioFrameCount = 0;
+      this.activeMediaStreams.clear();
+
+      if (this.debugMonitoringInterval) {
+        clearInterval(this.debugMonitoringInterval);
+        this.debugMonitoringInterval = undefined;
+      }
+
+      log.info("[STREAM-ELECTRON] <<< Cleanup completed");
+    } catch (error: any) {
+      log.error(`[STREAM-ELECTRON] Cleanup error: ${error.message}`);
+    }
+  }
+
+  async closeWindow(): Promise<void> {
+    log.info("[STREAM-ELECTRON] >>> closeWindow called");
+
+    if (!this.state.window) {
+      log.info("[STREAM-ELECTRON] No window to close");
+      return;
     }
 
-    async closeWindow(): Promise<void> {
-        log.info("[STREAM-ELECTRON] >>> closeWindow called");
-        
-        if (!this.state.window) {
-            log.info("[STREAM-ELECTRON] No window to close");
-            return;
-        }
-        
-        try {
-            // Сначала делаем cleanup
-            await this.cleanup();
-            
-            // Затем закрываем окно
-            if (this.state.window && !this.state.window.isDestroyed()) {
-                // Удаляем все обработчики событий
-                this.state.window.removeAllListeners();
-                
-                // Закрываем окно
-                this.state.window.close();
-                log.info("[STREAM-ELECTRON] Window closed");
-            }
-            
-        } catch (error: any) {
-            log.error(`[STREAM-ELECTRON] Error closing window: ${error.message}`);
-            
-        } finally {
-            // В любом случае обнуляем ссылку на окно
-            this.state.window = null;
-            log.info("[STREAM-ELECTRON] <<< closeWindow completed");
-        }
+    try {
+      // Сначала делаем cleanup
+      await this.cleanup();
+
+      // Затем закрываем окно
+      if (this.state.window && !this.state.window.isDestroyed()) {
+        // Удаляем все обработчики событий
+        this.state.window.removeAllListeners();
+
+        // Закрываем окно
+        this.state.window.close();
+        log.info("[STREAM-ELECTRON] Window closed");
+      }
+    } catch (error: any) {
+      log.error(`[STREAM-ELECTRON] Error closing window: ${error.message}`);
+    } finally {
+      // В любом случае обнуляем ссылку на окно
+      this.state.window = null;
+      log.info("[STREAM-ELECTRON] <<< closeWindow completed");
+    }
+  }
+
+  // В jitsi-manager.ts добавляем метод для тестирования
+  async testWindowsAudio(): Promise<void> {
+    if (!this.nativeCapture?.isCapturing) {
+      log.error("[TEST] Native capture not active");
+      return;
     }
 
-    // В jitsi-manager.ts добавляем метод для тестирования
-    async testWindowsAudio(): Promise<void> {
-        if (!this.nativeCapture || !this.nativeCapture.isCapturing) {
-            log.error("[TEST] Native capture not active");
-            return;
-        }
-        
-        log.info("[TEST] Starting Windows audio diagnostic...");
-        
-        let testFrames = 0;
-        const testCallback = (audioData: any) => {
-            testFrames++;
-            
-            const float32 = new Float32Array(audioData.data);
-            let maxAmp = 0;
-            let nonZeroCount = 0;
-            
-            for (let i = 0; i < float32.length; i++) {
-                const absVal = Math.abs(float32[i]);
-                maxAmp = Math.max(maxAmp, absVal);
-                if (absVal > 0.00001) nonZeroCount++;
-            }
-            
-            log.info(`[TEST] Frame ${testFrames}:`, {
-                maxAmplitude: maxAmp.toFixed(4),
-                nonZeroSamples: nonZeroCount,
-                totalSamples: float32.length,
-                percentNonZero: ((nonZeroCount / float32.length) * 100).toFixed(1) + '%',
-                source: audioData.source
-            });
-            
-            if (testFrames >= 10) {
-                log.info("[TEST] Test complete");
-                this.nativeCapture.setFrameCallbacks(undefined, undefined);
-            }
-        };
-        
-        this.nativeCapture.setFrameCallbacks(undefined, testCallback);
-    }
+    log.info("[TEST] Starting Windows audio diagnostic...");
+
+    let testFrames = 0;
+    const testCallback = (audioData: any) => {
+      testFrames++;
+
+      const float32 = new Float32Array(audioData.data);
+      let maxAmp = 0;
+      let nonZeroCount = 0;
+
+      for (const element of float32) {
+        const absValue = Math.abs(element);
+        maxAmp = Math.max(maxAmp, absValue);
+        if (absValue > 0.000_01) nonZeroCount++;
+      }
+
+      log.info(`[TEST] Frame ${testFrames}:`, {
+        maxAmplitude: maxAmp.toFixed(4),
+        nonZeroSamples: nonZeroCount,
+        totalSamples: float32.length,
+        percentNonZero:
+          ((nonZeroCount / float32.length) * 100).toFixed(1) + "%",
+        source: audioData.source,
+      });
+
+      if (testFrames >= 10) {
+        log.info("[TEST] Test complete");
+        this.nativeCapture.setFrameCallbacks(undefined, undefined);
+      }
+    };
+
+    this.nativeCapture.setFrameCallbacks(undefined, testCallback);
+  }
 }
 
 export default JitsiManager;

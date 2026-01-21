@@ -1,8 +1,9 @@
-// jitsi-screen-share-monitor.ts
-import log from "electron-log";
+// Jitsi-screen-share-monitor.ts
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/class-literal-property-style, @typescript-eslint/no-unsafe-return */
+import log from "electron-log/main";
 
 export class JitsiScreenShareMonitor {
-    private monitoringCode = `
+  private readonly monitoringCode = `
     (function() {
         // ÐŸÑ€ÐµÐ´Ð¾Ñ‚Ð²Ñ€Ð°Ñ‰Ð°ÐµÐ¼ Ð¿Ð¾Ð²Ñ‚Ð¾Ñ€Ð½ÑƒÑŽ Ð¸Ð½Ð¸Ñ†Ð¸Ð°Ð»Ð¸Ð·Ð°Ñ†Ð¸ÑŽ
         if (window.__screenShareMonitor) {
@@ -715,30 +716,32 @@ export class JitsiScreenShareMonitor {
     })();
     `;
 
-    async injectMonitor(window: any): Promise<boolean> {
-        if (!window || window.isDestroyed()) {
-            log.error("[ScreenShareMonitor] No window to inject into");
-            return false;
-        }
-
-        try {
-            const result = await window.webContents.executeJavaScript(this.monitoringCode);
-            log.info("[ScreenShareMonitor] Monitor injected successfully");
-            return result;
-        } catch (error: any) {
-            log.error(`[ScreenShareMonitor] Injection failed: ${error.message}`);
-            return false;
-        }
+  async injectMonitor(window: any): Promise<boolean> {
+    if (!window || window.isDestroyed()) {
+      log.error("[ScreenShareMonitor] No window to inject into");
+      return false;
     }
 
-    // Ð”Ð¾Ð±Ð°Ð²Ð¸Ñ‚ÑŒ Ð´Ð¾Ð¿Ð¾Ð»Ð½Ð¸Ñ‚ÐµÐ»ÑŒÐ½Ñ‹Ð¹ ÐºÐ¾Ð»Ð»Ð±ÑÐº Ð´Ð»Ñ Ð¾ÑÑ‚Ð°Ð½Ð¾Ð²ÐºÐ¸
-    async addStopCallback(window: any, callback: string): Promise<void> {
-        if (!window || window.isDestroyed()) return;
+    try {
+      const result = await window.webContents.executeJavaScript(
+        this.monitoringCode,
+      );
+      log.info("[ScreenShareMonitor] Monitor injected successfully");
+      return result;
+    } catch (error: any) {
+      log.error(`[ScreenShareMonitor] Injection failed: ${error.message}`);
+      return false;
+    }
+  }
 
-        await window.webContents.executeJavaScript(`
+  // Ð”Ð¾Ð±Ð°Ð²Ð¸Ñ‚ÑŒ Ð´Ð¾Ð¿Ð¾Ð»Ð½Ð¸Ñ‚ÐµÐ»ÑŒÐ½Ñ‹Ð¹ ÐºÐ¾Ð»Ð»Ð±ÑÐº Ð´Ð»Ñ Ð¾ÑÑ‚Ð°Ð½Ð¾Ð²ÐºÐ¸
+  async addStopCallback(window: any, callback: string): Promise<void> {
+    if (!window || window.isDestroyed()) return;
+
+    await window.webContents.executeJavaScript(`
             if (window.__screenShareMonitor) {
                 window.__screenShareMonitor.onStop(${callback});
             }
         `);
-    }
+  }
 }

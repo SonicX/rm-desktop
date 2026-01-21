@@ -1,8 +1,7 @@
 import * as ConfigUtil from "../../common/config-util.js";
-import type { ServerManagerView } from "./main.js";
-import { ipcRenderer } from "./typed-ipc-renderer.js";
 
-
+import type {ServerManagerView} from "./main.js";
+import {ipcRenderer} from "./typed-ipc-renderer.js";
 
 export function initializeTray(serverManagerView: ServerManagerView) {
   // Функция toggle теперь отправляет IPC

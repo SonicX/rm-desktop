@@ -1,22 +1,23 @@
-import { clipboard } from "electron/common";
+/* eslint-disable @typescript-eslint/no-unused-vars, unicorn/prefer-dom-node-text-content, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-floating-promises, @typescript-eslint/prefer-nullish-coalescing, @typescript-eslint/no-array-delete, @typescript-eslint/naming-convention, @typescript-eslint/consistent-type-assertions */
+import {clipboard} from "electron/common";
 import path from "node:path";
 import process from "node:process";
 import url from "node:url";
 
-import { Menu, app, desktopCapturer, dialog, session } from "@electron/remote";
+import {Menu, app, desktopCapturer, dialog, session} from "@electron/remote";
 import * as remote from "@electron/remote";
 import * as Sentry from "@sentry/electron/renderer";
 
-import type { Config } from "../../common/config-util.js";
+import type {Config} from "../../common/config-util.js";
 import * as ConfigUtil from "../../common/config-util.js";
 import * as DNDUtil from "../../common/dnd-util.js";
-import type { DndSettings } from "../../common/dnd-util.js";
+import type {DndSettings} from "../../common/dnd-util.js";
 import * as EnterpriseUtil from "../../common/enterprise-util.js";
-import { html } from "../../common/html.js";
+import {html} from "../../common/html.js";
 import * as LinkUtil from "../../common/link-util.js";
 import Logger from "../../common/logger-util.js";
 import * as Messages from "../../common/messages.js";
-import { bundlePath, bundleUrl } from "../../common/paths.js";
+import {bundlePath, bundleUrl} from "../../common/paths.js";
 import * as t from "../../common/translation-util.js";
 import type {
   NavigationItem,
@@ -28,10 +29,10 @@ import type {
 import FunctionalTab from "./components/functional-tab.js";
 import ServerTab from "./components/server-tab.js";
 import WebView from "./components/webview.js";
-import { AboutView } from "./pages/about.js";
-import { PreferenceView } from "./pages/preference/preference.js";
-import { initializeTray } from "./tray.js";
-import { ipcRenderer } from "./typed-ipc-renderer.js";
+import {AboutView} from "./pages/about.js";
+import {PreferenceView} from "./pages/preference/preference.js";
+import {initializeTray} from "./tray.js";
+import {ipcRenderer} from "./typed-ipc-renderer.js";
 import * as DomainUtil from "./utils/domain-util.js";
 import ReconnectUtil from "./utils/reconnect-util.js";
 
@@ -93,15 +94,16 @@ export class ServerManagerView {
   $updateTooltip: HTMLElement;
   $updateProgress: HTMLElement;
   updateInfo: any = null;
-  isUpdateReady: boolean = false;
-  isDownloading: boolean = false;
+  isUpdateReady = false;
+  isDownloading = false;
 
   constructor() {
     this.$tabsContainer = document.querySelector("#tabs-container")!;
 
     const $actionsContainer = document.querySelector("#actions-container")!;
     this.$reloadButton = $actionsContainer.querySelector("#reload-action")!;
-    this.$loadingIndicator = $actionsContainer.querySelector("#loading-action")!;
+    this.$loadingIndicator =
+      $actionsContainer.querySelector("#loading-action")!;
     this.$settingsButton = $actionsContainer.querySelector("#settings-action")!;
     this.$webviewsContainer = document.querySelector("#webviews-container")!;
     this.$backButton = $actionsContainer.querySelector("#back-action")!;
@@ -115,11 +117,12 @@ export class ServerManagerView {
     this.$addServerTooltip = document.querySelector("#add-server-tooltip")!;
     this.$reloadTooltip = $actionsContainer.querySelector("#reload-tooltip")!;
     this.$loadingTooltip = $actionsContainer.querySelector("#loading-tooltip")!;
-    this.$settingsTooltip = $actionsContainer.querySelector("#setting-tooltip")!;
+    this.$settingsTooltip =
+      $actionsContainer.querySelector("#setting-tooltip")!;
 
-    this.$serverIconTooltip = document.getElementsByClassName(
-      "server-tooltip",
-    ) as HTMLCollectionOf<HTMLElement>;
+    this.$serverIconTooltip = document.querySelectorAll(
+      ".server-tooltip",
+    ) as unknown as HTMLCollectionOf<HTMLElement>;
     this.$backTooltip = $actionsContainer.querySelector("#back-tooltip")!;
     this.$dndTooltip = $actionsContainer.querySelector("#dnd-tooltip")!;
 
@@ -139,11 +142,14 @@ export class ServerManagerView {
 
   async init(): Promise<void> {
     // Показываем индикатор загрузки
-    const loadingIndicator = document.getElementById("loading-indicator");
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+    const loadingIndicator = document.querySelector(
+      "#loading-indicator",
+    ) as HTMLElement | null;
     if (loadingIndicator) {
       loadingIndicator.style.display = "flex";
     }
-  
+
     // Выполняем асинхронные операции параллельно
     await Promise.all([
       (async () => {
@@ -158,11 +164,11 @@ export class ServerManagerView {
         this.removeUaFromDisk();
       })(),
     ]);
-  
+
     await this.initTabs();
     this.initActions();
     this.registerIpcs();
-  
+
     // Скрываем индикатор загрузки
     if (loadingIndicator) {
       loadingIndicator.style.display = "none";
@@ -172,7 +178,7 @@ export class ServerManagerView {
   }
 
   checkPendingUpdate(): void {
-    const pendingUpdate = ConfigUtil.getConfigItem("pendingUpdate", false);
+    const pendingUpdate = ConfigUtil.getConfigItem("pendingUpdate", null);
     if (pendingUpdate) {
       this.updateInfo = pendingUpdate;
       this.showUpdateReady();
@@ -190,19 +196,20 @@ export class ServerManagerView {
       if (proxyEnableOldState) {
         ConfigUtil.setConfigItem("useManualProxy", true);
       }
+
       ConfigUtil.removeConfigItem("useProxy");
     }
 
     await session.fromPartition("persist:webviewsession").setProxy(
       ConfigUtil.getConfigItem("useSystemProxy", false)
-        ? { mode: "system" }
+        ? {mode: "system"}
         : ConfigUtil.getConfigItem("useManualProxy", false)
-        ? {
-            pacScript: ConfigUtil.getConfigItem("proxyPAC", ""),
-            proxyRules: ConfigUtil.getConfigItem("proxyRules", ""),
-            proxyBypassRules: ConfigUtil.getConfigItem("proxyBypass", ""),
-          }
-        : { mode: "direct" }
+          ? {
+              pacScript: ConfigUtil.getConfigItem("proxyPAC", ""),
+              proxyRules: ConfigUtil.getConfigItem("proxyRules", ""),
+              proxyBypassRules: ConfigUtil.getConfigItem("proxyBypass", ""),
+            }
+          : {mode: "direct"},
     );
   }
 
@@ -249,13 +256,13 @@ export class ServerManagerView {
     }
 
     for (const [setting, value] of Object.entries(settingOptions) as Array<
-      { [Key in keyof Config]: [Key, Config[Key]] }[keyof Config]
+      {[Key in keyof Config]: [Key, Config[Key]]}[keyof Config]
     >) {
       if (EnterpriseUtil.configItemExists(setting)) {
         ConfigUtil.setConfigItem(
           setting,
           EnterpriseUtil.getConfigItem(setting, value),
-          true
+          true,
         );
       } else if (!ConfigUtil.isConfigItemExists(setting)) {
         ConfigUtil.setConfigItem(setting, value);
@@ -280,7 +287,7 @@ export class ServerManagerView {
     } catch (error: unknown) {
       logger.error(error);
       logger.error(
-        `Не удалось добавить ${domain}. Пожалуйста, свяжитесь с системным администратором.`
+        `Не удалось добавить ${domain}. Пожалуйста, свяжитесь с системным администратором.`,
       );
       return false;
     }
@@ -288,19 +295,19 @@ export class ServerManagerView {
 
   async initTabs(): Promise<void> {
     const server = {
-      url: "https://connectrm-svz.ru/",
+      url: "http://localhost:9991/login",
       alias: "Цифровые технологии РМ",
       icon: "https://disk.yandex.ru/i/m2aj56OOhsJfyw",
-      zulipVersion: app.getVersion()
+      zulipVersion: app.getVersion(),
     } as ServerConfig;
-  
+
     DomainUtil.removeDomains();
     const tab = this.initServer(server, 0);
     DomainUtil.addDomain(server);
-  
+
     // Устанавливаем метку сразу
     tab.setLabel(server.alias);
-  
+
     // Откладываем загрузку иконки
     setTimeout(async () => {
       try {
@@ -308,17 +315,24 @@ export class ServerManagerView {
         tab.setIcon(DomainUtil.iconAsUrl(iconUrl));
       } catch (error) {
         console.log("Ошибка загрузки иконки сервера:", error);
-        tab.setIcon(DomainUtil.iconAsUrl("https://connectrm-svz.ru//user_avatars/2/realm/night_logo.png?version=2"));
+        tab.setIcon(
+          DomainUtil.iconAsUrl(
+            "https://connectrm-svz.ru//user_avatars/2/realm/night_logo.png?version=2",
+          ),
+        );
       }
     }, 0);
-  
+
     await this.activateTab(0);
   }
 
   initServer(server: ServerConfig, index: number): ServerTab {
     console.log("$webviewsContainer:", this.$webviewsContainer);
     console.log("server.url:", server.url);
-    console.log("preload:", url.pathToFileURL(path.join(bundlePath, "preload.js")).href);
+    console.log(
+      "preload:",
+      url.pathToFileURL(path.join(bundlePath, "preload.js")).href,
+    );
 
     const tabIndex = this.getTabIndex();
 
@@ -341,7 +355,7 @@ export class ServerManagerView {
         const tab = this.tabs[this.activeTabIndex];
         this.showLoading(
           tab instanceof ServerTab &&
-          this.loading.has((await tab.webview).properties.url)
+            this.loading.has((await tab.webview).properties.url),
         );
       },
       onNetworkError: async (index: number) => {
@@ -376,87 +390,92 @@ export class ServerManagerView {
     this.initUpdateButton();
   }
 
-  // main.ts - обновленный метод initUpdateButton
+  // Main.ts - обновленный метод initUpdateButton
   initUpdateButton(): void {
     if (this.$updateButton) {
       // Изначально кнопка скрыта и неактивна
       this.$updateButton.classList.add("inactive", "hidden");
-      
+
       // Добавляем элемент для прогресса
       this.$updateProgress = document.createElement("span");
       this.$updateProgress.id = "update-progress";
       this.$updateProgress.style.display = "none";
-      this.$updateButton.appendChild(this.$updateProgress);
-      
+      this.$updateButton.append(this.$updateProgress);
+
       this.$updateButton.addEventListener("click", async () => {
         if (this.updateInfo && !this.isDownloading) {
           await this.startUpdateDownload();
         }
       });
-      
+
       this.sidebarHoverEvent(this.$updateButton, this.$updateTooltip);
     }
   }
 
   async startUpdateDownload(): Promise<void> {
     if (!this.updateInfo || this.isDownloading) return;
-    
+
     this.isDownloading = true;
     this.$updateButton.classList.remove("inactive");
     this.$updateButton.classList.add("downloading");
     this.$updateProgress.style.display = "block";
     this.$updateProgress.textContent = "0%";
-    
+
     // Используем существующий обработчик
     const result = await ipcRenderer.invoke("handle-zulip-update", {
       version: this.updateInfo.version,
       downloadUrl: this.updateInfo.download_url,
-      releaseNotes: this.updateInfo.release_notes
+      releaseNotes: this.updateInfo.release_notes,
     });
-    
+
     if (result.success) {
-      if (result.action === 'updated') {
+      if (result.action === "updated") {
         // Обновление установлено, приложение перезапустится
         this.resetUpdateButton();
-      } else if (result.action === 'postponed') {
+      } else if (result.action === "postponed") {
         // Пользователь отложил, кнопка становится яркой
         this.showUpdateReady();
         // Сохраняем для повторного показа
         ConfigUtil.setConfigItem("postponedUpdate", this.updateInfo);
       }
     } else {
-      this.showUpdateError(result.error);
+      this.showUpdateError(
+        (result as {success: boolean; error?: string}).error || "Unknown error",
+      );
     }
-    
+
     this.isDownloading = false;
   }
 
   async checkForUpdates(): Promise<void> {
     try {
       // Здесь должна быть проверка обновлений с сервера
-      const response = await fetch('https://your-update-server.com/check-version');
+      const response = await fetch(
+        "https://your-update-server.com/check-version",
+      );
       const data = await response.json();
-      
+
       const currentVersion = app.getVersion();
       if (this.isNewerVersion(data.version, currentVersion)) {
         this.updateInfo = data;
         this.showUpdateAvailable(data);
       }
     } catch (error) {
-      console.error('Ошибка проверки обновлений:', error);
+      console.error("Ошибка проверки обновлений:", error);
     }
   }
 
   isNewerVersion(newVersion: string, currentVersion: string): boolean {
-    const newParts = newVersion.split('.').map(Number);
-    const currentParts = currentVersion.split('.').map(Number);
-    
+    const newParts = newVersion.split(".").map(Number);
+    const currentParts = currentVersion.split(".").map(Number);
+
     for (let i = 0; i < Math.max(newParts.length, currentParts.length); i++) {
       const newPart = newParts[i] || 0;
       const currentPart = currentParts[i] || 0;
       if (newPart > currentPart) return true;
       if (newPart < currentPart) return false;
     }
+
     return false;
   }
 
@@ -469,7 +488,12 @@ export class ServerManagerView {
 
   resetUpdateButton(): void {
     this.$updateButton.classList.add("hidden");
-    this.$updateButton.classList.remove("available", "downloading", "ready", "error");
+    this.$updateButton.classList.remove(
+      "available",
+      "downloading",
+      "ready",
+      "error",
+    );
     this.$updateProgress.style.display = "none";
     this.updateInfo = null;
     this.isUpdateReady = false;
@@ -480,19 +504,27 @@ export class ServerManagerView {
     this.$updateButton.classList.remove("available");
     this.$updateButton.classList.add("downloading");
     this.$updateProgress.style.display = "block";
-    
+
     try {
-      const result = await ipcRenderer.invoke("download-update", this.updateInfo);
-      
+      const result = await ipcRenderer.invoke(
+        "download-update",
+        this.updateInfo,
+      );
+
       if (result.success) {
         this.showUpdateReady();
         // Сохраняем информацию об обновлении
         ConfigUtil.setConfigItem("pendingUpdate", this.updateInfo);
       } else {
-        this.showUpdateError(result.error);
+        this.showUpdateError(
+          (result as {success: boolean; error?: string}).error ||
+            "Unknown error",
+        );
       }
-    } catch (error) {
-      this.showUpdateError(error.message);
+    } catch (error: unknown) {
+      this.showUpdateError(
+        error instanceof Error ? error.message : String(error),
+      );
     }
   }
 
@@ -513,13 +545,15 @@ export class ServerManagerView {
 
   async showUpdateDialog(): Promise<void> {
     const choice = await dialog.showMessageBox({
-      type: 'info',
-      title: 'Обновление готово',
+      type: "info",
+      title: "Обновление готово",
       message: `Версия ${this.updateInfo.version} готова к установке`,
-      detail: this.updateInfo.releaseNotes || 'Рекомендуется установить обновление для получения новых функций и исправлений.',
-      buttons: ['Установить сейчас', 'Позже'],
+      detail:
+        this.updateInfo.releaseNotes ||
+        "Рекомендуется установить обновление для получения новых функций и исправлений.",
+      buttons: ["Установить сейчас", "Позже"],
       defaultId: 0,
-      cancelId: 1
+      cancelId: 1,
     });
 
     if (choice.response === 0) {
@@ -531,7 +565,7 @@ export class ServerManagerView {
   async installUpdate(): Promise<void> {
     // Удаляем сохраненную информацию об обновлении
     ConfigUtil.removeConfigItem("pendingUpdate");
-    
+
     // Запускаем установку
     ipcRenderer.send("install-update");
   }
@@ -559,7 +593,7 @@ export class ServerManagerView {
         "forward-message",
         "toggle-dnd",
         dndUtil.dnd,
-        dndUtil.newSettings
+        dndUtil.newSettings,
       );
     });
     this.$reloadButton.addEventListener("click", async () => {
@@ -584,7 +618,7 @@ export class ServerManagerView {
     this.sidebarHoverEvent(this.$reloadButton, this.$reloadTooltip);
     this.sidebarHoverEvent(this.$backButton, this.$backTooltip);
     this.sidebarHoverEvent(this.$dndButton, this.$dndTooltip);
-    // this.sidebarHoverEvent(this.$updateButton, this.$updateTooltip);
+    // This.sidebarHoverEvent(this.$updateButton, this.$updateTooltip);
   }
 
   initDndButton(): void {
@@ -609,7 +643,7 @@ export class ServerManagerView {
     const $container = $parent.parentElement!;
     const webviewId = $container.dataset.tabId!;
     const $webview = document.querySelector(
-      `webview[data-tab-id="${CSS.escape(webviewId)}"]`
+      `webview[data-tab-id="${CSS.escape(webviewId)}"]`,
     )!;
     const realmName = $webview.getAttribute("name");
 
@@ -631,12 +665,12 @@ export class ServerManagerView {
   sidebarHoverEvent(
     SidebarButton: HTMLButtonElement,
     SidebarTooltip: HTMLElement,
-    addServer = false
+    addServer = false,
   ): void {
     SidebarButton.addEventListener("mouseover", () => {
       SidebarTooltip.removeAttribute("style");
       if (addServer) {
-        const { top } = SidebarButton.getBoundingClientRect();
+        const {top} = SidebarButton.getBoundingClientRect();
         SidebarTooltip.style.top = `${top}px`;
       }
     });
@@ -647,7 +681,7 @@ export class ServerManagerView {
 
   onHover(index: number): void {
     this.$serverIconTooltip[index].removeAttribute("style");
-    const { top } =
+    const {top} =
       this.$serverIconTooltip[index].parentElement!.getBoundingClientRect();
     this.$serverIconTooltip[index].style.top = `${top}px`;
   }
@@ -690,14 +724,16 @@ export class ServerManagerView {
           tabProperties.destroyView();
         },
         $view,
-      })
+      }),
     );
 
     this.$webviewsContainer.classList.remove("loaded");
     await this.activateTab(this.functionalTabs.get(tabProperties.page)!);
   }
 
-  async openSettings(navigationItem: NavigationItem = "General"): Promise<void> {
+  async openSettings(
+    navigationItem: NavigationItem = "General",
+  ): Promise<void> {
     await this.openFunctionalTab({
       page: "Settings",
       label: t.__("Настройки"),
@@ -771,6 +807,7 @@ export class ServerManagerView {
         ) {
           this.$settingsButton.classList.remove("active");
         }
+
         await this.tabs[this.activeTabIndex].deactivate();
       }
     }
@@ -790,7 +827,7 @@ export class ServerManagerView {
 
     this.showLoading(
       tab instanceof ServerTab &&
-      this.loading.has((await tab.webview).properties.url)
+        this.loading.has((await tab.webview).properties.url),
     );
 
     ipcRenderer.send("update-menu", {
@@ -848,7 +885,7 @@ export class ServerManagerView {
           messageCountAll += count;
           tab.updateBadge(count);
         }
-      })
+      }),
     );
     ipcRenderer.send("update-badge", messageCountAll);
   }
@@ -858,8 +895,7 @@ export class ServerManagerView {
   }
 
   toggleDndButton(alert: boolean): void {
-    this.$dndTooltip.textContent =
-      (alert ? "Включить" : "Отключить");
+    this.$dndTooltip.textContent = alert ? "Включить" : "Отключить";
     this.$dndButton.querySelector("i")!.textContent = alert
       ? "notifications_off"
       : "notifications";
@@ -895,24 +931,76 @@ export class ServerManagerView {
         },
       ];
       const contextMenu = Menu.buildFromTemplate(template);
-      contextMenu.popup({ window: remote.getCurrentWindow() });
+      contextMenu.popup({window: remote.getCurrentWindow()});
     });
   }
 
   registerIpcs(): void {
-    const webviewListeners: Array<[WebviewListener, (webview: WebView) => void]> = [
-      ["webview-reload", (webview) => { webview.reload(); }],
-      ["back", (webview) => { webview.back(); }],
-      ["focus", (webview) => { webview.focus(); }],
-      ["forward", (webview) => { webview.forward(); }],
-      ["zoomIn", (webview) => { webview.zoomIn(); }],
-      ["zoomOut", (webview) => { webview.zoomOut(); }],
-      ["zoomActualSize", (webview) => { webview.zoomActualSize(); }],
-      ["log-out", (webview) => { webview.logOut(); }],
-      ["show-keyboard-shortcuts", (webview) => { webview.showKeyboardShortcuts(); }],
-      ["tab-devtools", (webview) => { webview.openDevTools(); }],
+    const webviewListeners: Array<
+      [WebviewListener, (webview: WebView) => void]
+    > = [
+      [
+        "webview-reload",
+        (webview) => {
+          webview.reload();
+        },
+      ],
+      [
+        "back",
+        (webview) => {
+          webview.back();
+        },
+      ],
+      [
+        "focus",
+        (webview) => {
+          webview.focus();
+        },
+      ],
+      [
+        "forward",
+        (webview) => {
+          webview.forward();
+        },
+      ],
+      [
+        "zoomIn",
+        (webview) => {
+          webview.zoomIn();
+        },
+      ],
+      [
+        "zoomOut",
+        (webview) => {
+          webview.zoomOut();
+        },
+      ],
+      [
+        "zoomActualSize",
+        (webview) => {
+          webview.zoomActualSize();
+        },
+      ],
+      [
+        "log-out",
+        (webview) => {
+          webview.logOut();
+        },
+      ],
+      [
+        "show-keyboard-shortcuts",
+        (webview) => {
+          webview.showKeyboardShortcuts();
+        },
+      ],
+      [
+        "tab-devtools",
+        (webview) => {
+          webview.openDevTools();
+        },
+      ],
     ];
-  
+
     for (const [channel, listener] of webviewListeners) {
       ipcRenderer.on(channel, async () => {
         const tab = this.tabs[this.activeTabIndex];
@@ -924,19 +1012,30 @@ export class ServerManagerView {
     }
 
     ipcRenderer.on("quit-app", () => {
-      console.log("Renderer: Получено событие quit-app, перенаправление в основной процесс");
+      console.log(
+        "Renderer: Получено событие quit-app, перенаправление в основной процесс",
+      );
       ipcRenderer.send("quit-app");
     });
 
-    ipcRenderer.on("permission-request", async (
-      event,
-      { webContentsId, origin, permission }: { webContentsId: number | null; origin: string; permission: string },
-      permissionCallbackId: number,
-    ) => {
-      ipcRenderer.send("permission-callback", permissionCallbackId, true);
-    });
+    ipcRenderer.on(
+      "permission-request",
+      async (
+        event,
+        {
+          webContentsId,
+          origin,
+          permission,
+        }: {webContentsId: number | null; origin: string; permission: string},
+        permissionCallbackId: number,
+      ) => {
+        ipcRenderer.send("permission-callback", permissionCallbackId, true);
+      },
+    );
 
-    ipcRenderer.on("open-settings", async () => { await this.openSettings(); });
+    ipcRenderer.on("open-settings", async () => {
+      await this.openSettings();
+    });
 
     ipcRenderer.on("open-about", this.openAbout.bind(this));
 
@@ -944,77 +1043,120 @@ export class ServerManagerView {
 
     ipcRenderer.on("reload-current-viewer", this.reloadCurrentView.bind(this));
 
-    ipcRenderer.on("hard-reload", () => { ipcRenderer.send("reload-full-app"); });
+    ipcRenderer.on("hard-reload", () => {
+      ipcRenderer.send("reload-full-app");
+    });
 
-    ipcRenderer.on("switch-server-tab", async (event, index: number) => { await this.activateLastTab(index); });
+    ipcRenderer.on("switch-server-tab", async (event, index: number) => {
+      await this.activateLastTab(index);
+    });
 
     ipcRenderer.on("reload-proxy", async (event, showAlert: boolean) => {
       await this.loadProxy();
       if (showAlert) {
-        await dialog.showMessageBox({ message: t.__("Настройки прокси сохранены."), buttons: [t.__("OK")] });
+        await dialog.showMessageBox({
+          message: t.__("Настройки прокси сохранены."),
+          buttons: [t.__("OK")],
+        });
         ipcRenderer.send("reload-full-app");
       }
     });
 
-    ipcRenderer.on("toggle-sidebar", async (event, show: boolean) => { this.toggleSidebar(show); });
+    ipcRenderer.on("toggle-sidebar", async (event, show: boolean) => {
+      this.toggleSidebar(show);
+    });
 
-    ipcRenderer.on("toggle-silent", async (event, state: boolean) =>
-      Promise.all(this.tabs.map(async (tab) => {
-        if (tab instanceof ServerTab) (await tab.webview).getWebContents().setAudioMuted(state);
-      })),
+    ipcRenderer.on("toggle-silent", async (event, state: boolean) => {
+      // Звук от приложения всегда должен поступать
+      // Не выключаем звук для вкладок основного окна
+      // Этот обработчик оставлен для совместимости, но не влияет на звук
+      logger.log(
+        `[MAIN] toggle-silent received but ignored - sound always enabled for main window`,
+      );
+    });
+
+    ipcRenderer.on(
+      "toggle-autohide-menubar",
+      async (event, autoHideMenubar: boolean, updateMenu: boolean) => {
+        if (updateMenu) {
+          ipcRenderer.send("update-menu", {
+            tabs: this.tabsForIpc,
+            activeTabIndex: this.activeTabIndex,
+          });
+        }
+      },
     );
 
-    ipcRenderer.on("toggle-autohide-menubar", async (event, autoHideMenubar: boolean, updateMenu: boolean) => {
-      if (updateMenu) {
-        ipcRenderer.send("update-menu", { tabs: this.tabsForIpc, activeTabIndex: this.activeTabIndex });
-      }
-    });
+    ipcRenderer.on(
+      "toggle-dnd",
+      async (event, state: boolean, newSettings: Partial<DndSettings>) => {
+        // Кнопка DND скрыта, этот обработчик оставлен для совместимости
+        // Не влияем на звук основного приложения
+        logger.log(
+          `[MAIN] toggle-dnd received but ignored - DND button is hidden`,
+        );
+      },
+    );
 
-    ipcRenderer.on("toggle-dnd", async (event, state: boolean, newSettings: Partial<DndSettings>) => {
-      this.toggleDndButton(state);
-      ipcRenderer.send("forward-message", "toggle-silent", newSettings.silent ?? false);
-    });
-
-    ipcRenderer.on("update-realm-name", (event, serverURL: string, realmName: string) => {
-      for (const [index, domain] of DomainUtil.getDomains().entries()) {
-        if (domain.url === serverURL) {
-          const tab = this.tabs[index];
-          if (tab instanceof ServerTab) tab.setLabel(realmName);
-          domain.alias = realmName;
-          DomainUtil.updateDomain(index, domain);
-          ipcRenderer.send("update-menu", { tabs: this.tabsForIpc, activeTabIndex: this.activeTabIndex });
+    ipcRenderer.on(
+      "update-realm-name",
+      (event, serverURL: string, realmName: string) => {
+        for (const [index, domain] of DomainUtil.getDomains().entries()) {
+          if (domain.url === serverURL) {
+            const tab = this.tabs[index];
+            if (tab instanceof ServerTab) tab.setLabel(realmName);
+            domain.alias = realmName;
+            DomainUtil.updateDomain(index, domain);
+            ipcRenderer.send("update-menu", {
+              tabs: this.tabsForIpc,
+              activeTabIndex: this.activeTabIndex,
+            });
+          }
         }
-      }
-    });
+      },
+    );
 
-    ipcRenderer.on("update-realm-icon", async (event, serverURL: string, iconURL: string) => {
-      await Promise.all(DomainUtil.getDomains().map(async (domain, index) => {
-        if (domain.url === serverURL) {
-          const localIconPath = await DomainUtil.saveServerIcon(iconURL);
-          const tab = this.tabs[index];
-          if (tab instanceof ServerTab) tab.setIcon(DomainUtil.iconAsUrl(localIconPath));
-          domain.icon = localIconPath;
-          DomainUtil.updateDomain(index, domain);
-        }
-      }));
-    });
+    ipcRenderer.on(
+      "update-realm-icon",
+      async (event, serverURL: string, iconURL: string) => {
+        await Promise.all(
+          DomainUtil.getDomains().map(async (domain, index) => {
+            if (domain.url === serverURL) {
+              const localIconPath = await DomainUtil.saveServerIcon(iconURL);
+              const tab = this.tabs[index];
+              if (tab instanceof ServerTab)
+                tab.setIcon(DomainUtil.iconAsUrl(localIconPath));
+              domain.icon = localIconPath;
+              DomainUtil.updateDomain(index, domain);
+            }
+          }),
+        );
+      },
+    );
 
     ipcRenderer.on("enter-fullscreen", () => {
       this.$fullscreenPopup.classList.add("show");
       this.$fullscreenPopup.classList.remove("hidden");
     });
 
-    ipcRenderer.on("leave-fullscreen", () => { this.$fullscreenPopup.classList.remove("show"); });
+    ipcRenderer.on("leave-fullscreen", () => {
+      this.$fullscreenPopup.classList.remove("show");
+    });
 
     ipcRenderer.on("focus-webview-with-id", async (event, webviewId: number) =>
-      Promise.all(this.tabs.map(async (tab) => {
-        if (tab instanceof ServerTab && (await tab.webview).webContentsId === webviewId) {
-          const concurrentTab: HTMLButtonElement = document.querySelector(
-            `div[data-tab-id="${CSS.escape(`${tab.properties.tabIndex}`)}"]`,
-          )!;
-          concurrentTab.click();
-        }
-      })),
+      Promise.all(
+        this.tabs.map(async (tab) => {
+          if (
+            tab instanceof ServerTab &&
+            (await tab.webview).webContentsId === webviewId
+          ) {
+            const concurrentTab: HTMLButtonElement = document.querySelector(
+              `div[data-tab-id="${CSS.escape(`${tab.properties.tabIndex}`)}"]`,
+            )!;
+            concurrentTab.click();
+          }
+        }),
+      ),
     );
 
     ipcRenderer.on("render-taskbar-icon", (event, messageCount: number) => {
@@ -1040,28 +1182,44 @@ export class ServerManagerView {
           context.font = "85px Helvetica";
           context.fillText(String(Math.min(99, messageCount)), 64, 90);
         }
+
         return canvas;
       }
-      ipcRenderer.send("update-taskbar-icon", createOverlayIcon(messageCount).toDataURL(), String(messageCount));
+
+      ipcRenderer.send(
+        "update-taskbar-icon",
+        createOverlayIcon(messageCount).toDataURL(),
+        String(messageCount),
+      );
     });
 
-    ipcRenderer.on("copy-rm-url", async () => { clipboard.writeText(await this.getCurrentActiveServer()); });
+    ipcRenderer.on("copy-rm-url", async () => {
+      clipboard.writeText(await this.getCurrentActiveServer());
+    });
 
     ipcRenderer.on("set-active", async () =>
-      Promise.all(this.tabs.map(async (tab) => {
-        if (tab instanceof ServerTab) (await tab.webview).send("set-active");
-      })),
+      Promise.all(
+        this.tabs.map(async (tab) => {
+          if (tab instanceof ServerTab) (await tab.webview).send("set-active");
+        }),
+      ),
     );
 
     ipcRenderer.on("set-idle", async () =>
-      Promise.all(this.tabs.map(async (tab) => {
-        if (tab instanceof ServerTab) (await tab.webview).send("set-idle");
-      })),
+      Promise.all(
+        this.tabs.map(async (tab) => {
+          if (tab instanceof ServerTab) (await tab.webview).send("set-idle");
+        }),
+      ),
     );
 
-    ipcRenderer.on("open-network-settings", async () => { await this.openSettings("Network"); });
+    ipcRenderer.on("open-network-settings", async () => {
+      await this.openSettings("Network");
+    });
 
-    ipcRenderer.on("play-ding-sound", async () => { await dingSound.play(); });
+    ipcRenderer.on("play-ding-sound", async () => {
+      await dingSound.play();
+    });
 
     ipcRenderer.on("server-update-available", (event, updateInfo) => {
       this.showUpdateAvailable(updateInfo);
@@ -1078,7 +1236,7 @@ export class ServerManagerView {
     });
 
     ipcRenderer.on("update_progress", (event, percent: number) => {
-      this.$updateTooltip.innerText = `Загрузка: ${~~percent}%`;
+      this.$updateTooltip.innerText = `Загрузка: ${Math.trunc(percent)}%`;
       this.$updateButton.classList.remove("hidden");
     });
 
@@ -1106,11 +1264,11 @@ export class ServerManagerView {
     ipcRenderer.on("update-downloaded", () => {
       this.showUpdateReady();
       ConfigUtil.setConfigItem("pendingUpdate", this.updateInfo);
-      
+
       // Показываем диалог сразу после загрузки
       setTimeout(() => {
-          this.showUpdateDialog();
-        }, 1000);
+        this.showUpdateDialog();
+      }, 1000);
     });
 
     ipcRenderer.on("update-error", (event, error) => {
@@ -1118,11 +1276,11 @@ export class ServerManagerView {
     });
 
     const postponedUpdate = ConfigUtil.getConfigItem("postponedUpdate", null);
-    
+
     if (postponedUpdate) {
       this.updateInfo = postponedUpdate;
       this.showUpdateReady();
-      
+
       // Автоматически показываем диалог через 3 секунды
       setTimeout(() => {
         this.startUpdateDownload();
@@ -1136,7 +1294,7 @@ export class ServerManagerView {
 
 window.addEventListener("load", async () => {
   const appVersion = app.getVersion();
-  const isWin = process.platform === 'win32';
+  const isWin = process.platform === "win32";
 
   document.body.innerHTML = html`
     <style>
@@ -1145,23 +1303,23 @@ window.addEventListener("load", async () => {
         opacity: 0.25;
         margin-left: 7px;
       }
-      
+
       /* Стили для кнопки обновления */
       #update-action {
         position: relative;
         overflow: hidden;
       }
-      
+
       #update-progress-bar {
         position: absolute;
         bottom: 0;
         left: 0;
         height: 3px;
-        background: linear-gradient(90deg, #4CAF50, #8BC34A);
+        background: linear-gradient(90deg, #4caf50, #8bc34a);
         transition: width 0.3s ease;
         width: 0%;
       }
-      
+
       #update-progress-text {
         position: absolute;
         top: 50%;
@@ -1170,10 +1328,10 @@ window.addEventListener("load", async () => {
         font-size: 14px;
         font-weight: bold;
         color: white;
-        text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+        text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
         z-index: 10;
       }
-      
+
       #update-action.downloading i {
         opacity: 0.1;
         animation: pulse 1s infinite;
@@ -1194,22 +1352,27 @@ window.addEventListener("load", async () => {
         pointer-events: none;
         z-index: 1000;
       }
-      
+
       /* Для темной темы */
       body.dark-theme #update-tooltip,
       body.dark-theme [id$="-tooltip"] {
         color: white !important;
         background: rgba(0, 0, 0, 0.9);
       }
-      
+
       /* Прогресс текст всегда белый */
       #update-progress-text {
         color: white !important;
       }
-      
+
       @keyframes pulse {
-        0%, 100% { opacity: 0.1; }
-        50% { opacity: 0.3; }
+        0%,
+        100% {
+          opacity: 0.1;
+        }
+        50% {
+          opacity: 0.3;
+        }
       }
     </style>
     <div id="content">
@@ -1221,31 +1384,45 @@ window.addEventListener("load", async () => {
           <div id="tabs-container"></div>
         </div>
         <div id="actions-container">
-          <div class="action-button" id="dnd-action">
+          <div
+            class="action-button hidden"
+            id="dnd-action"
+            style="display: none;"
+          >
             <i class="material-icons md-48">notifications</i>
-            <span id="dnd-tooltip" style="display: none">${t.__("Не беспокоить")}</span>
+            <span id="dnd-tooltip" style="display: none"
+              >${t.__("Не беспокоить")}</span
+            >
           </div>
           <div class="action-button hidden" id="reload-action">
             <i class="material-icons md-48">refresh</i>
-            <span id="reload-tooltip" style="display: none">${t.__("Обновить")}</span>
+            <span id="reload-tooltip" style="display: none"
+              >${t.__("Обновить")}</span
+            >
           </div>
           <div class="action-button disable" id="loading-action">
             <i class="refresh material-icons md-48">loop</i>
-            <span id="loading-tooltip" style="display: none">${t.__("Загрузка")}</span>
+            <span id="loading-tooltip" style="display: none"
+              >${t.__("Загрузка")}</span
+            >
           </div>
           <div class="action-button disable" id="back-action">
             <i class="material-icons md-48">arrow_back</i>
-            <span id="back-tooltip" style="display: none">${t.__("Назад")}</span>
+            <span id="back-tooltip" style="display: none"
+              >${t.__("Назад")}</span
+            >
           </div>
           <div class="action-button" id="settings-action">
             <i class="material-icons md-48">settings</i>
-            <span id="setting-tooltip" style="display: none">${t.__("Настройки")}</span>
+            <span id="setting-tooltip" style="display: none"
+              >${t.__("Настройки")}</span
+            >
           </div>
-          ${isWin ? 
-            `<div class="action-button" id="update-action">
+          ${isWin
+            ? `<div class="action-button" id="update-action">
               <i class="material-icons md-48">system_update_alt</i>
-            </div>` : ''
-          }
+            </div>`
+            : ""}
           <div class="version-label">${appVersion}</div>
         </div>
       </div>
@@ -1257,5 +1434,4 @@ window.addEventListener("load", async () => {
 
   const serverManagerView = new ServerManagerView();
   await serverManagerView.init();
-
 });

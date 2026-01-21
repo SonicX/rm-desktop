@@ -1,11 +1,17 @@
-import { EventEmitter } from "node:events";
-import { ipcRenderer } from "./typed-ipc-renderer.js";
+/* eslint-disable @typescript-eslint/naming-convention, unicorn/prefer-event-target */
+import {EventEmitter} from "node:events";
+
+import type {
+  GlobalVolumeHotkeyStatus,
+  WalkieTalkieStatus,
+} from "../../common/typed-ipc.js";
+
 import {
   type ClipboardDecrypter,
   ClipboardDecrypterImplementation,
 } from "./clipboard-decrypter.js";
-import { type NotificationData, newNotification } from "./notification/index.js";
-import { WalkieTalkieStatus, GlobalVolumeHotkeyStatus } from "../../common/typed-ipc.js";
+import {type NotificationData, newNotification} from "./notification/index.js";
+import {ipcRenderer} from "./typed-ipc-renderer.js";
 
 type ListenerType = (...arguments_: any[]) => void;
 
@@ -31,40 +37,62 @@ let lastActive = Date.now();
 export const bridgeEvents = new EventEmitter();
 
 const electron_bridge: ElectronBridge = {
-  send_event: (eventName: string | symbol, ...arguments_: unknown[]): boolean => {
-    const name = String(eventName)
-    ipcRenderer.send("preload-log", `Bridge: Отправлено событие: ${name} ${JSON.stringify(arguments_)}`);
+  send_event(eventName: string | symbol, ...arguments_: unknown[]): boolean {
+    const name = String(eventName);
+    ipcRenderer.send(
+      "preload-log",
+      `Bridge: Отправлено событие: ${name} ${JSON.stringify(arguments_)}`,
+    );
     // Перенаправляем walkie-talkie-status в основной процесс
     if (String(eventName) === "walkie-talkie-status") {
       // Проверяем, что аргумент соответствует WalkieTalkieStatus
       const [status] = arguments_;
-      if (typeof status !== "object" || status === null || !("enabled" in status) || !("key" in status)) {
-        ipcRenderer.send("preload-log", `Bridge: Некорректный формат walkie-talkie-status: ${JSON.stringify(status)}`);
+      if (
+        typeof status !== "object" ||
+        status === null ||
+        !("enabled" in status) ||
+        !("key" in status)
+      ) {
+        ipcRenderer.send(
+          "preload-log",
+          `Bridge: Некорректный формат walkie-talkie-status: ${JSON.stringify(status)}`,
+        );
         return false;
       }
+
       ipcRenderer.send("walkie-talkie-status", status as WalkieTalkieStatus);
       return true;
     }
+
     if (String(eventName) === "global-volume-hotkey") {
       // Проверяем, что аргумент соответствует GlobalVolumeHotkeyStatus
       const [status] = arguments_;
       if (typeof status !== "object" || status === null || !("key" in status)) {
-        ipcRenderer.send("preload-log", `Bridge: Некорректный формат global-volume-hotkey: ${JSON.stringify(status)}`);
+        ipcRenderer.send(
+          "preload-log",
+          `Bridge: Некорректный формат global-volume-hotkey: ${JSON.stringify(status)}`,
+        );
         return false;
       }
-      ipcRenderer.send("global-volume-hotkey", status as GlobalVolumeHotkeyStatus);
+
+      ipcRenderer.send(
+        "global-volume-hotkey",
+        status as GlobalVolumeHotkeyStatus,
+      );
       return true;
     }
+
     if (String(eventName) === "force-update") {
       ipcRenderer.send("preload-log", `Preload: Установка обновлений:`);
       ipcRenderer.send("force-update");
       return true;
     }
+
     return bridgeEvents.emit(eventName, ...arguments_);
   },
 
   on_event(eventName: string, listener: ListenerType): void {
-    // ipcRenderer.send("preload-log", `Bridge: Установка слушателя события: ${eventName}`);
+    // IpcRenderer.send("preload-log", `Bridge: Установка слушателя события: ${eventName}`);
     bridgeEvents.on(eventName, listener);
   },
 
@@ -93,6 +121,7 @@ bridgeEvents.on("total_unread_count", (unreadCount: unknown) => {
   if (typeof unreadCount !== "number") {
     throw new TypeError("Expected number for unreadCount");
   }
+
   ipcRenderer.send("unread-count", unreadCount);
 });
 
@@ -100,6 +129,7 @@ bridgeEvents.on("realm_name", (realmName: unknown) => {
   if (typeof realmName !== "string") {
     throw new TypeError("Expected string for realmName");
   }
+
   const serverUrl = location.origin;
   ipcRenderer.send("realm-name-changed", serverUrl, realmName);
 });
@@ -108,6 +138,7 @@ bridgeEvents.on("realm_icon_url", (iconUrl: unknown) => {
   if (typeof iconUrl !== "string") {
     throw new TypeError("Expected string for iconUrl");
   }
+
   const serverUrl = location.origin;
   ipcRenderer.send(
     "realm-icon-changed",
@@ -126,7 +157,10 @@ ipcRenderer.on("set-idle", () => {
 });
 
 ipcRenderer.on("trigger-open-desktop-picker", () => {
-  ipcRenderer.send("preload-log", "✅ Bridge: Получена команда trigger-open-desktop-picker");
+  ipcRenderer.send(
+    "preload-log",
+    "✅ Bridge: Получена команда trigger-open-desktop-picker",
+  );
   electron_bridge.send_event("open-desktop-picker");
 });
 

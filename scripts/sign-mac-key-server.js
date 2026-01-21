@@ -1,11 +1,12 @@
-// scripts/sign-mac-key-server.js
-const { execSync } = require('child_process');
-const path = require('path');
-const fs = require('fs');
+// Scripts/sign-mac-key-server.js
+const {execSync} = require("node:child_process");
+const fs = require("node:fs");
+const path = require("node:path");
 
-const MAC_KEY_SERVER_PATH = 'native/mac/MacKeyServer';
-const ENTITLEMENTS_PATH = 'build/entitlements.mac.plist';
-const CERTIFICATE_NAME = '3rd Party Mac Developer Application: Yuriy Tereshchenko (U95EM6ZJRW)'; // ← Замени!
+const MAC_KEY_SERVER_PATH = "native/mac/MacKeyServer";
+const ENTITLEMENTS_PATH = "build/entitlements.mac.plist";
+const CERTIFICATE_NAME =
+  "3rd Party Mac Developer Application: Yuriy Tereshchenko (U95EM6ZJRW)"; // ← Замени!
 
 function signBinary(filePath) {
   if (!fs.existsSync(filePath)) {
@@ -21,7 +22,7 @@ function signBinary(filePath) {
        --options runtime \
        --force \
        "${filePath}"`,
-      { stdio: 'inherit' }
+      {stdio: "inherit"},
     );
     console.log(`✅ Успешно подписан: ${filePath}`);
   } catch (error) {

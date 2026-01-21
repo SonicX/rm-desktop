@@ -1,5 +1,5 @@
-const fs = require('fs');
-const path = require('path');
+const fs = require("node:fs");
+const path = require("node:path");
 
 // Создаем mock native модуль как обычный JavaScript модуль
 const mockModule = `
@@ -88,13 +88,13 @@ module.exports = {
 `;
 
 // Создаем build директорию
-const buildDir = path.join(__dirname, 'build');
+const buildDir = path.join(__dirname, "build");
 if (!fs.existsSync(buildDir)) {
-    fs.mkdirSync(buildDir, { recursive: true });
+  fs.mkdirSync(buildDir, {recursive: true});
 }
 
 // Записываем файл
-const outputPath = path.join(buildDir, 'screen_capture_win.node');
+const outputPath = path.join(buildDir, "screen_capture_win.node");
 fs.writeFileSync(outputPath, mockModule);
 
 console.log(`✅ Created mock module at: ${outputPath}`);

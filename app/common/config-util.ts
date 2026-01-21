@@ -75,11 +75,11 @@ export function removeConfigItem(key: string): void {
   database.save();
 }
 
-export function getPendingUpdate(): any {
+export function getPendingUpdate(): Config["pendingUpdate"] {
   return getConfigItem("pendingUpdate", null);
 }
 
-export function setPendingUpdate(updateInfo: any): void {
+export function setPendingUpdate(updateInfo: Config["pendingUpdate"]): void {
   setConfigItem("pendingUpdate", updateInfo);
 }
 

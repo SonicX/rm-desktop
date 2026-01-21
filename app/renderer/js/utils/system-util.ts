@@ -1,4 +1,5 @@
-import { ipcRenderer } from "../typed-ipc-renderer.js";
+/* eslint-disable @typescript-eslint/restrict-plus-operands */
+import {ipcRenderer} from "../typed-ipc-renderer.js";
 
 export const connectivityError: string[] = [
   "ERR_INTERNET_DISCONNECTED",
@@ -17,9 +18,10 @@ async function fetchUserAgent() {
     if (typeof result === "string") {
       userAgent = result;
     } else {
-      throw new Error("Unexpected user-agent value: " + result);
+      throw new TypeError("Unexpected user-agent value: " + result);
     }
   }
+
   return userAgent;
 }
 

@@ -1,8 +1,8 @@
 // Main entry point for screen-capture-webrtc-native
 try {
-    module.exports = require('./addon.node');
+  module.exports = require("./addon.node");
 } catch (error) {
-    throw new Error(`
+  throw new Error(`
 Failed to load native addon: ${error.message}
 
 To build the addon, run:

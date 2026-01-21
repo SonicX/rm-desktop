@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import path from "node:path";
 import process from "node:process";
 import url from "node:url";

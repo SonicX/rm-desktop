@@ -1,50 +1,52 @@
+/* eslint-disable @typescript-eslint/naming-convention */
+import type {JitsiOptions, JitsiResult} from "../main/jitsi-manager.js";
+
 import type {DndSettings} from "./dnd-util.js";
 import type {MenuProperties, ServerConfig} from "./types.js";
-import type {JitsiOptions,  JitsiResult} from "../main/jitsi-manager";
 
-export interface NativeSource {
-    id: string | number;
-    name?: string;
-    type: string;
-    appName?: string;
-}
+export type NativeSource = {
+  id: string | number;
+  name?: string;
+  type: string;
+  appName?: string;
+};
 
-export interface DesktopSource {
+export type DesktopSource = {
   id: string;
   name: string;
-  thumbnail: { dataUrl: string };
-}
-export interface JitsiLogData {
+  thumbnail: {dataUrl: string};
+};
+export type JitsiLogData = {
   level: string;
   message: string;
-}
-export interface DesktopSourcesResponse {
+};
+export type DesktopSourcesResponse = {
   sources: DesktopSource[] | null;
   error: string | null;
   name: string | null;
-}
-export interface WalkieTalkieStatus {
+};
+export type WalkieTalkieStatus = {
   enabled: boolean;
   key: string;
-}
-export interface GlobalVolumeHotkeyStatus {
+};
+export type GlobalVolumeHotkeyStatus = {
   enabled: boolean;
   key: string;
-}
+};
 
-export interface InvokeData {
+export type InvokeData = {
   channel: string;
-  args: unknown[];  // Tuple с rest для произвольных аргументов
+  args: unknown[]; // Tuple с rest для произвольных аргументов
   requestId: string;
-}
+};
 
-export interface RemoteUpdateInfo {
-    version: string;
-    downloadUrl: string;
-    releaseNotes?: string;
-  }
+export type RemoteUpdateInfo = {
+  version: string;
+  downloadUrl: string;
+  releaseNotes?: string;
+};
 
-export interface ZulipConnect {
+export type ZulipConnect = {
   zulipFound: boolean;
   currentUserName: string;
   currentUserEmail: string;
@@ -53,7 +55,7 @@ export interface ZulipConnect {
   totalWebContents: number;
   zulipUrl: string;
   error: string | null;
-}
+};
 
 export type MainMessage = {
   "install-update": () => void;
@@ -62,7 +64,7 @@ export type MainMessage = {
   "clear-app-settings": () => void;
   "restart-app-test": () => void;
   "force-update": () => void;
-  "focus_stream": (token: string) => void;
+  focus_stream: (token: string) => void;
   "walkie-talkie-status": (status: WalkieTalkieStatus) => void;
   "global-volume-hotkey": (status: GlobalVolumeHotkeyStatus) => void;
   "configure-spell-checker": () => void;
@@ -86,7 +88,7 @@ export type MainMessage = {
   "update-badge": (messageCount: number) => void;
   "update-menu": (properties: MenuProperties) => void;
   "update-taskbar-icon": (data: string, text: string) => void;
-  "restart_app": () => void; // Для автообновления
+  restart_app: () => void; // Для автообновления
   "jitsi-api-ready": (data: any) => void;
   "jitsi-conference-joined": () => void;
   "jitsi-conference-left": () => void;
@@ -97,31 +99,50 @@ export type MainMessage = {
 };
 
 export type MainCall = {
-  "get-app-version": () => string
-  "handle-zulip-update": (updateInfo: RemoteUpdateInfo) => Promise<{ success: boolean; action?: string }>;
-  "download-update": (updateInfo: RemoteUpdateInfo) => Promise<{ success: Boolean, action?: String  }>;
+  "get-app-version": () => string;
+  "handle-zulip-update": (
+    updateInfo: RemoteUpdateInfo,
+  ) => Promise<{success: boolean; action?: string}>;
+  "download-update": (
+    updateInfo: RemoteUpdateInfo,
+  ) => Promise<{success: Boolean; action?: String}>;
   "get-server-settings": (domain: string) => ServerConfig;
   "is-online": (url: string) => boolean;
   "poll-clipboard": (key: Uint8Array, sig: Uint8Array) => string | undefined;
   "save-server-icon": (iconURL: string) => string | null;
-  'fetch-user-agent': () => Promise<string>;
+  "fetch-user-agent": () => Promise<string>;
   "get-desktop-sources": () => Promise<DesktopSource[]>;
-  "jitsi-connect-with-zulip-config": (options: JitsiOptions) => Promise<JitsiResult>;
+  "jitsi-connect-with-zulip-config": (
+    options: JitsiOptions,
+  ) => Promise<JitsiResult>;
   "test-zulip-bridge": () => Promise<ZulipConnect>;
-  "start-native-capture": (sourceId: string) => Promise<{ success: boolean; error?: string }>;
-  "stop-native-capture": () => Promise<{ success: boolean; error?: string }>;
+  "start-native-capture": (
+    sourceId: string,
+  ) => Promise<{success: boolean; error?: string}>;
+  "stop-native-capture": () => Promise<{success: boolean; error?: string}>;
   "get-capture-status": () => void;
-  "screen-capture-start": (options: { sourceId: string; width: number; height: number; frameRate: number; }) => Promise<{ success: boolean; error?: string; result: string }>;
-  "screen-capture-stop": () => Promise<{ success: boolean; error?: string; }>;
-  "screen-capture-test": () => Promise<{ success: boolean; error?: string; result: string }>;
-  "create-jitsi-sdk-from-zulip": (data: JitsiOptions | {}) => Promise<{ success: boolean; error?: string; result: string }>;
+  "screen-capture-start": (options: {
+    sourceId: string;
+    width: number;
+    height: number;
+    frameRate: number;
+  }) => Promise<{success: boolean; error?: string; result: string}>;
+  "screen-capture-stop": () => Promise<{success: boolean; error?: string}>;
+  "screen-capture-test": () => Promise<{
+    success: boolean;
+    error?: string;
+    result: string;
+  }>;
+  "create-jitsi-sdk-from-zulip": (
+    data: JitsiOptions | {},
+  ) => Promise<{success: boolean; error?: string; result: string}>;
 };
 
 export type RendererMessage = {
   back: () => void;
   "desktop-sources-response": (response: DesktopSourcesResponse) => void;
   "trigger-open-desktop-picker": () => void;
-  "requestDesktopSources": () => void;
+  requestDesktopSources: () => void;
   "forward-message": (channel: string) => void;
   "copy-rm-url": () => void;
   destroytray: () => void;
@@ -162,7 +183,7 @@ export type RendererMessage = {
   "toggle-sidebar": (show: boolean) => void;
   "toggle-silent": (state: boolean) => void;
   "toggle-tray": (state: boolean) => void;
-  "toggletray": () => void;
+  toggletray: () => void;
   tray: (argument: number) => void;
   "update-realm-icon": (serverURL: string, iconURL: string) => void;
   "update-realm-name": (serverURL: string, realmName: string) => void;
@@ -171,15 +192,15 @@ export type RendererMessage = {
   zoomIn: () => void;
   zoomOut: () => void;
   "update-available": (updateInfo: RemoteUpdateInfo) => void;
-  "update_available": (version: string) => void;
+  update_available: (version: string) => void;
   "update-downloaded": () => void;
   "update-error": (message: string) => void;
   "update-download-progress": (percent: number) => void;
   "server-update-available": (updateInfo: RemoteUpdateInfo) => void;
   "force-update": () => void;
-  "update_progress": (percent: number) => void;
-  "update_downloaded": () => void;
-  "update_error": (message: string) => void;
+  update_progress: (percent: number) => void;
+  update_downloaded: () => void;
+  update_error: (message: string) => void;
   "quit-app": () => void;
   "create-native-stream-for-jitsi": () => void;
 };

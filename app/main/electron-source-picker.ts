@@ -1,14 +1,16 @@
-// electron-source-picker.ts - Модуль для выбора источников экрана
-import { desktopCapturer, BrowserWindow, ipcMain } from "electron";
-import log from "electron-log";
+// Electron-source-picker.ts - Модуль для выбора источников экрана
+/* eslint-disable @typescript-eslint/naming-convention, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/prefer-nullish-coalescing, @typescript-eslint/member-ordering, @typescript-eslint/no-unused-vars, no-promise-executor-return, prefer-const, @typescript-eslint/no-floating-promises */
+import {BrowserWindow, desktopCapturer, ipcMain} from "electron/main"; // eslint-disable-line no-restricted-imports
 
-export interface DesktopSource {
+import log from "electron-log/main";
+
+export type DesktopSource = {
   id: string;
   name: string;
   thumbnail: string;
   display_id?: string;
-  type: 'screen' | 'window';
-}
+  type: "screen" | "window";
+};
 
 export class ElectronSourcePicker {
   private pickerWindow: BrowserWindow | null = null;
@@ -24,36 +26,36 @@ export class ElectronSourcePicker {
   async getSources(): Promise<DesktopSource[]> {
     try {
       const sources = await desktopCapturer.getSources({
-        types: ['window', 'screen'],
-        thumbnailSize: { width: 280, height: 180 }  // Уменьшаем размер для быстрой загрузки
+        types: ["window", "screen"],
+        thumbnailSize: {width: 280, height: 180}, // Уменьшаем размер для быстрой загрузки
       });
 
       // Обрабатываем источники асинхронно
-      const processedSources = await Promise.all(
-        sources.map(async (source) => {
-          const isScreen = source.id.startsWith('screen:');
-          
+      const processedSources: DesktopSource[] = await Promise.all(
+        sources.map(async (source): Promise<DesktopSource> => {
+          const isScreen = source.id.startsWith("screen:");
+
           // Для экранов используем еще меньшее качество
-          const quality = isScreen ? 0.3 : 0.6;
-          
+          const quality = isScreen ? 30 : 60; // ToJPEG принимает quality 0-100
+
           // Конвертируем в data URL с задержкой для экранов
           let thumbnail: string;
           if (isScreen) {
             // Даем небольшую задержку для экранов
-            await new Promise(resolve => setTimeout(resolve, 10));
-            thumbnail = source.thumbnail.toDataURL('image/jpeg', quality);
-          } else {
-            thumbnail = source.thumbnail.toDataURL('image/jpeg', quality);
+            await new Promise((resolve) => setTimeout(resolve, 10));
           }
-          
+
+          const jpegBuffer = source.thumbnail.toJPEG(quality);
+          thumbnail = `data:image/jpeg;base64,${jpegBuffer.toString("base64")}`;
+
           return {
             id: source.id,
             name: source.name,
             thumbnail,
             display_id: source.display_id,
-            type: isScreen ? 'screen' : 'window'
+            type: isScreen ? ("screen" as const) : ("window" as const),
           };
-        })
+        }),
       );
 
       return processedSources;
@@ -68,7 +70,7 @@ export class ElectronSourcePicker {
       // Создаем окно для выбора источника - увеличиваем высоту на 10%
       this.pickerWindow = new BrowserWindow({
         width: 900,
-        height: 660,  // Было 600, увеличили на 10%
+        height: 660, // Было 600, увеличили на 10%
         modal: false,
         alwaysOnTop: true,
         center: true,
@@ -77,19 +79,21 @@ export class ElectronSourcePicker {
         maximizable: false,
         webPreferences: {
           nodeIntegration: true,
-          contextIsolation: false
+          contextIsolation: false,
         },
-        backgroundColor: '#ffffff',
-        title: 'Выберите экран или окно для демонстрации',
-        show: false  // Не показываем сразу
+        backgroundColor: "#ffffff",
+        title: "Выберите экран или окно для демонстрации",
+        show: false, // Не показываем сразу
       });
 
       // HTML для окна выбора
       const html = this.generatePickerHTML(sources);
-      this.pickerWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+      this.pickerWindow.loadURL(
+        `data:text/html;charset=utf-8,${encodeURIComponent(html)}`,
+      );
 
       // Показываем окно после загрузки контента
-      this.pickerWindow.once('ready-to-show', () => {
+      this.pickerWindow.once("ready-to-show", () => {
         // Даем небольшую задержку для загрузки изображений
         setTimeout(() => {
           if (this.pickerWindow && !this.pickerWindow.isDestroyed()) {
@@ -99,34 +103,39 @@ export class ElectronSourcePicker {
       });
 
       // Обработчик закрытия окна
-      this.pickerWindow.on('closed', () => {
+      this.pickerWindow.on("closed", () => {
         this.pickerWindow = null;
         resolve(null);
       });
 
       // Обработчик выбора источника (через веб-содержимое)
-      this.pickerWindow.webContents.on('ipc-message', (event, channel, ...args) => {
-        if (channel === 'source-selected') {
-          const sourceId = args[0];
-          const selectedSource = sources.find(s => s.id === sourceId);
-          if (this.pickerWindow && !this.pickerWindow.isDestroyed()) {
-            this.pickerWindow.close();
+      this.pickerWindow.webContents.on(
+        "ipc-message",
+        (event, channel, ...arguments_) => {
+          if (channel === "source-selected") {
+            const sourceId = arguments_[0];
+            const selectedSource = sources.find((s) => s.id === sourceId);
+            if (this.pickerWindow && !this.pickerWindow.isDestroyed()) {
+              this.pickerWindow.close();
+            }
+
+            resolve(selectedSource || null);
+          } else if (channel === "cancel-selection") {
+            if (this.pickerWindow && !this.pickerWindow.isDestroyed()) {
+              this.pickerWindow.close();
+            }
+
+            resolve(null);
           }
-          resolve(selectedSource || null);
-        } else if (channel === 'cancel-selection') {
-          if (this.pickerWindow && !this.pickerWindow.isDestroyed()) {
-            this.pickerWindow.close();
-          }
-          resolve(null);
-        }
-      });
+        },
+      );
     });
   }
 
   private generatePickerHTML(sources: DesktopSource[]): string {
     // Группируем источники по типу
-    const screens = sources.filter(s => s.type === 'screen');
-    const windows = sources.filter(s => s.type === 'window');
+    const screens = sources.filter((s) => s.type === "screen");
+    const windows = sources.filter((s) => s.type === "window");
 
     return `
       <!DOCTYPE html>
@@ -372,23 +381,31 @@ export class ElectronSourcePicker {
           <div class="content-area">
             <div id="screens-tab" class="tab-content active">
               <div class="sources-grid">
-                ${screens.map(source => `
+                ${screens
+                  .map(
+                    (source) => `
                   <div class="source-item" onclick="selectSource('${source.id}')" data-source-id="${source.id}">
                     <img class="source-thumbnail" src="${source.thumbnail}" alt="${source.name}">
                     <div class="source-name" title="${source.name}">${source.name}</div>
                   </div>
-                `).join('')}
+                `,
+                  )
+                  .join("")}
               </div>
             </div>
             
             <div id="windows-tab" class="tab-content">
               <div class="sources-grid">
-                ${windows.map(source => `
+                ${windows
+                  .map(
+                    (source) => `
                   <div class="source-item" onclick="selectSource('${source.id}')" data-source-id="${source.id}">
                     <img class="source-thumbnail" src="${source.thumbnail}" alt="${source.name}">
                     <div class="source-name" title="${source.name}">${source.name}</div>
                   </div>
-                `).join('')}
+                `,
+                  )
+                  .join("")}
               </div>
             </div>
           </div>

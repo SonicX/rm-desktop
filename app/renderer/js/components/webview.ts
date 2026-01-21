@@ -195,7 +195,10 @@ export default class WebView {
     const $backButton = document.querySelector(
       "#actions-container #back-action",
     )!;
-    $backButton.classList.toggle("disable", !this.getWebContents().navigationHistory.canGoBack());
+    $backButton.classList.toggle(
+      "disable",
+      !this.getWebContents().navigationHistory.canGoBack(),
+    );
   }
 
   forward(): void {
@@ -251,7 +254,8 @@ export default class WebView {
       // https://chat.zulip.org/static/images/favicon/favicon-pms.png
       if (
         favicons[0].indexOf("favicon-pms") > 0 &&
-        process.platform === "darwin"
+        process.platform === "darwin" &&
+        app.dock
       ) {
         // This api is only supported on macOS
         app.dock.setBadge("●");
@@ -320,7 +324,10 @@ export default class WebView {
     this.focus();
     this.properties.onTitleChange();
     // Injecting preload css in webview to override some css rules
-    (async () => this.getWebContents().insertCSS(".portico-wrap > .header {display: none;} .portico-container > .footer {display: none;}"))();
+    (async () =>
+      this.getWebContents().insertCSS(
+        ".portico-wrap > .header {display: none;} .portico-container > .footer {display: none;}",
+      ))();
 
     // Get customCSS again from config util to avoid warning user again
     const customCss = ConfigUtil.getConfigItem("customCSS", null);
