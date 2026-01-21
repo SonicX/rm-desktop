@@ -652,6 +652,9 @@ async function createMainWindow(): Promise<BrowserWindow> {
   app.disableHardwareAcceleration();
   await app.whenReady();
 
+  // Установка кастомного меню приложения
+  AppMenu.setMenu({tabs: [], activeTabIndex: 0, enableMenu: false});
+
   // Const nativeCaptureManager = new NativeCaptureManager();
   // const jitsiManager = new JitsiManager(
   //   nativeCaptureManager,

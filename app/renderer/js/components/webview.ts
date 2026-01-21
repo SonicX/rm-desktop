@@ -38,6 +38,7 @@ export default class WebView {
   static templateHtml(properties: WebViewProperties): Html {
     return html`
       <div class="webview-pane">
+        <div class="webview-top-spacer"></div>
         <div
           class="webview-unsupported"
           ${properties.unsupportedMessage === undefined ? html`hidden` : html``}

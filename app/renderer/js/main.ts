@@ -1374,7 +1374,97 @@ window.addEventListener("load", async () => {
           opacity: 0.3;
         }
       }
+      /* Кастомный title bar */
+      #custom-titlebar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 28px;
+        background: rgba(30, 38, 42, 0.75);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        -webkit-app-region: drag;
+        z-index: 100;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-bottom: 1px solid rgba(0, 0, 0, 0.2);
+      }
+
+      #custom-titlebar .titlebar-title {
+        color: rgba(255, 255, 255, 0.6);
+        font-size: 12px;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        font-weight: 500;
+        letter-spacing: 0.3px;
+        user-select: none;
+      }
+
+      /* Кнопки управления окном для Windows */
+      .titlebar-controls {
+        position: absolute;
+        right: 0;
+        top: 0;
+        height: 100%;
+        display: flex;
+        -webkit-app-region: no-drag;
+      }
+
+      .titlebar-button {
+        width: 46px;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: transparent;
+        border: none;
+        color: rgba(255, 255, 255, 0.7);
+        cursor: pointer;
+        transition: background 0.15s ease;
+      }
+
+      .titlebar-button:hover {
+        background: rgba(255, 255, 255, 0.1);
+      }
+
+      .titlebar-button.close:hover {
+        background: #e81123;
+        color: white;
+      }
+
+      .titlebar-button svg {
+        width: 10px;
+        height: 10px;
+      }
+
+      /* На macOS traffic lights находятся слева */
+      ${process.platform === "darwin"
+        ? `
+      #custom-titlebar {
+        padding-left: 70px;
+      }
+      `
+        : ""}
     </style>
+    <div id="custom-titlebar">
+      <span class="titlebar-title">Цифровые технологии РМ</span>
+      ${process.platform === "win32"
+        ? `
+      <div class="titlebar-controls">
+        <button class="titlebar-button minimize" id="titlebar-minimize">
+          <svg viewBox="0 0 10 1"><path fill="currentColor" d="M0 0h10v1H0z"/></svg>
+        </button>
+        <button class="titlebar-button maximize" id="titlebar-maximize">
+          <svg viewBox="0 0 10 10"><path fill="currentColor" d="M0 0v10h10V0H0zm1 1h8v8H1V1z"/></svg>
+        </button>
+        <button class="titlebar-button close" id="titlebar-close">
+          <svg viewBox="0 0 10 10"><path fill="currentColor" d="M1.41 0L5 3.59 8.59 0 10 1.41 6.41 5 10 8.59 8.59 10 5 6.41 1.41 10 0 8.59 3.59 5 0 1.41z"/></svg>
+        </button>
+      </div>
+      `
+        : ""}
+    </div>
     <div id="content">
       <div class="popup">
         <span class="popuptext hidden" id="fullscreen-popup"></span>
@@ -1431,6 +1521,31 @@ window.addEventListener("load", async () => {
       </div>
     </div>
   `.html;
+
+  // Обработчики для кнопок управления окном на Windows
+  if (process.platform === "win32") {
+    const currentWindow = remote.getCurrentWindow();
+
+    document
+      .querySelector("#titlebar-minimize")
+      ?.addEventListener("click", () => {
+        currentWindow.minimize();
+      });
+
+    document
+      .querySelector("#titlebar-maximize")
+      ?.addEventListener("click", () => {
+        if (currentWindow.isMaximized()) {
+          currentWindow.unmaximize();
+        } else {
+          currentWindow.maximize();
+        }
+      });
+
+    document.querySelector("#titlebar-close")?.addEventListener("click", () => {
+      currentWindow.close();
+    });
+  }
 
   const serverManagerView = new ServerManagerView();
   await serverManagerView.init();

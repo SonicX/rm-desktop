@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-empty-function */
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import {shell} from "electron/common";
 import {
   BrowserWindow,
@@ -152,42 +152,6 @@ function getDarwinTpl(
         },
       ],
     },
-    {
-      label: t.__("Edit"),
-      submenu: [
-        {
-          label: t.__("Undo"),
-          role: "undo",
-        },
-        {
-          label: t.__("Redo"),
-          role: "redo",
-        },
-        {
-          type: "separator",
-        },
-        {
-          label: t.__("Cut"),
-          role: "cut",
-        },
-        {
-          label: t.__("Copy"),
-          role: "copy",
-        },
-        {
-          label: t.__("Paste"),
-          role: "paste",
-        },
-        {
-          label: t.__("Paste and Match Style"),
-          role: "pasteAndMatchStyle",
-        },
-        {
-          label: t.__("Select All"),
-          role: "selectAll",
-        },
-      ],
-    },
   ];
 }
 
@@ -195,11 +159,8 @@ function getOtherTpl(properties: MenuProperties): MenuItemConstructorOptions[] {
   const {tabs, activeTabIndex, enableMenu = false} = properties;
   return [
     {
-      label: t.__("File"),
+      label: app.name,
       submenu: [
-        {
-          type: "separator",
-        },
         {
           label: t.__("Toggle Do Not Disturb"),
           accelerator: "Ctrl+Shift+M",
@@ -258,45 +219,6 @@ function getOtherTpl(properties: MenuProperties): MenuItemConstructorOptions[] {
         },
       ],
     },
-    {
-      label: t.__("Edit"),
-      submenu: [
-        {
-          label: t.__("Undo"),
-          role: "undo",
-        },
-        {
-          label: t.__("Redo"),
-          role: "redo",
-        },
-        {
-          type: "separator",
-        },
-        {
-          label: t.__("Cut"),
-          role: "cut",
-        },
-        {
-          label: t.__("Copy"),
-          role: "copy",
-        },
-        {
-          label: t.__("Paste"),
-          role: "paste",
-        },
-        {
-          label: t.__("Paste and Match Style"),
-          role: "pasteAndMatchStyle",
-        },
-        {
-          type: "separator",
-        },
-        {
-          label: t.__("Select All"),
-          role: "selectAll",
-        },
-      ],
-    },
   ];
 }
 
@@ -329,4 +251,14 @@ function getPreviousServer(tabs: TabData[], activeTabIndex: number): number {
   return activeTabIndex;
 }
 
-export function setMenu(properties: MenuProperties): void {}
+export function setMenu(properties: MenuProperties): void {
+  if (process.platform === "darwin") {
+    // На macOS оставляем меню (оно в системной строке)
+    const template = getDarwinTpl(properties);
+    const menu = Menu.buildFromTemplate(template);
+    Menu.setApplicationMenu(menu);
+  } else {
+    // На Windows/Linux полностью скрываем меню
+    Menu.setApplicationMenu(null);
+  }
+}
