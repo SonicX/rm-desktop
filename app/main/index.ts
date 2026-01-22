@@ -382,19 +382,27 @@ class CustomKeyboardListener extends GlobalKeyboardListener {
       } else {
         log.error(`❌ Lib binary missing: ${libraryBinaryPath}`);
       }
-    } else if (process.platform === 'win32') {
+    } else if (process.platform === "win32") {
       // Windows: Lib WinKeyServer.exe
-      const libPackageJson = require.resolve('node-global-key-listener/package.json');
-      const libBinPath = path.join(path.dirname(libPackageJson), 'bin', 'WinKeyServer.exe');
+      const libPackageJson = require.resolve(
+        "node-global-key-listener/package.json",
+      );
+      const libBinPath = path.join(
+        path.dirname(libPackageJson),
+        "bin",
+        "WinKeyServer.exe",
+      );
       customConfig.windows = {
-        serverPath: libBinPath,  // Абсолютный путь к bundled .exe (обходит project bin/)
+        serverPath: libBinPath, // Абсолютный путь к bundled .exe (обходит project bin/)
       };
       log.info(`🔧 Windows config: serverPath = ${libBinPath}`);
       // Проверяем существование (bundled .exe должен быть)
       if (fs.existsSync(libBinPath)) {
         log.info(`✅ Windows lib exe found: ${libBinPath}`);
       } else {
-        log.error(`❌ Windows lib exe missing: ${libBinPath} — reinstall node-global-key-listener`);
+        log.error(
+          `❌ Windows lib exe missing: ${libBinPath} — reinstall node-global-key-listener`,
+        );
       }
     } else {
       log.info(`🔧 Default config for ${process.platform}`);

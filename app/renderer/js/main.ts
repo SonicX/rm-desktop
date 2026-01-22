@@ -1512,9 +1512,9 @@ window.addEventListener("load", async () => {
               >${t.__("Настройки")}</span
             >
           </div>
-            <div class="action-button" id="update-action">
-              <i class="material-icons md-48">system_update_alt</i>
-            </div>
+          <div class="action-button" id="update-action">
+            <i class="material-icons md-48">system_update_alt</i>
+          </div>
           <div class="version-label">${appVersion}</div>
         </div>
       </div>

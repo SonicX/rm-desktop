@@ -466,7 +466,7 @@ ipcRenderer.on("create-native-stream-for-jitsi", () => {
       }
 
       window.nativeTestStream = null;
-      ipcRenderer.send("preload-log", "⏹️ Stream stopped after timeout");
+      ipcRenderer.send("preload-log", "⏹️ Stream stopped after timeout!");
     }, 60_000);
   } catch (error: any) {
     ipcRenderer.send(
