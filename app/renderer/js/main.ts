@@ -1445,10 +1445,14 @@ window.addEventListener("load", async () => {
         padding-left: 70px;
       }
       `
-        : ""}
+        : `
+      #custom-titlebar {
+        display: none;
+      }
+      `}
     </style>
     <div id="custom-titlebar">
-      <span class="titlebar-title">Цифровые технологии РМ</span>
+      <span class="titlebar-title"></span>
       ${process.platform === "win32"
         ? `
       <div class="titlebar-controls">
@@ -1519,31 +1523,6 @@ window.addEventListener("load", async () => {
       </div>
     </div>
   `.html;
-
-  // Обработчики для кнопок управления окном на Windows
-  if (process.platform === "win32") {
-    const currentWindow = remote.getCurrentWindow();
-
-    document
-      .querySelector("#titlebar-minimize")
-      ?.addEventListener("click", () => {
-        currentWindow.minimize();
-      });
-
-    document
-      .querySelector("#titlebar-maximize")
-      ?.addEventListener("click", () => {
-        if (currentWindow.isMaximized()) {
-          currentWindow.unmaximize();
-        } else {
-          currentWindow.maximize();
-        }
-      });
-
-    document.querySelector("#titlebar-close")?.addEventListener("click", () => {
-      currentWindow.close();
-    });
-  }
 
   const serverManagerView = new ServerManagerView();
   await serverManagerView.init();
