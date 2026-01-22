@@ -1437,38 +1437,38 @@ window.addEventListener("load", async () => {
 
       /* На macOS traffic lights находятся слева */
       ${process.platform === "darwin"
-        ? `
-      #custom-titlebar {
-        padding-left: 70px;
-      }
-      `
-        : `
-      #custom-titlebar {
-        height: 32px;
-      }
-      .titlebar-button {
-        width: 46px;
-        height: 32px;
-      }
-      `}
+        ? html` #custom-titlebar { padding-left: 70px; } `
+        : html`
+            #custom-titlebar { height: 32px; } .titlebar-button { width: 46px;
+            height: 32px; }
+          `}
     </style>
     <div id="custom-titlebar">
       <span class="titlebar-title"></span>
       ${process.platform === "win32"
-        ? `
-      <div class="titlebar-controls">
-        <button class="titlebar-button minimize" id="titlebar-minimize">
-          <svg viewBox="0 0 10 1"><path fill="currentColor" d="M0 0h10v1H0z"/></svg>
-        </button>
-        <button class="titlebar-button maximize" id="titlebar-maximize">
-          <svg viewBox="0 0 10 10"><path fill="currentColor" d="M0 0v10h10V0H0zm1 1h8v8H1V1z"/></svg>
-        </button>
-        <button class="titlebar-button close" id="titlebar-close">
-          <svg viewBox="0 0 10 10"><path fill="currentColor" d="M1.41 0L5 3.59 8.59 0 10 1.41 6.41 5 10 8.59 8.59 10 5 6.41 1.41 10 0 8.59 3.59 5 0 1.41z"/></svg>
-        </button>
-      </div>
-      `
-        : ""}
+        ? html`
+            <div class="titlebar-controls">
+              <button class="titlebar-button minimize" id="titlebar-minimize">
+                <svg viewBox="0 0 10 1">
+                  <path fill="currentColor" d="M0 0h10v1H0z" />
+                </svg>
+              </button>
+              <button class="titlebar-button maximize" id="titlebar-maximize">
+                <svg viewBox="0 0 10 10">
+                  <path fill="currentColor" d="M0 0v10h10V0H0zm1 1h8v8H1V1z" />
+                </svg>
+              </button>
+              <button class="titlebar-button close" id="titlebar-close">
+                <svg viewBox="0 0 10 10">
+                  <path
+                    fill="currentColor"
+                    d="M1.41 0L5 3.59 8.59 0 10 1.41 6.41 5 10 8.59 8.59 10 5 6.41 1.41 10 0 8.59 3.59 5 0 1.41z"
+                  />
+                </svg>
+              </button>
+            </div>
+          `
+        : html``}
     </div>
     <div id="content">
       <div class="popup">
