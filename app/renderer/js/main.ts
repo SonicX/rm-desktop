@@ -295,7 +295,7 @@ export class ServerManagerView {
 
   async initTabs(): Promise<void> {
     const server = {
-      url: "http://localhost:9991/login",
+      url: "http://joinrm-svz.ru/",
       alias: "Цифровые технологии РМ",
       icon: "https://disk.yandex.ru/i/m2aj56OOhsJfyw",
       zulipVersion: app.getVersion(),
@@ -1508,11 +1508,9 @@ window.addEventListener("load", async () => {
               >${t.__("Настройки")}</span
             >
           </div>
-          ${isWin
-            ? `<div class="action-button" id="update-action">
+            <div class="action-button" id="update-action">
               <i class="material-icons md-48">system_update_alt</i>
-            </div>`
-            : ""}
+            </div>
           <div class="version-label">${appVersion}</div>
         </div>
       </div>

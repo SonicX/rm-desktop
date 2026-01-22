@@ -1,123 +1,169 @@
 Debugger attached.
 [33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
-vite v5.4.20 building SSR bundle for development...
 
-watching for file changes...
-vite v5.4.20 building for development...
+  [32m[1mVITE[22m v5.4.20[39m  [2mready in [0m[1m349[22m[2m[0m ms[22m
 
-watching for file changes...
-vite v5.4.20 building for development...
-
-watching for file changes...
-
-build started...
-
-build started...
-
-build started...
-
-  VITE v5.4.20  ready in 370 ms
-
-  ➜  Local:   http://localhost:5173/
-  ➜  Network: use --host to expose
-  ➜  press h + enter to show help
+  [32m➜[39m  [1mLocal[22m:   [36mhttp://localhost:[1m5173[22m/[39m
+[2m  [32m➜[39m  [1mNetwork[22m[2m: use [22m[1m--host[22m[2m to expose[22m
+[2m[32m  ➜[39m[22m[2m  press [22m[1mh + enter[22m[2m to show help[22m
+[36mvite v5.4.20 [32mbuilding SSR bundle for development...[36m[39m
+[36m
+watching for file changes...[39m
+[36mvite v5.4.20 [32mbuilding for development...[36m[39m
+[36m
+watching for file changes...[39m
+[36mvite v5.4.20 [32mbuilding for development...[36m[39m
+[36m
+watching for file changes...[39m
+[36m
+build started...[39m
+[36m
+build started...[39m
+[36m
+build started...[39m
 transforming...
 transforming...
 transforming...
-✓ 6 modules transformed.
+[32m✓[39m 6 modules transformed.
 rendering chunks...
 computing gzip size...
-dist-electron/preload.js  97.08 kB │ gzip: 26.70 kB │ map: 51.91 kB
-built in 1574ms.
-✓ 415 modules transformed.
-✓ 2083 modules transformed.
+[2mdist-electron/[22m[36mpreload.js  [39m[1m[2m97.08 kB[22m[1m[22m[2m │ gzip: 26.87 kB[22m[2m │ map: 51.91 kB[22m
+[36mbuilt in 2213ms.[39m
+[32m✓[39m 415 modules transformed.
 rendering chunks...
 computing gzip size...
+[32m✓[39m 2076 modules transformed.
+[2mdist-electron/[22m[36mrenderer.js  [39m[1m[33m784.19 kB[39m[22m[2m │ gzip: 167.82 kB[22m[2m │ map: 1,682.10 kB[22m
+[36mbuilt in 7662ms.[39m
 rendering chunks...
-dist-electron/renderer.js  784.23 kB │ gzip: 167.68 kB │ map: 1,682.11 kB
-built in 8390ms.
-dist-electron/index.js  2,334.50 kB │ map: 5,384.39 kB
-built in 8435ms.
+[2mdist-electron/[22m[36mindex.js  [39m[1m[33m2,337.80 kB[39m[22m[2m │ map: 5,386.12 kB[22m
+[36mbuilt in 8452ms.[39m
+
 Debugger attached.
-00:20:56.204 › 🎯[Jitsi SDK] Module loaded: object
-[00:20:56] 🔧 Custom config for mac: serverPath = /Users/jtereschenko/Documents/IDE/rm-desktop/node_modules/node-global-key-listener/bin/MacKeyServer
-[00:20:56] ✅ Lib binary chmod: /Users/jtereschenko/Documents/IDE/rm-desktop/node_modules/node-global-key-listener/bin/MacKeyServer
-[00:20:56] 🔧 Custom config for mac: serverPath = /Users/jtereschenko/Documents/IDE/rm-desktop/node_modules/node-global-key-listener/bin/MacKeyServer
-[00:20:56] ✅ Lib binary chmod: /Users/jtereschenko/Documents/IDE/rm-desktop/node_modules/node-global-key-listener/bin/MacKeyServer
-[00:20:56] [NativeCapture] Checking for addon in 3 locations:
-[00:20:56] [NativeCapture] Platform: darwin
-[00:20:56] [NativeCapture] Is Packaged: false
-[00:20:56] [NativeCapture] __dirname: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron
-[00:20:56] [NativeCapture] process.resourcesPath: /Users/jtereschenko/Documents/IDE/rm-desktop/node_modules/electron/dist/Electron.app/Contents/Resources
-[00:20:56] [NativeCapture] Checking: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron/native-addon.node - ✅ FOUND
-[00:20:56] [NativeCapture] Loading native addon from: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron/native-addon.node
+12:05:01.722 > 🎯[Jitsi SDK] Module loaded: object
+[12:05:01] 🔧 Windows config: serverPath = C:\Users\User\Documents\IDE\rm-desktop\node_modules\node-global-key-listener\bin\WinKeyServer.exe
+[12:05:01] ✅ Windows lib exe found: C:\Users\User\Documents\IDE\rm-desktop\node_modules\node-global-key-listener\bin\WinKeyServer.exe
+[12:05:01] 🔧 Windows config: serverPath = C:\Users\User\Documents\IDE\rm-desktop\node_modules\node-global-key-listener\bin\WinKeyServer.exe
+[12:05:01] ✅ Windows lib exe found: C:\Users\User\Documents\IDE\rm-desktop\node_modules\node-global-key-listener\bin\WinKeyServer.exe
+[12:05:01] [NativeCapture] Checking for addon in 3 locations:
+[12:05:01] [NativeCapture] Platform: win32
+[12:05:01] [NativeCapture] Is Packaged: false
+[12:05:01] [NativeCapture] __dirname: C:\Users\User\Documents\IDE\rm-desktop\dist-electron
+[12:05:01] [NativeCapture] process.resourcesPath: C:\Users\User\Documents\IDE\rm-desktop\node_modules\electron\dist\resources
+[12:05:01] [NativeCapture] Checking: C:\Users\User\Documents\IDE\rm-desktop\dist-electron\native-addon.node - ❌ not found
+[12:05:01] [NativeCapture] Checking: C:\Users\User\Documents\IDE\rm-desktop\dist-electron\native-addon.node - ❌ not found
+[12:05:01] [NativeCapture] Checking: C:\Users\User\Documents\IDE\rm-desktop\dist-electron\native-addon.node - ❌ not found
+[12:05:01] [NativeCapture] ❌ Native addon not found in any location!
 🪟 [detectAddonType] Start detect
-🪟 [detectAddonType] Start more
-Test from ScreenCaptureManager
-🍎 [detectAddonType] Detected macOS Swift addon
-🪟 [detectAddonType] End detect
-[00:20:56] [NativeCapture] ✅ Native addon loaded successfully
-🪟 [detectAddonType] Start detect
-🪟 [detectAddonType] Start more
-Test from ScreenCaptureManager
-🍎 [detectAddonType] Detected macOS Swift addon
-🪟 [detectAddonType] End detect
-[00:20:56] [JITSI-SDK] Failed to setup always on top: Cannot read properties of undefined (reading 'webContents')
-[00:20:56] [JITSI-SDK] Failed to setup power monitor: Cannot read properties of undefined (reading 'on')
-[00:20:56] [JITSI-SDK] SDK helper functions initialized
-[00:20:56] [JITSI-SDK] Manager created
-[51879:0122/002057.588309:ERROR:sandbox/mac/system_services.cc:35] SetApplicationIsDaemon: Error Domain=NSOSStatusErrorDomain Code=-50 "paramErr: error in user parameter list" (-50)
+❌ [detectAddonType] No addon loaded - skipping detection
+[12:05:01] [JITSI-SDK] Failed to setup always on top: Cannot read properties of undefined (reading 'webContents')
+[12:05:01] [JITSI-SDK] Failed to setup power monitor: Cannot read properties of undefined (reading 'on')
+[12:05:01] [JITSI-SDK] SDK helper functions initialized
+[12:05:01] [JITSI-SDK] Manager created
 Attempting to call a function in a renderer window that has been closed or released.
-Function provided here: renderer.js:46:25
+Function provided here: CallbacksRegistry.add (C:\Users\User\Documents\IDE\rm-desktop\dist-electron\renderer.js:46:25
 ✅ Окно создано!
-[00:20:57] Tray created with icon: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron/resources/tray/traymacOSTemplate.png
-[00:20:57] Tray: Создан
+[12:05:02] Tray created with icon: C:\Users\User\Documents\IDE\rm-desktop\dist-electron\resources\tray\traywin.ico
+[12:05:02] Tray: Создан
 ✅ Окно создано!
-[00:20:57] Main: WebView создается с URL: http://localhost:9991/login
-[00:20:57] Main: Webview preload установлен: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron/preload.js
-[00:20:57] Main: WebView создается с URL: http://localhost:9991/login
-[00:20:57] Main: Webview preload установлен: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron/preload.js
-[00:20:57] Main: Preload файл существует: true
-[00:20:58] Tray: Обновлён badge на 0
+[12:05:02] Main: WebView создается с URL: http://joinrm-svz.ru/
+[12:05:02] Main: Webview preload установлен: C:\Users\User\Documents\IDE\rm-desktop\dist-electron\preload.js
+[12:05:02] Main: WebView создается с URL: http://joinrm-svz.ru/
+[12:05:02] Main: Webview preload установлен: C:\Users\User\Documents\IDE\rm-desktop\dist-electron\preload.js
+[12:05:02] Main: Preload файл существует: true
+[12:05:02] Tray: Обновлён badge на 0
 Preload Log: ✅ Preload: Начало выполнения
-[00:20:59] Preload Log: ✅ Preload: Начало выполнения
-[00:20:59] Preload Log: ✅ Preload: Начало выполнения
+[12:05:08] Preload Log: ✅ Preload: Начало выполнения
+[12:05:08] Preload Log: ✅ Preload: Начало выполнения
 Preload Log: ✅ Preload: Начало выполнения
-Preload Log: ✅ Preload: Загружен для URL: http://localhost:9991/
-[00:20:59] Preload Log: ✅ Preload: Загружен для URL: http://localhost:9991/
-[00:20:59] Preload Log: ✅ Preload: Загружен для URL: http://localhost:9991/
-Preload Log: ✅ Preload: Загружен для URL: http://localhost:9991/
+Preload Log: ✅ Preload: Загружен для URL: https://joinrm-svz.ru/
+[12:05:08] Preload Log: ✅ Preload: Загружен для URL: https://joinrm-svz.ru/
+[12:05:08] Preload Log: ✅ Preload: Загружен для URL: https://joinrm-svz.ru/
+Preload Log: ✅ Preload: Загружен для URL: https://joinrm-svz.ru/
 Preload Log: ✅ Preload: Initialization complete
-[00:20:59] Preload Log: ✅ Preload: Initialization complete
-[00:20:59] Preload Log: ✅ Preload: Initialization complete
+[12:05:08] Preload Log: ✅ Preload: Initialization complete
+[12:05:08] Preload Log: ✅ Preload: Initialization complete
 Preload Log: ✅ Preload: Initialization complete
-[00:20:59] Tray: Обновлён badge на 0
+[12:05:08] Tray: Обновлён badge на 0
+[12:05:08] Tray: Обновлён badge на 0
 (electron) 'console-message' arguments are deprecated and will be removed. Please use Event<WebContentsConsoleMessageEventParams> object instead.
-[00:21:01] Tray: Обновлён badge на 0
-Preload Log: Bridge: Отправлено событие: total_unread_count [20]
-[00:21:01] Preload Log: Bridge: Отправлено событие: total_unread_count [20]
-[00:21:01] Preload Log: Bridge: Отправлено событие: total_unread_count [20]
-Preload Log: Bridge: Отправлено событие: total_unread_count [20]
-[00:21:01] Tray: Обновлён badge на 20
-[00:21:01] Tray: Обновлён badge на 20
+[12:05:09] Tray: Обновлён badge на 0
 Preload Log: Bridge: Отправлено событие: request-electron-version []
-[00:21:01] Preload Log: Bridge: Отправлено событие: request-electron-version []
-[00:21:01] Preload Log: Bridge: Отправлено событие: request-electron-version []
+[12:05:09] Preload Log: Bridge: Отправлено событие: request-electron-version []
+[12:05:09] Preload Log: Bridge: Отправлено событие: request-electron-version []
 Preload Log: Bridge: Отправлено событие: request-electron-version []
 Preload Log: 📦 Zulip requested Electron version
-[00:21:01] Preload Log: 📦 Zulip requested Electron version
-[00:21:01] Preload Log: 📦 Zulip requested Electron version
+[12:05:09] Preload Log: 📦 Zulip requested Electron version
+[12:05:09] Preload Log: 📦 Zulip requested Electron version
 Preload Log: 📦 Zulip requested Electron version
-Preload Log: Bridge: Отправлено событие: electron-version [{"version":"5.27.1"}]
-[00:21:01] Preload Log: Bridge: Отправлено событие: electron-version [{"version":"5.27.1"}]
-[00:21:01] Preload Log: Bridge: Отправлено событие: electron-version [{"version":"5.27.1"}]
-Preload Log: Bridge: Отправлено событие: electron-version [{"version":"5.27.1"}]
-Preload Log: Bridge: Отправлено событие: jitsi-log-event [{"level":"info","message":"Zulip Webview: Получена версия Electron: 5.27.1"}]
-[00:21:01] Preload Log: Bridge: Отправлено событие: jitsi-log-event [{"level":"info","message":"Zulip Webview: Получена версия Electron: 5.27.1"}]
-[00:21:01] Preload Log: Bridge: Отправлено событие: jitsi-log-event [{"level":"info","message":"Zulip Webview: Получена версия Electron: 5.27.1"}]
-Preload Log: Bridge: Отправлено событие: jitsi-log-event [{"level":"info","message":"Zulip Webview: Получена версия Electron: 5.27.1"}]
-Preload Log: 📦 Sent version back to Zulip via IPC: 5.27.1
-[00:21:01] Preload Log: 📦 Sent version back to Zulip via IPC: 5.27.1
-[00:21:01] Preload Log: 📦 Sent version back to Zulip via IPC: 5.27.1
-Preload Log: 📦 Sent version back to Zulip via IPC: 5.27.1
-[51784:0122/002121.655638:ERROR:content/browser/network_service_instance_impl.cc:597] Network service crashed, restarting service.
+Preload Log: Bridge: Отправлено событие: electron-version [{"version":"5.27.0"}]
+[12:05:09] Preload Log: Bridge: Отправлено событие: electron-version [{"version":"5.27.0"}]
+[12:05:09] Preload Log: Bridge: Отправлено событие: electron-version [{"version":"5.27.0"}]
+Preload Log: Bridge: Отправлено событие: electron-version [{"version":"5.27.0"}]
+Preload Log: Bridge: Отправлено событие: jitsi-log-event [{"level":"info","message":"Zulip Webview: Получена версия Electron: 5.27.0"}]
+[12:05:09] Preload Log: Bridge: Отправлено событие: jitsi-log-event [{"level":"info","message":"Zulip Webview: Получена версия Electron: 5.27.0"}]
+[12:05:09] Preload Log: Bridge: Отправлено событие: jitsi-log-event [{"level":"info","message":"Zulip Webview: Получена версия Electron: 5.27.0"}]
+Preload Log: Bridge: Отправлено событие: jitsi-log-event [{"level":"info","message":"Zulip Webview: Получена версия Electron: 5.27.0"}]
+Preload Log: 📦 Sent version back to Zulip via IPC: 5.27.0
+[12:05:09] Preload Log: 📦 Sent version back to Zulip via IPC: 5.27.0
+[12:05:09] Preload Log: 📦 Sent version back to Zulip via IPC: 5.27.0
+Preload Log: 📦 Sent version back to Zulip via IPC: 5.27.0
+Preload Log: Bridge: Отправлено событие: show-update-available [{"version":"5.27.1","downloadUrl":"https://storage.yandexcloud.net/rm-electron-desktop-win/%D0%A1%D0%B2%D1%8F%D0%B7%D1%8C%20%D0%A0%D0%9C%20Setup%205.27.1.zip","releaseNotes":"ура!! обнова\nПроверяем обнову - без паники"}]
+[12:05:09] Preload Log: Bridge: Отправлено событие: show-update-available [{"version":"5.27.1","downloadUrl":"https://storage.yandexcloud.net/rm-electron-desktop-win/%D0%A1%D0%B2%D1%8F%D0%B7%D1%8C%20%D0%A0%D0%9C%20Setup%205.27.1.zip","releaseNotes":"ура!! обнова\nПроверяем обнову - без паники"}]
+[12:05:09] Preload Log: Bridge: Отправлено событие: show-update-available [{"version":"5.27.1","downloadUrl":"https://storage.yandexcloud.net/rm-electron-desktop-win/%D0%A1%D0%B2%D1%8F%D0%B7%D1%8C%20%D0%A0%D0%9C%20Setup%205.27.1.zip","releaseNotes":"ура!! обнова\nПроверяем обнову - без паники"}]
+Preload Log: Bridge: Отправлено событие: show-update-available [{"version":"5.27.1","downloadUrl":"https://storage.yandexcloud.net/rm-electron-desktop-win/%D0%A1%D0%B2%D1%8F%D0%B7%D1%8C%20%D0%A0%D0%9C%20Setup%205.27.1.zip","releaseNotes":"ура!! обнова\nПроверяем обнову - без паники"}]
+Preload Log: 📦 Update available from Zulip: v5.27.1
+[12:05:09] Preload Log: 📦 Update available from Zulip: v5.27.1
+[12:05:09] Preload Log: 📦 Update available from Zulip: v5.27.1
+Preload Log: 📦 Update available from Zulip: v5.27.1
+[12:05:09] 📦 Main: Showing update button for version 5.27.1
+Preload Log: ✅ Preload: Начало выполнения
+[12:23:25] Preload Log: ✅ Preload: Начало выполнения
+[12:23:25] Preload Log: ✅ Preload: Начало выполнения
+Preload Log: ✅ Preload: Начало выполнения
+Preload Log: ✅ Preload: Загружен для URL: https://joinrm-svz.ru/#reload:187524935039
+[12:23:25] Preload Log: ✅ Preload: Загружен для URL: https://joinrm-svz.ru/#reload:187524935039
+[12:23:25] Preload Log: ✅ Preload: Загружен для URL: https://joinrm-svz.ru/#reload:187524935039
+Preload Log: ✅ Preload: Загружен для URL: https://joinrm-svz.ru/#reload:187524935039
+Preload Log: ✅ Preload: Initialization complete
+[12:23:25] Preload Log: ✅ Preload: Initialization complete
+[12:23:25] Preload Log: ✅ Preload: Initialization complete
+Preload Log: ✅ Preload: Initialization complete
+[12:23:25] Tray: Обновлён badge на 0
+[12:23:26] Tray: Обновлён badge на 0
+[12:23:26] Tray: Обновлён badge на 0
+Preload Log: Bridge: Отправлено событие: request-electron-version []
+[12:23:26] Preload Log: Bridge: Отправлено событие: request-electron-version []
+[12:23:26] Preload Log: Bridge: Отправлено событие: request-electron-version []
+Preload Log: Bridge: Отправлено событие: request-electron-version []
+Preload Log: 📦 Zulip requested Electron version
+[12:23:26] Preload Log: 📦 Zulip requested Electron version
+[12:23:26] Preload Log: 📦 Zulip requested Electron version
+Preload Log: 📦 Zulip requested Electron version
+Preload Log: Bridge: Отправлено событие: electron-version [{"version":"5.27.0"}]
+[12:23:26] Preload Log: Bridge: Отправлено событие: electron-version [{"version":"5.27.0"}]
+[12:23:26] Preload Log: Bridge: Отправлено событие: electron-version [{"version":"5.27.0"}]
+Preload Log: Bridge: Отправлено событие: electron-version [{"version":"5.27.0"}]
+Preload Log: Bridge: Отправлено событие: jitsi-log-event [{"level":"info","message":"Zulip Webview: Получена версия Electron: 5.27.0"}]
+[12:23:26] Preload Log: Bridge: Отправлено событие: jitsi-log-event [{"level":"info","message":"Zulip Webview: Получена версия Electron: 5.27.0"}]
+[12:23:26] Preload Log: Bridge: Отправлено событие: jitsi-log-event [{"level":"info","message":"Zulip Webview: Получена версия Electron: 5.27.0"}]
+Preload Log: Bridge: Отправлено событие: jitsi-log-event [{"level":"info","message":"Zulip Webview: Получена версия Electron: 5.27.0"}]
+Preload Log: 📦 Sent version back to Zulip via IPC: 5.27.0
+[12:23:26] Preload Log: 📦 Sent version back to Zulip via IPC: 5.27.0
+[12:23:26] Preload Log: 📦 Sent version back to Zulip via IPC: 5.27.0
+Preload Log: 📦 Sent version back to Zulip via IPC: 5.27.0
+Preload Log: Bridge: Отправлено событие: show-update-available [{"version":"5.27.1","downloadUrl":"https://storage.yandexcloud.net/rm-electron-desktop-win/%D0%A1%D0%B2%D1%8F%D0%B7%D1%8C%20%D0%A0%D0%9C%20Setup%205.27.1.zip","releaseNotes":"ура!! обнова\nПроверяем обнову - без паники"}]
+[12:23:26] Preload Log: Bridge: Отправлено событие: show-update-available [{"version":"5.27.1","downloadUrl":"https://storage.yandexcloud.net/rm-electron-desktop-win/%D0%A1%D0%B2%D1%8F%D0%B7%D1%8C%20%D0%A0%D0%9C%20Setup%205.27.1.zip","releaseNotes":"ура!! обнова\nПроверяем обнову - без паники"}]
+[12:23:26] Preload Log: Bridge: Отправлено событие: show-update-available [{"version":"5.27.1","downloadUrl":"https://storage.yandexcloud.net/rm-electron-desktop-win/%D0%A1%D0%B2%D1%8F%D0%B7%D1%8C%20%D0%A0%D0%9C%20Setup%205.27.1.zip","releaseNotes":"ура!! обнова\nПроверяем обнову - без паники"}]
+Preload Log: Bridge: Отправлено событие: show-update-available [{"version":"5.27.1","downloadUrl":"https://storage.yandexcloud.net/rm-electron-desktop-win/%D0%A1%D0%B2%D1%8F%D0%B7%D1%8C%20%D0%A0%D0%9C%20Setup%205.27.1.zip","releaseNotes":"ура!! обнова\nПроверяем обнову - без паники"}]
+Preload Log: 📦 Update available from Zulip: v5.27.1
+[12:23:26] Preload Log: 📦 Update available from Zulip: v5.27.1
+[12:23:26] Preload Log: 📦 Update available from Zulip: v5.27.1
+Preload Log: 📦 Update available from Zulip: v5.27.1
+[12:23:26] 📦 Main: Showing update button for version 5.27.1
+This error originated either by throwing inside of an async function without a catch block, or by rejecting a promise which was not handled with .catch(). The promise rejected with the reason:
+Error: Script failed to execute, this normally means an error was thrown. Check the renderer console for the error.
+    at node:electron/js2c/renderer_init:2:17266
+    at IpcRendererInternal.<anonymous> (node:electron/js2c/renderer_init:2:11601)
+    at IpcRendererInternal.emit (node:events:518:28)
+    at Object.onMessage (node:electron/js2c/renderer_init:2:10679)
