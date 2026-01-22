@@ -1380,16 +1380,13 @@ window.addEventListener("load", async () => {
         top: 0;
         left: 0;
         right: 0;
-        height: 28px;
-        background: rgba(30, 38, 42, 0.75);
-        backdrop-filter: blur(10px);
-        -webkit-backdrop-filter: blur(10px);
+        height: 32px;
+        background: rgb(34 44 49);
         -webkit-app-region: drag;
         z-index: 100;
         display: flex;
         align-items: center;
         justify-content: center;
-        border-bottom: 1px solid rgba(0, 0, 0, 0.2);
       }
 
       #custom-titlebar .titlebar-title {
@@ -1447,7 +1444,11 @@ window.addEventListener("load", async () => {
       `
         : `
       #custom-titlebar {
-        display: none;
+        height: 32px;
+      }
+      .titlebar-button {
+        width: 46px;
+        height: 32px;
       }
       `}
     </style>
@@ -1523,6 +1524,31 @@ window.addEventListener("load", async () => {
       </div>
     </div>
   `.html;
+
+  // Обработчики для кнопок управления окном на Windows
+  if (process.platform === "win32") {
+    const currentWindow = remote.getCurrentWindow();
+
+    document
+      .querySelector("#titlebar-minimize")
+      ?.addEventListener("click", () => {
+        currentWindow.minimize();
+      });
+
+    document
+      .querySelector("#titlebar-maximize")
+      ?.addEventListener("click", () => {
+        if (currentWindow.isMaximized()) {
+          currentWindow.unmaximize();
+        } else {
+          currentWindow.maximize();
+        }
+      });
+
+    document.querySelector("#titlebar-close")?.addEventListener("click", () => {
+      currentWindow.close();
+    });
+  }
 
   const serverManagerView = new ServerManagerView();
   await serverManagerView.init();
