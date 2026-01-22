@@ -18,7 +18,7 @@ body {
 .toggle-sidebar {
   background: rgb(34 44 49 / 100%);
   width: 54px;
-  padding: 28px 0 20px; /* Верхний отступ для traffic lights на macOS */
+  padding: 36px 0 20px; /* Верхний отступ для traffic lights на macOS */
   justify-content: space-between;
   display: flex;
   flex-direction: column;
@@ -320,8 +320,8 @@ body {
 }
 
 .webview-top-spacer {
-  height: 36px;
-  min-height: 36px;
+  height: 44px;
+  min-height: 44px;
   background: rgb(34 44 49);
   flex-shrink: 0;
 }

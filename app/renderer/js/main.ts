@@ -1380,7 +1380,7 @@ window.addEventListener("load", async () => {
         top: 0;
         left: 0;
         right: 0;
-        height: 24px;
+        height: 32px;
         background: rgb(34 44 49);
         -webkit-app-region: drag;
         z-index: 100;
@@ -1439,8 +1439,8 @@ window.addEventListener("load", async () => {
       ${process.platform === "darwin"
         ? html` #custom-titlebar { padding-left: 70px; } `
         : html`
-            #custom-titlebar { height: 24px; } .titlebar-button { width: 46px;
-            height: 24px; }
+            #custom-titlebar { height: 32px; } .titlebar-button { width: 46px;
+            height: 32px; }
           `}
     </style>
     <div id="custom-titlebar">
