@@ -10,6 +10,7 @@ import {
   globalShortcut,
   powerMonitor,
   session,
+  systemPreferences,
   webContents,
 } from "electron/main";
 import {Buffer} from "node:buffer";
@@ -94,6 +95,48 @@ const openAppStoreIfMac = (appId: string) => {
   // Можно предложить альтернативный способ (например, открыть веб‑страницу)
 
   return false;
+};
+
+// Проверка разрешений на запись экрана для macOS
+const checkScreenRecordingPermission = (): {
+  granted: boolean;
+  status: string;
+} => {
+  if (process.platform !== "darwin") {
+    return {granted: true, status: "not_required"};
+  }
+
+  try {
+    const status = systemPreferences.getMediaAccessStatus("screen");
+    log.info(`🎯[ScreenPermission] macOS screen recording status: ${status}`);
+
+    if (status === "granted") {
+      return {granted: true, status};
+    }
+
+    if (status === "denied") {
+      log.warn(
+        "🎯[ScreenPermission] Screen recording permission DENIED. User needs to enable it in System Preferences.",
+      );
+      return {granted: false, status};
+    }
+
+    if (status === "not-determined") {
+      log.info(
+        "🎯[ScreenPermission] Screen recording permission not determined yet. Will be requested on first use.",
+      );
+      return {granted: false, status};
+    }
+
+    // Restricted или unknown
+    log.warn(`🎯[ScreenPermission] Screen recording status: ${status}`);
+    return {granted: false, status};
+  } catch (error: any) {
+    log.error(
+      `🎯[ScreenPermission] Error checking permission: ${error.message}`,
+    );
+    return {granted: false, status: "error"};
+  }
 };
 
 // Создаем поток для записи логов
@@ -676,20 +719,6 @@ async function createMainWindow(): Promise<BrowserWindow> {
 
   // Установка кастомного меню приложения
   AppMenu.setMenu({tabs: [], activeTabIndex: 0, enableMenu: false});
-
-  // Const nativeCaptureManager = new NativeCaptureManager();
-  // const jitsiManager = new JitsiManager(
-  //   nativeCaptureManager,
-  //   bundlePath,
-  //   iconPath(),
-  //   {
-  //       videoQuality: 'MEDIUM',  // 720p для экономии ресурсов
-  //       useHybridMode: true,
-  //       enableDebugUI: true,
-  //       enablePerformanceMonitoring: true
-  //   }
-  // );
-
   // === НОВЫЙ КОД ===
   const nativeCaptureManager = new NativeCaptureManager(); // Оставляем для других целей
   // const jitsiPureManager = new JitsiPureManager(bundlePath, iconPath());
@@ -768,138 +797,252 @@ async function createMainWindow(): Promise<BrowserWindow> {
     return `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`;
   }
 
-  ipcMain.handle("get-desktop-sources", async () => {
-    try {
-      log.info("🎯[NativeCapture] Getting desktop sources...");
+  // Обработчик get-desktop-sources с опциональной фильтрацией
+  // options.types: ['screen'] - только экраны, ['screen', 'window'] - всё (по умолчанию)
+  ipcMain.handle(
+    "get-desktop-sources",
+    async (event, options?: {types?: string[]}) => {
+      try {
+        const requestedTypes = options?.types || ["screen", "window"];
+        const onlyScreens =
+          requestedTypes.length === 1 && requestedTypes[0] === "screen";
 
-      let formattedSources = [];
-      let sourceType = "unknown";
+        log.info(
+          `🎯[DesktopSources] Getting sources, types: ${requestedTypes.join(", ")}`,
+        );
 
-      // Создаем маппинг для сохранения оригинальных ID
-      const sourceIdMapping = new Map();
+        let formattedSources: any[] = [];
 
-      // Получаем источники из native addon
-      if (
-        screenCaptureAddon &&
-        typeof screenCaptureAddon.getAvailableSources === "function"
-      ) {
-        try {
-          const nativeSources = await screenCaptureAddon.getAvailableSources();
-          log.info(
-            `🎯[NativeCapture] Got ${nativeSources.length} native sources`,
-          );
+        // Создаем маппинг для сохранения оригинальных ID
+        const sourceIdMapping = new Map();
 
-          if (nativeSources.length > 0) {
-            sourceType = "native";
+        // Получаем источники из native addon
+        if (
+          screenCaptureAddon &&
+          typeof screenCaptureAddon.getAvailableSources === "function"
+        ) {
+          try {
+            const nativeSources =
+              await screenCaptureAddon.getAvailableSources();
+            log.info(
+              `🎯[NativeCapture] Got ${nativeSources.length} native sources`,
+            );
 
-            // Логируем первые несколько источников для отладки
-            nativeSources
-              .slice(0, 3)
-              .forEach(
+            if (nativeSources.length > 0) {
+              // Фильтруем источники если запрошены только экраны
+              const filteredNative = onlyScreens
+                ? nativeSources.filter(
+                    (s: {type: string}) => s.type !== "window",
+                  )
+                : nativeSources;
+
+              log.info(
+                `🎯[NativeCapture] After filter: ${filteredNative.length} sources`,
+              );
+
+              // Логируем первые несколько источников для отладки
+              filteredNative
+                .slice(0, 3)
+                .forEach(
+                  (
+                    source: {id: string; name: string; type: string},
+                    i: number,
+                  ) => {
+                    log.info(
+                      `  Native source ${i}: id=${source.id}, name=${source.name}, type=${source.type}`,
+                    );
+                  },
+                );
+
+              formattedSources = filteredNative.map(
                 (
                   source: {id: string; name: string; type: string},
-                  i: number,
+                  index: number,
                 ) => {
+                  const type = source.type === "window" ? "window" : "screen";
+
+                  // ВАЖНО: Сохраняем оригинальный ID от native addon
+                  const originalId = source.id;
+
+                  // Создаем ID в формате Electron, но сохраняем оригинальный ID
+                  let formattedId;
+                  if (originalId && !isNaN(Number(originalId))) {
+                    // Если ID - число, используем его напрямую
+                    formattedId = `${type}:${originalId}:0`;
+                  } else if (originalId) {
+                    // Если ID - строка (например, com.microsoft.VSCode)
+                    // Генерируем числовой ID для Electron формата
+                    const numericId = Math.abs(
+                      originalId
+                        .toString()
+                        .split("")
+                        .reduce((a: number, b: string) => {
+                          a = (a << 5) - a + b.charCodeAt(0);
+                          return a & a;
+                        }, 0),
+                    );
+                    formattedId = `${type}:${numericId}:0`;
+
+                    // Сохраняем маппинг
+                    sourceIdMapping.set(formattedId, originalId);
+                  } else {
+                    // Fallback - генерируем случайный ID
+                    const randomId = Math.floor(
+                      100_000 + Math.random() * 900_000,
+                    );
+                    formattedId = `${type}:${randomId}:0`;
+                  }
+
                   log.info(
-                    `  Native source ${i}: id=${source.id}, name=${source.name}, type=${source.type}`,
+                    `  Formatted: ${formattedId} -> original: ${originalId}`,
                   );
+
+                  return {
+                    id: formattedId,
+                    name: `🎯 ${source.name || "Source " + index}`,
+                    thumbnail: {
+                      dataUrl: createSourceThumbnail(source),
+                    },
+                    isNative: true,
+                    sourceType: "native",
+                    originalId, // Сохраняем оригинальный ID
+                    originalType: source.type,
+                  };
                 },
               );
 
-            formattedSources = nativeSources.map(
-              (
-                source: {id: string; name: string; type: string},
-                index: number,
-              ) => {
-                const type = source.type === "window" ? "window" : "screen";
+              // Сохраняем маппинг глобально для последующего использования
+              (global as any).nativeSourceMapping = sourceIdMapping;
 
-                // ВАЖНО: Сохраняем оригинальный ID от native addon
-                const originalId = source.id;
-
-                // Создаем ID в формате Electron, но сохраняем оригинальный ID
-                let formattedId;
-                if (originalId && !isNaN(Number(originalId))) {
-                  // Если ID - число, используем его напрямую
-                  formattedId = `${type}:${originalId}:0`;
-                } else if (originalId) {
-                  // Если ID - строка (например, com.microsoft.VSCode)
-                  // Генерируем числовой ID для Electron формата
-                  const numericId = Math.abs(
-                    originalId
-                      .toString()
-                      .split("")
-                      .reduce((a: number, b: string) => {
-                        a = (a << 5) - a + b.charCodeAt(0);
-                        return a & a;
-                      }, 0),
-                  );
-                  formattedId = `${type}:${numericId}:0`;
-
-                  // Сохраняем маппинг
-                  sourceIdMapping.set(formattedId, originalId);
-                } else {
-                  // Fallback - генерируем случайный ID
-                  const randomId = Math.floor(
-                    100_000 + Math.random() * 900_000,
-                  );
-                  formattedId = `${type}:${randomId}:0`;
-                }
-
-                log.info(
-                  `  Formatted: ${formattedId} -> original: ${originalId}`,
-                );
-
-                return {
-                  id: formattedId,
-                  name: `🎯 ${source.name || "Source " + index}`,
-                  thumbnail: {
-                    dataUrl: createSourceThumbnail(source),
-                  },
-                  isNative: true,
-                  sourceType: "native",
-                  originalId, // Сохраняем оригинальный ID
-                  originalType: source.type,
-                };
-              },
-            );
-
-            // Сохраняем маппинг глобально для последующего использования
-            (global as any).nativeSourceMapping = sourceIdMapping;
-
-            log.info(
-              `🎯[NativeCapture] Created source mapping with ${sourceIdMapping.size} entries`,
+              log.info(
+                `🎯[NativeCapture] Created source mapping with ${sourceIdMapping.size} entries`,
+              );
+            }
+          } catch (error: any) {
+            log.error(
+              `🎯[NativeCapture] Error getting native sources: ${error.message}`,
             );
           }
-        } catch (error: any) {
-          log.error(
-            `🎯[NativeCapture] Error getting native sources: ${error.message}`,
+        }
+
+        // Если нет native источников, используем Electron
+        if (formattedSources.length === 0) {
+          log.info(
+            `🎯[DesktopSources] Using Electron fallback, types: ${requestedTypes.join(", ")}`,
+          );
+          const electronSources = await desktopCapturer.getSources({
+            types: requestedTypes as Array<"screen" | "window">,
+            thumbnailSize: {width: 300, height: 200},
+          });
+
+          formattedSources = electronSources.map((source) => ({
+            id: source.id,
+            name: source.name,
+            thumbnail: {
+              dataUrl: source.thumbnail.toDataURL(),
+            },
+            isNative: false,
+          }));
+
+          log.info(
+            `🎯[DesktopSources] Got ${formattedSources.length} Electron sources`,
           );
         }
-      }
 
-      // Если нет native источников, используем Electron
-      if (formattedSources.length === 0) {
-        log.info("No native sources, using Electron fallback");
-        const electronSources = await desktopCapturer.getSources({
-          types: ["screen", "window"],
-          thumbnailSize: {width: 300, height: 200},
+        return formattedSources;
+      } catch (error: any) {
+        log.error(`🎯[DesktopSources] Error: ${error.message}`);
+        return [];
+      }
+    },
+  );
+
+  // Специальный обработчик для iframe режима Jitsi - возвращает ТОЛЬКО экраны
+  ipcMain.handle("get-desktop-sources-screens-only", async () => {
+    console.log("═══════════════════════════════════════════════════════════");
+    console.log("🎯 [MAIN] get-desktop-sources-screens-only ВЫЗВАН!");
+    console.log("═══════════════════════════════════════════════════════════");
+    log.info("🎯[DesktopSources-ScreensOnly] Getting screen sources only...");
+
+    try {
+      // Проверяем разрешения на macOS
+      const permissionCheck = checkScreenRecordingPermission();
+      console.log(
+        `🎯 [MAIN] Проверка разрешений macOS: granted=${permissionCheck.granted}, status=${permissionCheck.status}`,
+      );
+
+      if (!permissionCheck.granted && permissionCheck.status === "denied") {
+        console.log("⚠️ [MAIN] Разрешение на запись экрана ОТКЛОНЕНО!");
+        log.warn(
+          "🎯[DesktopSources-ScreensOnly] Screen recording permission denied on macOS",
+        );
+        // Можно показать диалог с инструкцией пользователю
+        dialog.showMessageBox({
+          type: "warning",
+          title: "Требуется разрешение",
+          message:
+            "Для демонстрации экрана необходимо разрешение на запись экрана",
+          detail:
+            "Пожалуйста, перейдите в Системные настройки → Конфиденциальность и безопасность → Запись экрана и разрешите доступ для этого приложения.",
+          buttons: ["Понятно"],
         });
-
-        formattedSources = electronSources.map((source) => ({
-          id: source.id,
-          name: source.name,
-          thumbnail: {
-            dataUrl: source.thumbnail.toDataURL(),
-          },
-          isNative: false,
-        }));
       }
+
+      console.log("🎯 [MAIN] Вызываем desktopCapturer.getSources...");
+      const electronSources = await desktopCapturer.getSources({
+        types: ["screen"], // Только экраны, без окон
+        thumbnailSize: {width: 300, height: 200},
+      });
+
+      console.log(
+        `🎯 [MAIN] desktopCapturer вернул ${electronSources.length} источников`,
+      );
+
+      const formattedSources = electronSources.map((source) => ({
+        id: source.id,
+        name: source.name,
+        thumbnail: {
+          dataUrl: source.thumbnail.toDataURL(),
+        },
+        isNative: false,
+      }));
+
+      console.log(
+        "───────────────────────────────────────────────────────────",
+      );
+      console.log(`🎯 [MAIN] Возвращаем ${formattedSources.length} экранов:`);
+      formattedSources.forEach((s, i) => {
+        console.log(`   ${i + 1}. ${s.name} (${s.id})`);
+      });
+      console.log(
+        "───────────────────────────────────────────────────────────",
+      );
+
+      log.info(
+        `🎯[DesktopSources-ScreensOnly] Returning ${formattedSources.length} screen sources`,
+      );
+
+      // Логируем источники
+      formattedSources.forEach((s, i) => {
+        log.info(`  Screen ${i}: ${s.name} (${s.id})`);
+      });
 
       return formattedSources;
     } catch (error: any) {
-      log.error(`🎯[NativeCapture] Error: ${error.message}`);
+      console.error(`❌ [MAIN] ОШИБКА: ${error.message}`);
+      console.error(error.stack);
+      log.error(`🎯[DesktopSources-ScreensOnly] Error: ${error.message}`);
       return [];
     }
+  });
+
+  // Обработчик для проверки разрешений на запись экрана (для отладки и UI)
+  ipcMain.handle("check-screen-permission", async () => {
+    const result = checkScreenRecordingPermission();
+    console.log(
+      `🎯 [MAIN] check-screen-permission: granted=${result.granted}, status=${result.status}`,
+    );
+    return result;
   });
 
   ipcMain.handle("jitsi-connect-with-zulip-config", async (event, options) => {

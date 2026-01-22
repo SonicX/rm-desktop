@@ -111,7 +111,11 @@ export type MainCall = {
   "poll-clipboard": (key: Uint8Array, sig: Uint8Array) => string | undefined;
   "save-server-icon": (iconURL: string) => string | null;
   "fetch-user-agent": () => Promise<string>;
-  "get-desktop-sources": () => Promise<DesktopSource[]>;
+  "get-desktop-sources": (options?: {
+    types?: string[];
+  }) => Promise<DesktopSource[]>;
+  "get-desktop-sources-screens-only": () => Promise<DesktopSource[]>;
+  "check-screen-permission": () => Promise<{granted: boolean; status: string}>;
   "jitsi-connect-with-zulip-config": (
     options: JitsiOptions,
   ) => Promise<JitsiResult>;

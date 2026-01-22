@@ -77,6 +77,14 @@ electron_bridge.on_event("requestDesktopSources", async () => {
   }
 });
 
+// ПРИМЕЧАНИЕ: Обработчик _requestDesktopSources НЕ нужен в preload!
+// Jitsi отправляет это событие через postMessage (внутренний механизм JitsiMeetExternalAPI)
+// Правильный поток:
+// 1. Jitsi iframe → api.addListener("_requestDesktopSources") → web app (Zulip)
+// 2. web app → ipcRenderer.invoke("get-desktop-sources-screens-only") → Electron main
+// 3. Electron main → возвращает источники → web app
+// 4. web app → callback(sources) → Jitsi iframe
+
 // Expose electron_bridge
 contextBridge.exposeInMainWorld("electron_bridge", {
   ...electron_bridge,
@@ -145,19 +153,82 @@ contextBridge.exposeInMainWorld("screenCapture", {
 });
 
 // Expose ipcRenderer for Zulip
+// Разрешенные каналы для безопасности
+const allowedInvokeChannels = new Set([
+  "get-desktop-sources",
+  "get-desktop-sources-screens-only",
+  "check-screen-permission",
+  "get-server-settings",
+  "save-server-icon",
+  "is-online",
+  "jitsi-connect-with-zulip-config",
+  "test-zulip-bridge",
+  "start-native-capture",
+  "stop-native-capture",
+  "get-capture-status",
+  "screen-capture-start",
+  "screen-capture-stop",
+  "screen-capture-test",
+  "create-jitsi-sdk-from-zulip",
+  "handle-zulip-update",
+  "get-app-version",
+  "download-update",
+]);
+
 contextBridge.exposeInMainWorld("ipcRenderer", {
   async invoke(channel: any, ...arguments_: unknown[]) {
+    // Подробное логирование для отладки
+    console.log("═══════════════════════════════════════════════════════════");
+    console.log(`🔵 [PRELOAD] ipcRenderer.invoke("${channel}") вызван`);
+    console.log("═══════════════════════════════════════════════════════════");
     ipcRenderer.send("preload-log", `Zulip: ipcRenderer.invoke ${channel}`);
+
+    // Проверяем, что канал разрешен
+    if (!allowedInvokeChannels.has(channel)) {
+      const error = `Channel ${channel} is not allowed`;
+      console.error(`❌ [PRELOAD] Канал НЕ РАЗРЕШЕН: ${channel}`);
+      ipcRenderer.send("preload-log", `Zulip: ❌ ${error}`);
+      throw new Error(error);
+    }
+
+    console.log("✅ [PRELOAD] Канал разрешен, отправляем в main process...");
+
     try {
       const result = await ipcRenderer.invoke(channel, ...arguments_);
+
+      // Логируем результат для screens-only
+      if (channel === "get-desktop-sources-screens-only") {
+        console.log(
+          "───────────────────────────────────────────────────────────",
+        );
+        console.log(
+          `🔵 [PRELOAD] Получен ответ от main: ${Array.isArray(result) ? result.length : 0} источников`,
+        );
+        if (Array.isArray(result)) {
+          result.forEach((s: any, i: number) => {
+            console.log(`   ${i + 1}. ${s.name} (${s.id})`);
+          });
+        }
+
+        console.log(
+          "───────────────────────────────────────────────────────────",
+        );
+      }
+
       return result;
     } catch (error) {
+      console.error(`❌ [PRELOAD] Ошибка invoke(${channel}):`, error);
       ipcRenderer.send("preload-log", `Zulip: Ошибка ${channel}: ${error}`);
       throw error;
     }
   },
   on(channel: any, listener: (event: any, ...arguments_: any[]) => void) {
     ipcRenderer.on(channel, listener);
+  },
+  send(channel: any, ...arguments_: unknown[]) {
+    console.log(`🔵 [PRELOAD] ipcRenderer.send("${channel}")`);
+    ipcRenderer.send("preload-log", `Zulip: ipcRenderer.send ${channel}`);
+    ipcRenderer.send(channel, ...arguments_);
   },
 });
 
