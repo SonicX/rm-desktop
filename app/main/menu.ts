@@ -63,6 +63,46 @@ function getHelpSubmenu(): MenuItemConstructorOptions[] {
   ];
 }
 
+function getEditSubmenu(): MenuItemConstructorOptions[] {
+  return [
+    {
+      label: t.__("Undo"),
+      role: "undo",
+    },
+    {
+      label: t.__("Redo"),
+      role: "redo",
+    },
+    {
+      type: "separator",
+    },
+    {
+      label: t.__("Cut"),
+      role: "cut",
+    },
+    {
+      label: t.__("Copy"),
+      role: "copy",
+    },
+    {
+      label: t.__("Paste"),
+      role: "paste",
+    },
+    {
+      label: t.__("Paste and Match Style"),
+      role: "pasteAndMatchStyle",
+    },
+    {
+      label: t.__("Delete"),
+      role: "delete",
+    },
+    {
+      label: t.__("Select All"),
+      role: "selectAll",
+    },
+  ];
+}
+
 function getDarwinTpl(
   properties: MenuProperties,
 ): MenuItemConstructorOptions[] {
@@ -152,6 +192,10 @@ function getDarwinTpl(
         },
       ],
     },
+    {
+      label: t.__("Edit"),
+      submenu: getEditSubmenu(),
+    },
   ];
 }
 
@@ -218,6 +262,10 @@ function getOtherTpl(properties: MenuProperties): MenuItemConstructorOptions[] {
           accelerator: "Ctrl+Q",
         },
       ],
+    },
+    {
+      label: t.__("Edit"),
+      submenu: getEditSubmenu(),
     },
   ];
 }
