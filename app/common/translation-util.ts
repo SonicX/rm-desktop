@@ -2,7 +2,6 @@ import path from "node:path";
 
 import i18n from "i18n";
 
-import * as ConfigUtil from "./config-util.js";
 import {publicPath} from "./paths.js";
 
 i18n.configure({
@@ -10,7 +9,7 @@ i18n.configure({
   updateFiles: false,
 });
 
-/* Fetches the current appLocale from settings.json */
-i18n.setLocale(ConfigUtil.getConfigItem("appLanguage", "en") ?? "en");
+/* Язык всегда русский */
+i18n.setLocale("ru");
 
 export {__} from "i18n";

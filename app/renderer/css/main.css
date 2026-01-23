@@ -367,10 +367,9 @@ webview.focus {
 /* Tooltip styling */
 
 #loading-tooltip,
-#dnd-tooltip,
 #back-tooltip,
 #reload-tooltip,
-#setting-tooltip {
+#update-tooltip {
   font-family: sans-serif;
   background: rgb(34 44 49 / 100%);
   margin-left: 48px;
@@ -386,10 +385,9 @@ webview.focus {
 }
 
 #loading-tooltip::after,
-#dnd-tooltip::after,
 #back-tooltip::after,
 #reload-tooltip::after,
-#setting-tooltip::after {
+#update-tooltip::after {
   content: " ";
   border-top: 8px solid transparent;
   border-bottom: 8px solid transparent;

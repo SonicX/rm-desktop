@@ -1419,34 +1419,10 @@ async function createMainWindow(): Promise<BrowserWindow> {
     // app.exit(0);
   });
 
-  // Обработчик сброса кнопки
+  // Обработчик сброса кнопки - отправляем событие в renderer
   ipcMain.on("reset-update-button", () => {
     if (mainWindow && mainWindow.webContents) {
-      mainWindow.webContents.executeJavaScript(`
-              const updateBtn = document.querySelector('#update-action');
-              if (updateBtn) {
-                  // Убираем состояние загрузки
-                  updateBtn.classList.remove('downloading');
-                  updateBtn.classList.add('available');
-                  updateBtn.disabled = false;
-                  
-                  // Сбрасываем прогресс
-                  const progressBar = updateBtn.querySelector('#update-progress-bar');
-                  if (progressBar) {
-                      progressBar.style.width = '0%';
-                  }
-                  
-                  const progressText = updateBtn.querySelector('#update-progress-text');
-                  if (progressText) {
-                      progressText.style.display = 'none';
-                  }
-                  
-                  const tooltip = document.querySelector('#update-tooltip');
-                  if (tooltip && window.pendingUpdate) {
-                      tooltip.innerText = 'Версия ' + window.pendingUpdate.version + ' доступна';
-                  }
-              }
-          `);
+      mainWindow.webContents.send("reset-update-ui");
     }
   });
 
@@ -1632,74 +1608,19 @@ async function createMainWindow(): Promise<BrowserWindow> {
     },
   );
 
-  // Добавьте этот обработчик рядом с другими ipcMain
+  // Показать кнопку обновления - просто отправляем событие в renderer
   ipcMain.on("show-update-button", (event, updateInfo) => {
     log.info(
       `📦 Main: Showing update button for version ${updateInfo.version}`,
     );
 
     if (mainWindow && mainWindow.webContents) {
-      mainWindow.webContents.executeJavaScript(`
-              const updateBtn = document.querySelector('#update-action');
-              if (updateBtn) {
-                  // Очищаем кнопку
-                  updateBtn.classList.remove('hidden', 'inactive');
-                  updateBtn.classList.add('available');
-                  
-                  // Добавляем элементы прогресса если их нет
-                  if (!updateBtn.querySelector('#update-progress-bar')) {
-                      const progressBar = document.createElement('div');
-                      progressBar.id = 'update-progress-bar';
-                      updateBtn.appendChild(progressBar);
-                      
-                      const progressText = document.createElement('div');
-                      progressText.id = 'update-progress-text';
-                      progressText.style.display = 'none';
-                      updateBtn.appendChild(progressText);
-                  }
-                  
-                  const tooltip = document.querySelector('#update-tooltip');
-                  if (tooltip) {
-                      tooltip.innerText = 'Версия ${updateInfo.version} доступна';
-                  }
-                  
-                  window.pendingUpdate = ${JSON.stringify(updateInfo)};
-                  
-                  if (!updateBtn.hasUpdateHandler) {
-                      updateBtn.addEventListener('click', () => {
-                          console.log('Клик по кнопке обновления');
-                          
-                          // Меняем состояние кнопки на "загрузка"
-                          updateBtn.classList.remove('available');
-                          updateBtn.classList.add('downloading');
-                          updateBtn.disabled = true;
-                          
-                          const progressText = updateBtn.querySelector('#update-progress-text');
-                          if (progressText) {
-                              progressText.style.display = 'block';
-                              progressText.innerText = '0%';
-                          }
-                          
-                          if (tooltip) {
-                              tooltip.innerText = 'Загрузка...';
-                          }
-                          
-                          // Отправляем событие
-                          if (window.pendingUpdate) {
-                              const webview = document.querySelector('webview');
-                              if (webview) {
-                                  webview.executeJavaScript(\`
-                                      if (window.electron_bridge) {
-                                          window.electron_bridge.send_event('trigger-update', \${JSON.stringify(window.pendingUpdate)});
-                                      }
-                                  \`);
-                              }
-                          }
-                      });
-                      updateBtn.hasUpdateHandler = true;
-                  }
-              }
-          `);
+      // Отправляем событие в renderer, где уже есть логика показа кнопки
+      mainWindow.webContents.send("server-update-available", {
+        version: updateInfo.version,
+        download_url: updateInfo.downloadUrl,
+        release_notes: updateInfo.releaseNotes,
+      });
     }
   });
 

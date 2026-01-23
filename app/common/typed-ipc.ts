@@ -96,6 +96,7 @@ export type MainMessage = {
   "ipc-invoke": (data: InvokeData) => void;
   "show-update-button": (updateInfo: RemoteUpdateInfo) => void;
   "start-update": (updateInfo: RemoteUpdateInfo) => void;
+  "toggle-tray": (state: boolean) => void;
 };
 
 export type MainCall = {
@@ -201,6 +202,7 @@ export type RendererMessage = {
   "update-error": (message: string) => void;
   "update-download-progress": (percent: number) => void;
   "server-update-available": (updateInfo: RemoteUpdateInfo) => void;
+  "reset-update-ui": () => void;
   "force-update": () => void;
   update_progress: (percent: number) => void;
   update_downloaded: () => void;

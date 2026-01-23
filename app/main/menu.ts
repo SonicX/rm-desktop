@@ -11,7 +11,6 @@ import process from "node:process";
 import AdmZip from "adm-zip";
 
 import * as ConfigUtil from "../common/config-util.js";
-import * as DNDUtil from "../common/dnd-util.js";
 import * as t from "../common/translation-util.js";
 import type {RendererMessage} from "../common/typed-ipc.js";
 import type {MenuProperties, TabData} from "../common/types.js";
@@ -113,23 +112,6 @@ function getDarwinTpl(
       label: app.name,
       submenu: [
         {
-          label: t.__("Toggle Do Not Disturb"),
-          accelerator: "Cmd+Shift+M",
-          click() {
-            const dndUtil = DNDUtil.toggle();
-            sendAction("toggle-dnd", dndUtil.dnd, dndUtil.newSettings);
-          },
-        },
-        {
-          label: t.__("Desktop Settings"),
-          accelerator: "Cmd+,",
-          click(_item, focusedWindow) {
-            if (focusedWindow) {
-              sendAction("open-settings");
-            }
-          },
-        },
-        {
           label: t.__("Keyboard Shortcuts"),
           accelerator: "Cmd+Shift+K",
           enabled: enableMenu,
@@ -205,23 +187,6 @@ function getOtherTpl(properties: MenuProperties): MenuItemConstructorOptions[] {
     {
       label: app.name,
       submenu: [
-        {
-          label: t.__("Toggle Do Not Disturb"),
-          accelerator: "Ctrl+Shift+M",
-          click() {
-            const dndUtil = DNDUtil.toggle();
-            sendAction("toggle-dnd", dndUtil.dnd, dndUtil.newSettings);
-          },
-        },
-        {
-          label: t.__("Desktop Settings"),
-          accelerator: "Ctrl+,",
-          click(_item, focusedWindow) {
-            if (focusedWindow) {
-              sendAction("open-settings");
-            }
-          },
-        },
         {
           label: t.__("Keyboard Shortcuts"),
           accelerator: "Ctrl+Shift+K",

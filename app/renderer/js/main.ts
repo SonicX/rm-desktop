@@ -10,8 +10,6 @@ import * as Sentry from "@sentry/electron/renderer";
 
 import type {Config} from "../../common/config-util.js";
 import * as ConfigUtil from "../../common/config-util.js";
-import * as DNDUtil from "../../common/dnd-util.js";
-import type {DndSettings} from "../../common/dnd-util.js";
 import * as EnterpriseUtil from "../../common/enterprise-util.js";
 import {html} from "../../common/html.js";
 import * as LinkUtil from "../../common/link-util.js";
@@ -30,7 +28,6 @@ import FunctionalTab from "./components/functional-tab.js";
 import ServerTab from "./components/server-tab.js";
 import WebView from "./components/webview.js";
 import {AboutView} from "./pages/about.js";
-import {PreferenceView} from "./pages/preference/preference.js";
 import {initializeTray} from "./tray.js";
 import {ipcRenderer} from "./typed-ipc-renderer.js";
 import * as DomainUtil from "./utils/domain-util.js";
@@ -67,17 +64,13 @@ export class ServerManagerView {
   $tabsContainer: Element;
   $reloadButton: HTMLButtonElement;
   $loadingIndicator: HTMLButtonElement;
-  $settingsButton: HTMLButtonElement;
   $webviewsContainer: Element;
   $backButton: HTMLButtonElement;
-  $dndButton: HTMLButtonElement;
   $addServerTooltip: HTMLElement;
   $reloadTooltip: HTMLElement;
   $loadingTooltip: HTMLElement;
-  $settingsTooltip: HTMLElement;
   $serverIconTooltip: HTMLCollectionOf<HTMLElement>;
   $backTooltip: HTMLElement;
-  $dndTooltip: HTMLElement;
   $sidebar: Element;
   $fullscreenPopup: Element;
   $fullscreenEscapeKey: string;
@@ -87,7 +80,6 @@ export class ServerManagerView {
   functionalTabs: Map<TabPage, number>;
   tabIndex: number;
   presetOrgs: string[];
-  preferenceView?: PreferenceView;
 
   // Элементы для кнопки обновления
   $updateButton: HTMLButtonElement;
@@ -104,10 +96,8 @@ export class ServerManagerView {
     this.$reloadButton = $actionsContainer.querySelector("#reload-action")!;
     this.$loadingIndicator =
       $actionsContainer.querySelector("#loading-action")!;
-    this.$settingsButton = $actionsContainer.querySelector("#settings-action")!;
     this.$webviewsContainer = document.querySelector("#webviews-container")!;
     this.$backButton = $actionsContainer.querySelector("#back-action")!;
-    this.$dndButton = $actionsContainer.querySelector("#dnd-action")!;
 
     // Инициализация кнопки обновления
     this.$updateButton = $actionsContainer.querySelector("#update-action")!;
@@ -117,14 +107,11 @@ export class ServerManagerView {
     this.$addServerTooltip = document.querySelector("#add-server-tooltip")!;
     this.$reloadTooltip = $actionsContainer.querySelector("#reload-tooltip")!;
     this.$loadingTooltip = $actionsContainer.querySelector("#loading-tooltip")!;
-    this.$settingsTooltip =
-      $actionsContainer.querySelector("#setting-tooltip")!;
 
     this.$serverIconTooltip = document.querySelectorAll(
       ".server-tooltip",
     ) as unknown as HTMLCollectionOf<HTMLElement>;
     this.$backTooltip = $actionsContainer.querySelector("#back-tooltip")!;
-    this.$dndTooltip = $actionsContainer.querySelector("#dnd-tooltip")!;
 
     this.$sidebar = document.querySelector("#sidebar")!;
 
@@ -153,7 +140,7 @@ export class ServerManagerView {
     // Выполняем асинхронные операции параллельно
     await Promise.all([
       (async () => {
-        initializeTray(this);
+        initializeTray();
       })(),
       (async () => {
         await this.loadProxy();
@@ -384,7 +371,6 @@ export class ServerManagerView {
   }
 
   initActions(): void {
-    this.initDndButton();
     this.initServerActions();
     this.initLeftSidebarEvents();
     this.initUpdateButton();
@@ -586,44 +572,18 @@ export class ServerManagerView {
   }
 
   initLeftSidebarEvents(): void {
-    this.$dndButton.addEventListener("click", () => {
-      const dndUtil = DNDUtil.toggle();
-      this.toggleDndButton(dndUtil.dnd);
-      ipcRenderer.send(
-        "forward-message",
-        "toggle-dnd",
-        dndUtil.dnd,
-        dndUtil.newSettings,
-      );
-    });
     this.$reloadButton.addEventListener("click", async () => {
       const tab = this.tabs[this.activeTabIndex];
       if (tab instanceof ServerTab) (await tab.webview).reload();
-    });
-    this.$settingsButton.addEventListener("click", async () => {
-      await this.openSettings("General");
     });
     this.$backButton.addEventListener("click", async () => {
       const tab = this.tabs[this.activeTabIndex];
       if (tab instanceof ServerTab) (await tab.webview).back();
     });
 
-    // Добавляем обработчик для кнопки обновления
-    // this.$updateButton.addEventListener("click", () => {
-    //   ipcRenderer.send("restart_app");
-    // });
-
     this.sidebarHoverEvent(this.$loadingIndicator, this.$loadingTooltip);
-    this.sidebarHoverEvent(this.$settingsButton, this.$settingsTooltip);
     this.sidebarHoverEvent(this.$reloadButton, this.$reloadTooltip);
     this.sidebarHoverEvent(this.$backButton, this.$backTooltip);
-    this.sidebarHoverEvent(this.$dndButton, this.$dndTooltip);
-    // This.sidebarHoverEvent(this.$updateButton, this.$updateTooltip);
-  }
-
-  initDndButton(): void {
-    const dnd = ConfigUtil.getConfigItem("dnd", false);
-    this.toggleDndButton(dnd);
   }
 
   getTabIndex(): number {
@@ -731,27 +691,6 @@ export class ServerManagerView {
     await this.activateTab(this.functionalTabs.get(tabProperties.page)!);
   }
 
-  async openSettings(
-    navigationItem: NavigationItem = "General",
-  ): Promise<void> {
-    await this.openFunctionalTab({
-      page: "Settings",
-      label: t.__("Настройки"),
-      materialIcon: "settings",
-      makeView: async () => {
-        this.preferenceView = await PreferenceView.create();
-        this.preferenceView.$view.classList.add("functional-view");
-        return this.preferenceView.$view;
-      },
-      destroyView: () => {
-        this.preferenceView!.destroy();
-        this.preferenceView = undefined;
-      },
-    });
-    this.$settingsButton.classList.add("active");
-    this.preferenceView!.handleNavigation(navigationItem);
-  }
-
   async openAbout(): Promise<void> {
     let aboutView: AboutView;
     await this.openFunctionalTab({
@@ -801,13 +740,6 @@ export class ServerManagerView {
     if (this.activeTabIndex !== -1) {
       if (this.activeTabIndex === index) return;
       if (hideOldTab) {
-        if (
-          this.tabs[this.activeTabIndex].properties.role === "function" &&
-          this.tabs[this.activeTabIndex].properties.page === "Settings"
-        ) {
-          this.$settingsButton.classList.remove("active");
-        }
-
         await this.tabs[this.activeTabIndex].deactivate();
       }
     }
@@ -892,13 +824,6 @@ export class ServerManagerView {
 
   toggleSidebar(show: boolean): void {
     this.$sidebar.classList.toggle("sidebar-hide", !show);
-  }
-
-  toggleDndButton(alert: boolean): void {
-    this.$dndTooltip.textContent = alert ? "Включить" : "Отключить";
-    this.$dndButton.querySelector("i")!.textContent = alert
-      ? "notifications_off"
-      : "notifications";
   }
 
   async isLoggedIn(tabIndex: number): Promise<boolean> {
@@ -1033,10 +958,6 @@ export class ServerManagerView {
       },
     );
 
-    ipcRenderer.on("open-settings", async () => {
-      await this.openSettings();
-    });
-
     ipcRenderer.on("open-about", this.openAbout.bind(this));
 
     ipcRenderer.on("reload-viewer", this.reloadView.bind(this));
@@ -1084,17 +1005,6 @@ export class ServerManagerView {
             activeTabIndex: this.activeTabIndex,
           });
         }
-      },
-    );
-
-    ipcRenderer.on(
-      "toggle-dnd",
-      async (event, state: boolean, newSettings: Partial<DndSettings>) => {
-        // Кнопка DND скрыта, этот обработчик оставлен для совместимости
-        // Не влияем на звук основного приложения
-        logger.log(
-          `[MAIN] toggle-dnd received but ignored - DND button is hidden`,
-        );
       },
     );
 
@@ -1213,16 +1123,23 @@ export class ServerManagerView {
       ),
     );
 
-    ipcRenderer.on("open-network-settings", async () => {
-      await this.openSettings("Network");
-    });
-
     ipcRenderer.on("play-ding-sound", async () => {
       await dingSound.play();
     });
 
     ipcRenderer.on("server-update-available", (event, updateInfo) => {
       this.showUpdateAvailable(updateInfo);
+    });
+
+    // Сброс UI кнопки обновления (когда пользователь отложил)
+    ipcRenderer.on("reset-update-ui", () => {
+      this.isDownloading = false;
+      this.$updateButton.classList.remove("downloading");
+      this.$updateButton.classList.add("available");
+      this.$updateProgress.style.display = "none";
+      if (this.updateInfo) {
+        this.$updateTooltip.innerText = `Доступна версия ${this.updateInfo.version}`;
+      }
     });
 
     ipcRenderer.on("update_available", (event, version: string) => {
@@ -1340,9 +1257,7 @@ window.addEventListener("load", async () => {
       #update-tooltip,
       #reload-tooltip,
       #loading-tooltip,
-      #setting-tooltip,
-      #back-tooltip,
-      #dnd-tooltip {
+      #back-tooltip {
         color: white !important;
         background: rgba(0, 0, 0, 0.9);
         padding: 5px 10px;
@@ -1378,7 +1293,7 @@ window.addEventListener("load", async () => {
       #custom-titlebar {
         position: fixed;
         top: 0;
-        left: 0;
+        left: 54px; /* После sidebar шириной 54px */
         right: 0;
         height: 32px;
         background: rgb(34 44 49);
@@ -1387,6 +1302,11 @@ window.addEventListener("load", async () => {
         display: flex;
         align-items: center;
         justify-content: center;
+      }
+
+      /* Sidebar должен быть кликабельным */
+      #sidebar, #actions-container, .action-button {
+        -webkit-app-region: no-drag;
       }
 
       #custom-titlebar .titlebar-title {
@@ -1479,16 +1399,6 @@ window.addEventListener("load", async () => {
           <div id="tabs-container"></div>
         </div>
         <div id="actions-container">
-          <div
-            class="action-button hidden"
-            id="dnd-action"
-            style="display: none;"
-          >
-            <i class="material-icons md-48">notifications</i>
-            <span id="dnd-tooltip" style="display: none"
-              >${t.__("Не беспокоить")}</span
-            >
-          </div>
           <div class="action-button hidden" id="reload-action">
             <i class="material-icons md-48">refresh</i>
             <span id="reload-tooltip" style="display: none"
@@ -1507,14 +1417,11 @@ window.addEventListener("load", async () => {
               >${t.__("Назад")}</span
             >
           </div>
-          <div class="action-button" id="settings-action">
-            <i class="material-icons md-48">settings</i>
-            <span id="setting-tooltip" style="display: none"
-              >${t.__("Настройки")}</span
-            >
-          </div>
-          <div class="action-button" id="update-action">
+          <div class="action-button hidden" id="update-action">
             <i class="material-icons md-48">system_update_alt</i>
+            <span id="update-tooltip" style="display: none"
+              >${t.__("Обновление")}</span
+            >
           </div>
           <div class="version-label">${appVersion}</div>
         </div>
