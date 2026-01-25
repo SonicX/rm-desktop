@@ -59,6 +59,7 @@ import {NativeCaptureManager} from "./native-capture.js";
 import {JitsiManager} from "./jitsi-manager.js";
 import {JitsiPureManager} from "./jitsi-pure.js";
 import {JitsiSDKManager} from "./jitsi-sdk-manager.js";
+import {registerAudioHandlers} from "./ipc/audioHandlers.js";
 
 import AdmZip from "adm-zip";
 
@@ -728,9 +729,18 @@ async function createMainWindow(): Promise<BrowserWindow> {
 
   const jitsiSDKManager = new JitsiSDKManager(iconPath(), conferenceClose);
 
+  // Связываем NativeCaptureManager с JitsiSDKManager для индикатора статуса и запуска захвата
+  jitsiSDKManager.setNativeCaptureManager(nativeCaptureManager);
+  nativeCaptureManager.setAudioStatusCallback((isActive, packetCount) => {
+    jitsiSDKManager.updateAudioStatus(isActive, packetCount);
+  });
+
   // 2. ЗАТЕМ создаем сессию
   const ses = session.fromPartition("persist:webviewsession");
   ses.setUserAgent(`ZulipElectron/${app.getVersion()} ${ses.getUserAgent()}`);
+
+  // 2.5 Регистрируем Audio IPC handlers (для Virtual Cable на Windows)
+  registerAudioHandlers();
 
   // 3. РЕГИСТРИРУЕМ ВСЕ IPC ОБРАБОТЧИКИ ДО СОЗДАНИЯ ОКНА
 

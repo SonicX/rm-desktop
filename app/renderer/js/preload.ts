@@ -173,6 +173,21 @@ const allowedInvokeChannels = new Set([
   "handle-zulip-update",
   "get-app-version",
   "download-update",
+  // Audio Session API for Virtual Cable (Windows)
+  "audio:checkReady",
+  "audio:getSessions",
+  "audio:getDevices",
+  "audio:routeToCable",
+  "audio:restoreDefault",
+  "audio:setManualPath",
+  "audio:hasVBCable",
+  "audio:getSVVPath",
+  // Virtual Cable Mode
+  "jitsi:set-virtual-cable-mode",
+  "jitsi:get-virtual-cable-status",
+  "jitsi:route-app-audio-to-cable",
+  "jitsi:restore-app-audio",
+  "jitsi:get-audio-sessions",
 ]);
 
 contextBridge.exposeInMainWorld("ipcRenderer", {
@@ -889,3 +904,48 @@ contextBridge.exposeInMainWorld("testUpdate", {
     });
   },
 });
+
+// === Audio Session API для работы с SoundVolumeView (Virtual Cable) ===
+contextBridge.exposeInMainWorld("audioApi", {
+  async checkReady() {
+    return ipcRenderer.invoke("audio:checkReady");
+  },
+
+  async getSessions() {
+    return ipcRenderer.invoke("audio:getSessions");
+  },
+
+  async getDevices() {
+    return ipcRenderer.invoke("audio:getDevices");
+  },
+
+  async routeToCable(processName: string) {
+    return ipcRenderer.invoke("audio:routeToCable", processName);
+  },
+
+  async restoreDefault(processName: string) {
+    return ipcRenderer.invoke("audio:restoreDefault", processName);
+  },
+
+  async setManualPath(exePath: string) {
+    return ipcRenderer.invoke("audio:setManualPath", exePath);
+  },
+
+  async hasVBCable() {
+    return ipcRenderer.invoke("audio:hasVBCable");
+  },
+
+  async getSVVPath() {
+    return ipcRenderer.invoke("audio:getSVVPath");
+  },
+});
+
+// Expose Electron capabilities for Zulip to check
+contextBridge.exposeInMainWorld("electronCapabilities", {
+  supportsNativeJitsi: true,
+  supportsScreenShare: true,
+  supportsVirtualCable: true,
+  version: "5.27.0",
+});
+
+ipcRenderer.send("preload-log", "Audio API and Electron capabilities exposed to window");

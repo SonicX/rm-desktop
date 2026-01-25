@@ -7,6 +7,7 @@ import log from "electron-log/main";
 import Store from "electron-store";
 
 import {ElectronSourcePicker} from "./electron-source-picker.js";
+import {AudioSessionService} from "./services/audioSessionService.js";
 
 // Интерфейсы
 type JitsiOptions = {
@@ -43,15 +44,32 @@ export class JitsiSDKManager {
   private currentRoomName = "";
   private readonly sourcePicker: ElectronSourcePicker;
 
+  // Virtual Cable support (Windows)
+  private useVirtualCableMode = false;
+  private routedProcessPath: string | null = null;
+  private readonly audioSessionService: AudioSessionService;
+
+  // Native Capture Manager reference (для macOS нативного захвата)
+  private nativeCaptureManager: any = null;
+
   constructor(iconPath: string, closure: (roomName: string) => void) {
     this.closureFunction = closure;
     this.iconPath = iconPath;
     this.sourcePicker = new ElectronSourcePicker();
+    this.audioSessionService = new AudioSessionService();
 
     this.initializeSDK();
     this.registerHandlers();
 
     log.info("[JITSI-SDK] Manager created");
+  }
+
+  /**
+   * Устанавливает ссылку на NativeCaptureManager для нативного захвата на macOS
+   */
+  setNativeCaptureManager(manager: any): void {
+    this.nativeCaptureManager = manager;
+    log.info("[JITSI-SDK] NativeCaptureManager reference set");
   }
 
   private setupJitsiIPC(): void {
@@ -97,10 +115,55 @@ export class JitsiSDKManager {
           `[JITSI-SDK] User selected: ${selectedSource.name} (${selectedSource.id})`,
         );
 
+        // Запускаем нативный захват на macOS
+        if (process.platform === "darwin" && this.nativeCaptureManager) {
+          try {
+            log.info(`[JITSI-SDK] Starting native capture for source: ${selectedSource.id}`);
+
+            // Устанавливаем callback для пересылки аудио в Jitsi
+            this.nativeCaptureManager.setAudioDataCallback((audioData: ArrayBuffer) => {
+              this.sendNativeAudioToJitsi(audioData);
+            });
+
+            // startCapture уже сам парсит sourceId и устанавливает источник
+            const result = await this.nativeCaptureManager.startCapture(selectedSource.id);
+
+            if (result.success) {
+              log.info(`[JITSI-SDK] Native capture started successfully`);
+
+              // ВАЖНО: Активируем bridge СИНХРОННО и ждём завершения
+              // Это должно быть ПЕРЕД установкой selectedSourceId
+              const activationResult = await this.state.window.webContents.executeJavaScript(`
+                (function() {
+                  if (window.nativeAudioBridge && window.nativeAudioBridge.activate) {
+                    window.nativeAudioBridge.activate();
+                    console.log('[NATIVE-AUDIO] Bridge activated BEFORE setting selectedSourceId');
+                    return { activated: true };
+                  } else {
+                    console.error('[NATIVE-AUDIO] Bridge not available for activation!');
+                    return { activated: false, error: 'bridge not available' };
+                  }
+                })();
+              `);
+
+              log.info(`[JITSI-SDK] Bridge activation result: ${JSON.stringify(activationResult)}`);
+
+              // Обновляем индикатор статуса
+              this.updateAudioStatus(true, 0);
+            } else {
+              log.error(`[JITSI-SDK] Native capture failed: ${result.error}`);
+            }
+          } catch (error: any) {
+            log.error(`[JITSI-SDK] Failed to start native capture: ${error.message}`);
+          }
+        }
+
+        // Устанавливаем selectedSourceId ПОСЛЕ активации bridge
+        // Jitsi продолжит работу с этим sourceId и увидит что bridge активен
         await this.state.window.webContents.executeJavaScript(`
           (function() {
             window.selectedSourceId = '${selectedSource.id}';
-            console.log('[JITSI] Source selected:', window.selectedSourceId);
+            console.log('[JITSI] Source selected:', window.selectedSourceId, 'nativeCaptureActive:', window.nativeCaptureActive);
           })();
         `);
       } else {
@@ -237,6 +300,537 @@ export class JitsiSDKManager {
     }
   }
 
+  // Состояние нативного плагина для индикатора
+  private nativePluginStatus = {
+    isLoaded: false,
+    isAudioActive: false,
+    audioPacketCount: 0,
+  };
+
+  /**
+   * Инжектит индикатор статуса нативного плагина (две точки в левом верхнем углу)
+   * - Первая точка: зеленая если плагин загружен, синяя если нет
+   * - Вторая точка: зеленая если аудио пакеты идут, синяя если нет
+   */
+  private async injectNativeStatusIndicator(nativeAvailable: boolean): Promise<void> {
+    if (!this.state.window || this.state.window.isDestroyed()) return;
+
+    this.nativePluginStatus.isLoaded = nativeAvailable;
+
+    try {
+      await this.state.window.webContents.executeJavaScript(`
+        (function() {
+          const INDICATOR_ID = 'native-status-indicator';
+          if (document.getElementById(INDICATOR_ID)) return;
+
+          // Контейнер индикатора
+          const container = document.createElement('div');
+          container.id = INDICATOR_ID;
+          container.style.cssText = \`
+            position: fixed;
+            top: 12px;
+            left: 12px;
+            display: flex;
+            gap: 6px;
+            padding: 6px 10px;
+            background: rgba(0, 0, 0, 0.6);
+            border-radius: 12px;
+            z-index: 2147483647;
+            align-items: center;
+            backdrop-filter: blur(8px);
+            transition: opacity 0.3s;
+          \`;
+
+          // Первая точка - статус плагина
+          const pluginDot = document.createElement('div');
+          pluginDot.id = 'plugin-status-dot';
+          pluginDot.style.cssText = \`
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: ${nativeAvailable ? '#4CAF50' : '#2196F3'};
+            transition: background 0.3s;
+            box-shadow: 0 0 4px rgba(0,0,0,0.3);
+          \`;
+          pluginDot.title = 'Plugin: ' + (${nativeAvailable} ? 'Loaded' : 'Not loaded');
+
+          // Вторая точка - статус аудио
+          const audioDot = document.createElement('div');
+          audioDot.id = 'audio-status-dot';
+          audioDot.style.cssText = \`
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #2196F3;
+            transition: background 0.3s;
+            box-shadow: 0 0 4px rgba(0,0,0,0.3);
+          \`;
+          audioDot.title = 'Audio: Waiting';
+
+          container.appendChild(pluginDot);
+          container.appendChild(audioDot);
+          document.body.appendChild(container);
+
+          // Функция обновления индикатора
+          window.updateNativeStatusIndicator = function(status) {
+            const pluginDot = document.getElementById('plugin-status-dot');
+            const audioDot = document.getElementById('audio-status-dot');
+
+            if (pluginDot && status.pluginLoaded !== undefined) {
+              pluginDot.style.background = status.pluginLoaded ? '#4CAF50' : '#2196F3';
+              pluginDot.title = 'Plugin: ' + (status.pluginLoaded ? 'Loaded' : 'Not loaded');
+            }
+
+            if (audioDot && status.audioActive !== undefined) {
+              audioDot.style.background = status.audioActive ? '#4CAF50' : '#2196F3';
+              audioDot.title = 'Audio: ' + (status.audioActive ? 'Active (' + (status.packetCount || 0) + ' packets)' : 'Inactive');
+
+              // Пульсация если активен
+              if (status.audioActive) {
+                audioDot.style.animation = 'none';
+                audioDot.offsetHeight; // Trigger reflow
+                audioDot.style.animation = 'pulse-dot 1s ease-in-out';
+              }
+            }
+          };
+
+          // CSS анимация пульсации
+          if (!document.getElementById('native-indicator-styles')) {
+            const style = document.createElement('style');
+            style.id = 'native-indicator-styles';
+            style.textContent = \`
+              @keyframes pulse-dot {
+                0%, 100% { transform: scale(1); opacity: 1; }
+                50% { transform: scale(1.2); opacity: 0.8; }
+              }
+            \`;
+            document.head.appendChild(style);
+          }
+
+          // Двойной клик скрывает индикатор
+          container.ondblclick = function() {
+            container.style.opacity = container.style.opacity === '0.1' ? '1' : '0.1';
+          };
+
+          console.log('[NATIVE-INDICATOR] Status indicator injected');
+        })();
+      `);
+
+      log.info("[JITSI-SDK] Native status indicator injected");
+    } catch (error: any) {
+      log.error(`[JITSI-SDK] Failed to inject native status indicator: ${error.message}`);
+    }
+  }
+
+  /**
+   * Обновляет статус аудио в индикаторе
+   */
+  updateAudioStatus(isActive: boolean, packetCount?: number): void {
+    this.nativePluginStatus.isAudioActive = isActive;
+    if (packetCount !== undefined) {
+      this.nativePluginStatus.audioPacketCount = packetCount;
+    }
+
+    if (this.state.window && !this.state.window.isDestroyed()) {
+      this.state.window.webContents.executeJavaScript(`
+        if (window.updateNativeStatusIndicator) {
+          window.updateNativeStatusIndicator({
+            pluginLoaded: ${this.nativePluginStatus.isLoaded},
+            audioActive: ${isActive},
+            packetCount: ${this.nativePluginStatus.audioPacketCount}
+          });
+        }
+      `).catch(() => {});
+    }
+  }
+
+  /**
+   * Инжектит перехватчик getDisplayMedia для добавления нативного аудио в screen share
+   * Это должно быть вызвано ДО начала screen share, чтобы перехватить создание стрима
+   */
+  private async injectNativeAudioBridge(): Promise<void> {
+    if (!this.state.window || this.state.window.isDestroyed()) return;
+
+    try {
+      const result = await this.state.window.webContents.executeJavaScript(`
+        (async function() {
+          if (window.nativeAudioBridge) {
+            console.log('[NATIVE-AUDIO] Bridge already initialized');
+            return { success: true, status: 'already_initialized' };
+          }
+
+          console.log('[NATIVE-AUDIO] Initializing native audio bridge with getDisplayMedia interception...');
+
+          // Load IPC renderer
+          let ipcRenderer;
+          try {
+            ipcRenderer = require('electron').ipcRenderer;
+            console.log('[NATIVE-AUDIO] ipcRenderer loaded');
+          } catch (e) {
+            try {
+              ipcRenderer = window.require('electron').ipcRenderer;
+              console.log('[NATIVE-AUDIO] ipcRenderer loaded via window.require');
+            } catch (e2) {
+              console.error('[NATIVE-AUDIO] Failed to load ipcRenderer:', e2.message);
+              return { success: false, error: 'ipcRenderer not available' };
+            }
+          }
+
+          // Create audio context - check actual sample rate!
+          const audioContext = new AudioContext({ sampleRate: 48000 });
+          const actualSampleRate = audioContext.sampleRate;
+          const inputSampleRate = 48000; // Native capture always sends 48kHz
+          const resampleRatio = inputSampleRate / actualSampleRate;
+          const needsResample = Math.abs(resampleRatio - 1.0) > 0.01;
+
+          console.log('[NATIVE-AUDIO] AudioContext created, state:', audioContext.state);
+          console.log('[NATIVE-AUDIO] Requested sampleRate: 48000, actual:', actualSampleRate);
+          console.log('[NATIVE-AUDIO] Resample ratio:', resampleRatio.toFixed(4), 'needs resample:', needsResample);
+
+          // Ring buffer for native audio (sized for actual sample rate)
+          const BUFFER_SECONDS = 2;
+          const BUFFER_SIZE = Math.ceil(actualSampleRate * 2 * BUFFER_SECONDS); // stereo
+          const ringBuffer = new Float32Array(BUFFER_SIZE);
+          let writePos = 0;
+          let readPos = 0;
+          let available = 0;
+          let packetsReceived = 0;
+          let lastLogTime = 0;
+
+          // Resampling state (linear interpolation)
+          let resampleAccumulator = 0;
+          let lastSampleL = 0;
+          let lastSampleR = 0;
+
+          // Function to push audio data to ring buffer
+          // ScreenCaptureKit sends PLANAR format: [L0 L1 L2...L959] [R0 R1 R2...R959]
+          // We need to convert to INTERLEAVED: [L0 R0 L1 R1 L2 R2...]
+          function pushAudioData(float32Array) {
+            packetsReceived++;
+            const totalSamples = float32Array.length;
+            const samplesPerChannel = totalSamples / 2; // 960 samples per channel
+
+            // Convert from planar to interleaved and write to ring buffer
+            for (let i = 0; i < samplesPerChannel; i++) {
+              const leftSample = float32Array[i];                        // First half is left channel
+              const rightSample = float32Array[samplesPerChannel + i];   // Second half is right channel
+
+              // Clamp and write interleaved
+              ringBuffer[writePos] = Math.max(-1, Math.min(1, leftSample));
+              ringBuffer[(writePos + 1) % BUFFER_SIZE] = Math.max(-1, Math.min(1, rightSample));
+              writePos = (writePos + 2) % BUFFER_SIZE;
+            }
+            available += totalSamples; // totalSamples = samplesPerChannel * 2
+
+            // Overflow prevention - keep buffer at ~200ms max
+            const MAX_BUFFER = Math.ceil(actualSampleRate * 2 * 0.2); // 200ms stereo
+            if (available > MAX_BUFFER) {
+              const skip = available - MAX_BUFFER;
+              readPos = (readPos + skip) % BUFFER_SIZE;
+              available -= skip;
+            }
+
+            const now = Date.now();
+            if (now - lastLogTime > 5000) {
+              const latencyMs = Math.round(available / (actualSampleRate * 2) * 1000);
+              console.log('[NATIVE-AUDIO] Packets:', packetsReceived, 'buffer:', available, 'latency:', latencyMs + 'ms');
+              lastLogTime = now;
+            }
+          }
+
+          // Register IPC listener for audio data (Float32)
+          ipcRenderer.on('native-audio-data', (event, audioArrayBuffer) => {
+            try {
+              pushAudioData(new Float32Array(audioArrayBuffer));
+            } catch (err) {
+              console.error('[NATIVE-AUDIO] Error processing audio:', err);
+            }
+          });
+          console.log('[NATIVE-AUDIO] IPC listener registered (Float32 mode)');
+
+          // Create ScriptProcessor that reads from ring buffer
+          function createNativeAudioTrack() {
+            const scriptNode = audioContext.createScriptProcessor(2048, 0, 2); // Smaller buffer for lower latency
+
+            // Pre-buffering: wait until we have enough data before starting playback
+            // Use actual sample rate for calculation
+            const MIN_BUFFER_SAMPLES = Math.ceil(actualSampleRate * 2 * 0.1); // 100ms stereo
+            let playbackStarted = false;
+            let lastOutputL = 0;
+            let lastOutputR = 0;
+
+            console.log('[NATIVE-AUDIO] ScriptProcessor created, MIN_BUFFER_SAMPLES:', MIN_BUFFER_SAMPLES);
+
+            scriptNode.onaudioprocess = function(e) {
+              const left = e.outputBuffer.getChannelData(0);
+              const right = e.outputBuffer.getChannelData(1);
+              const frameSamples = left.length;
+
+              // Wait for pre-buffer before starting playback
+              if (!playbackStarted) {
+                if (available >= MIN_BUFFER_SAMPLES) {
+                  playbackStarted = true;
+                  console.log('[NATIVE-AUDIO] Pre-buffer filled, starting playback. Available:', available);
+                } else {
+                  // Output silence while waiting
+                  for (let i = 0; i < frameSamples; i++) {
+                    left[i] = 0;
+                    right[i] = 0;
+                  }
+                  return;
+                }
+              }
+
+              // Read from ring buffer
+              for (let i = 0; i < frameSamples; i++) {
+                if (available >= 2) {
+                  lastOutputL = ringBuffer[readPos];
+                  lastOutputR = ringBuffer[(readPos + 1) % BUFFER_SIZE];
+                  left[i] = lastOutputL;
+                  right[i] = lastOutputR;
+                  readPos = (readPos + 2) % BUFFER_SIZE;
+                  available -= 2;
+                } else {
+                  // Buffer underrun - fade out to avoid clicks
+                  left[i] = lastOutputL * 0.9;
+                  right[i] = lastOutputR * 0.9;
+                  lastOutputL *= 0.9;
+                  lastOutputR *= 0.9;
+                }
+              }
+            };
+
+            const dest = audioContext.createMediaStreamDestination();
+            scriptNode.connect(dest);
+
+            console.log('[NATIVE-AUDIO] Created audio track from ScriptProcessor');
+            return {
+              track: dest.stream.getAudioTracks()[0],
+              stream: dest.stream,
+              scriptNode: scriptNode
+            };
+          }
+
+          // Store reference to the hybrid stream for interception
+          window.nativeHybridStream = null;
+          window.nativeAudioNodes = null;
+
+          // Save original getDisplayMedia
+          const originalGetDisplayMedia = navigator.mediaDevices.getDisplayMedia.bind(navigator.mediaDevices);
+
+          // Override getDisplayMedia to inject native audio
+          navigator.mediaDevices.getDisplayMedia = async function(constraints) {
+            console.log('[NATIVE-AUDIO] getDisplayMedia intercepted!', constraints);
+
+            // Get original display stream (video only from Electron)
+            const displayStream = await originalGetDisplayMedia(constraints);
+            console.log('[NATIVE-AUDIO] Original displayStream tracks:', displayStream.getTracks().map(t => t.kind + ':' + t.label).join(', '));
+
+            // Check if native capture is active
+            if (!window.nativeCaptureActive) {
+              console.log('[NATIVE-AUDIO] Native capture not active, returning original stream');
+              return displayStream;
+            }
+
+            // Create native audio track
+            const audioNodes = createNativeAudioTrack();
+            window.nativeAudioNodes = audioNodes;
+
+            // Create hybrid stream with video from display + audio from native
+            const hybridStream = new MediaStream();
+
+            // Add video tracks from original stream
+            displayStream.getVideoTracks().forEach(track => {
+              hybridStream.addTrack(track);
+              console.log('[NATIVE-AUDIO] Added video track to hybrid stream:', track.label);
+            });
+
+            // Remove any existing audio tracks from display stream (we'll use native instead)
+            // Don't add original audio tracks
+
+            // Add native audio track
+            hybridStream.addTrack(audioNodes.track);
+            console.log('[NATIVE-AUDIO] Added native audio track to hybrid stream');
+
+            window.nativeHybridStream = hybridStream;
+
+            console.log('[NATIVE-AUDIO] Returning hybrid stream with', hybridStream.getTracks().length, 'tracks:',
+              hybridStream.getTracks().map(t => t.kind + ':' + t.label).join(', '));
+
+            return hybridStream;
+          };
+
+          console.log('[NATIVE-AUDIO] getDisplayMedia overridden');
+
+          // Override JitsiMeetJS.createLocalTracks to inject native audio for desktop sharing
+          const waitForJitsi = setInterval(() => {
+            if (window.JitsiMeetJS && window.JitsiMeetJS.createLocalTracks) {
+              clearInterval(waitForJitsi);
+
+              const originalCreateLocalTracks = window.JitsiMeetJS.createLocalTracks.bind(window.JitsiMeetJS);
+
+              window.JitsiMeetJS.createLocalTracks = async function(options) {
+                console.log('[NATIVE-AUDIO] JitsiMeetJS.createLocalTracks intercepted:', JSON.stringify(options));
+
+                // Check if this is for desktop/screen share
+                const isDesktop = options && options.devices && options.devices.includes('desktop');
+
+                // Call original FIRST - this will show picker and WAIT for user selection
+                // During this wait, our handleScreenPickerRequest will activate the bridge
+                const tracks = await originalCreateLocalTracks(options);
+                console.log('[NATIVE-AUDIO] Original createLocalTracks returned', tracks.length, 'tracks');
+
+                // NOW check if native capture became active (activated during picker selection)
+                if (isDesktop && window.nativeCaptureActive) {
+                  console.log('[NATIVE-AUDIO] Desktop tracks returned AND native capture is ACTIVE! Injecting audio...');
+
+                  // Find the desktop video track
+                  const desktopTrack = tracks.find(t => t.getType() === 'video' && t.videoType === 'desktop');
+
+                  if (desktopTrack) {
+                    console.log('[NATIVE-AUDIO] Found desktop video track, injecting native audio...');
+
+                    // Create audio nodes if not already created
+                    if (!window.nativeAudioNodes) {
+                      window.nativeAudioNodes = createNativeAudioTrack();
+                    }
+
+                    // Get the original stream and add our audio track
+                    const originalStream = desktopTrack.stream;
+                    if (originalStream) {
+                      console.log('[NATIVE-AUDIO] Original stream tracks:', originalStream.getTracks().map(t => t.kind + ':' + t.label).join(', '));
+
+                      // Now we need to create a JitsiLocalTrack for the audio
+                      // Use createLocalTracksFromMediaStreams if available
+                      if (window.JitsiMeetJS.createLocalTracksFromMediaStreams) {
+                        try {
+                          console.log('[NATIVE-AUDIO] Creating JitsiLocalTrack for native audio...');
+                          const audioTracks = await window.JitsiMeetJS.createLocalTracksFromMediaStreams([{
+                            stream: window.nativeAudioNodes.stream,
+                            sourceType: 'screen',
+                            mediaType: 'audio',
+                            videoType: 'desktop'
+                          }]);
+
+                          if (audioTracks && audioTracks.length > 0) {
+                            console.log('[NATIVE-AUDIO] Created audio JitsiLocalTrack, adding to result');
+                            tracks.push(audioTracks[0]);
+                            console.log('[NATIVE-AUDIO] Now returning', tracks.length, 'tracks (video + audio)');
+                          }
+                        } catch (audioErr) {
+                          console.error('[NATIVE-AUDIO] Failed to create audio track:', audioErr.message);
+
+                          // Fallback: try to add audio directly to the video track's stream
+                          try {
+                            desktopTrack.stream.addTrack(window.nativeAudioNodes.track);
+                            console.log('[NATIVE-AUDIO] Fallback: added audio to desktop track stream');
+                          } catch (e) {
+                            console.error('[NATIVE-AUDIO] Fallback also failed:', e.message);
+                          }
+                        }
+                      } else {
+                        // Fallback: add audio directly to the video track's stream
+                        try {
+                          desktopTrack.stream.addTrack(window.nativeAudioNodes.track);
+                          console.log('[NATIVE-AUDIO] Added audio directly to desktop track stream (no createLocalTracksFromMediaStreams)');
+                        } catch (e) {
+                          console.error('[NATIVE-AUDIO] Failed to add audio to stream:', e.message);
+                        }
+                      }
+                    }
+                  } else {
+                    console.log('[NATIVE-AUDIO] Desktop track not found in returned tracks');
+                  }
+                }
+
+                return tracks;
+              };
+
+              console.log('[NATIVE-AUDIO] JitsiMeetJS.createLocalTracks overridden');
+            }
+          }, 100);
+
+          setTimeout(() => clearInterval(waitForJitsi), 10000);
+
+          // Resume audio context
+          if (audioContext.state === 'suspended') {
+            await audioContext.resume();
+            console.log('[NATIVE-AUDIO] AudioContext resumed');
+          }
+
+          // Store bridge reference
+          window.nativeAudioBridge = {
+            audioContext: audioContext,
+            packetsReceived: () => packetsReceived,
+
+            // Called when native capture starts
+            activate: function() {
+              window.nativeCaptureActive = true;
+              console.log('[NATIVE-AUDIO] Native capture activated');
+            },
+
+            // Called when native capture stops
+            deactivate: function() {
+              window.nativeCaptureActive = false;
+              if (window.nativeAudioNodes) {
+                window.nativeAudioNodes.scriptNode.disconnect();
+                window.nativeAudioNodes = null;
+              }
+              window.nativeHybridStream = null;
+              console.log('[NATIVE-AUDIO] Native capture deactivated');
+            },
+
+            destroy: function() {
+              ipcRenderer.removeAllListeners('native-audio-data');
+              this.deactivate();
+              audioContext.close();
+              // Restore original getDisplayMedia
+              navigator.mediaDevices.getDisplayMedia = originalGetDisplayMedia;
+              window.nativeAudioBridge = null;
+              console.log('[NATIVE-AUDIO] Bridge destroyed');
+            }
+          };
+
+          console.log('[NATIVE-AUDIO] Bridge initialized successfully');
+          return { success: true, status: 'initialized' };
+        })();
+      `);
+
+      log.info(`[JITSI-SDK] Native audio bridge injection result: ${JSON.stringify(result)}`);
+    } catch (error: any) {
+      log.error(`[JITSI-SDK] Failed to inject audio bridge: ${error.message}`);
+    }
+  }
+
+  // Счетчик отправленных аудио пакетов
+  private audioPacketsSent = 0;
+  private lastAudioLogTime = 0;
+
+  /**
+   * Отправляет аудио данные в Jitsi окно через IPC (эффективнее чем executeJavaScript)
+   */
+  sendNativeAudioToJitsi(audioData: ArrayBuffer): void {
+    if (!this.state.window || this.state.window.isDestroyed()) return;
+
+    try {
+      // Отправляем через IPC - намного эффективнее чем executeJavaScript
+      this.state.window.webContents.send('native-audio-data', audioData);
+      this.audioPacketsSent++;
+
+      // Логируем каждые 5 секунд
+      const now = Date.now();
+      if (now - this.lastAudioLogTime > 5000) {
+        log.info(`[JITSI-SDK] Audio packets sent to Jitsi: ${this.audioPacketsSent}`);
+        this.lastAudioLogTime = now;
+      }
+    } catch (error: any) {
+      // Log only occasionally to avoid spam
+      if (this.audioPacketsSent % 1000 === 0) {
+        log.warn(`[JITSI-SDK] Error sending audio to Jitsi: ${error.message}`);
+      }
+    }
+  }
+
   private startAudioMuteButtonPolling(): void {
     if (!this.state.window) return;
 
@@ -283,7 +877,37 @@ export class JitsiSDKManager {
       hasWindow:
         Boolean(this.state.window) && !this.state.window?.isDestroyed(),
       isConnected: this.state.isConnected,
+      useVirtualCable: this.useVirtualCableMode,
     }));
+
+    // Virtual Cable handlers
+    ipcMain.handle("jitsi:set-virtual-cable-mode", async (event, enable: boolean) => {
+      this.enableVirtualCableMode(enable);
+    });
+
+    ipcMain.handle("jitsi:get-virtual-cable-status", async () => {
+      return this.isVirtualCableMode();
+    });
+
+    ipcMain.handle("jitsi:route-app-audio-to-cable", async (event, processPath: string) => {
+      return this.routeAppAudioToCable(processPath);
+    });
+
+    ipcMain.handle("jitsi:restore-app-audio", async (event, processPath: string) => {
+      return this.restoreAppAudio(processPath);
+    });
+
+    ipcMain.handle("jitsi:get-audio-sessions", async () => {
+      try {
+        const sessions = await this.audioSessionService.getAudioSessions();
+        log.info(`[VC-MODE] Got ${sessions.length} audio sessions for picker`);
+        // Фильтруем Electron
+        return sessions.filter(s => !s.processName.toLowerCase().includes("electron"));
+      } catch (error: any) {
+        log.error(`[VC-MODE] Error getting audio sessions: ${error.message}`);
+        return [];
+      }
+    });
   }
 
   async createWindow(
@@ -363,7 +987,7 @@ export class JitsiSDKManager {
         show: false,
         backgroundColor: "#1a1a2e",
         webPreferences: {
-          nodeIntegration: false,
+          nodeIntegration: true, // Включаем для работы IPC при передаче аудио
           contextIsolation: false,
           sandbox: false,
           webSecurity: false,
@@ -386,6 +1010,18 @@ export class JitsiSDKManager {
       await this.waitForConference();
       await this.injectConferenceHandlers();
       await this.injectAudioMuteIndicatorButton();
+
+      // Инжектим индикатор статуса нативного плагина (macOS = true, другие платформы проверяем)
+      const nativeAvailable = process.platform === "darwin"; // На macOS нативный плагин доступен
+      await this.injectNativeStatusIndicator(nativeAvailable);
+
+      // ВАЖНО: Инжектим audio bridge сразу после загрузки конференции
+      // Это нужно сделать ДО начала screen share, чтобы перехватчик getDisplayMedia был готов
+      if (process.platform === "darwin" && this.nativeCaptureManager) {
+        log.info("[JITSI-SDK] Injecting native audio bridge for macOS...");
+        await this.injectNativeAudioBridge();
+      }
+
       this.startAudioMuteButtonPolling();
 
       log.info("[JITSI-SDK] Conference window created successfully");
@@ -582,7 +1218,7 @@ export class JitsiSDKManager {
     this.state.window.webContents.on(
       "console-message",
       (event, level, message) => {
-        if (message.includes("[JITSI]") || message.includes("conference")) {
+        if (message.includes("[JITSI]") || message.includes("conference") || message.includes("[NATIVE-AUDIO]")) {
           log.info(`Jitsi Console: ${message}`);
         }
       },
@@ -1106,10 +1742,127 @@ export class JitsiSDKManager {
     }
   }
 
+  // ==================== Virtual Cable Methods ====================
+
+  /**
+   * Включает/выключает режим Virtual Cable
+   */
+  enableVirtualCableMode(enable: boolean): void {
+    this.useVirtualCableMode = enable;
+    log.info(`[JITSI-SDK] Virtual Cable mode: ${enable ? "ENABLED" : "DISABLED"}`);
+  }
+
+  /**
+   * Проверяет, включён ли режим Virtual Cable
+   */
+  isVirtualCableMode(): boolean {
+    return this.useVirtualCableMode;
+  }
+
+  /**
+   * Перенаправляет звук приложения на Virtual Cable
+   */
+  async routeAppAudioToCable(processPath: string): Promise<{success: boolean; error?: string; deviceName?: string}> {
+    if (process.platform !== "win32") {
+      return {success: false, error: "Virtual Cable is only supported on Windows"};
+    }
+
+    try {
+      log.info(`[VC-MODE] Routing audio for: ${processPath}`);
+
+      // Получаем имя VB-Cable устройства
+      const vbCableName = await this.audioSessionService.getVBCableDeviceName();
+      if (!vbCableName) {
+        return {success: false, error: "VB-Cable not found. Please install VB-Audio Virtual Cable."};
+      }
+
+      // Перенаправляем звук приложения на VB-Cable
+      const result = await this.audioSessionService.setAppAudioDevice(processPath, vbCableName);
+
+      if (result) {
+        this.routedProcessPath = processPath;
+        log.info(`[VC-MODE] Successfully routed "${processPath}" to "${vbCableName}"`);
+        return {success: true, deviceName: vbCableName};
+      }
+
+      return {success: false, error: "Failed to route audio"};
+    } catch (error: any) {
+      log.error(`[VC-MODE] Error routing audio: ${error.message}`);
+      return {success: false, error: error.message};
+    }
+  }
+
+  /**
+   * Восстанавливает звук приложения на устройство по умолчанию
+   */
+  async restoreAppAudio(processPath: string): Promise<{success: boolean; error?: string}> {
+    if (process.platform !== "win32") {
+      return {success: false, error: "Virtual Cable is only supported on Windows"};
+    }
+
+    try {
+      log.info(`[VC-MODE] Restoring audio for: ${processPath}`);
+
+      const result = await this.audioSessionService.restoreDefaultDevice(processPath);
+
+      if (result) {
+        if (this.routedProcessPath === processPath) {
+          this.routedProcessPath = null;
+        }
+
+        log.info(`[VC-MODE] Successfully restored audio for "${processPath}"`);
+        return {success: true};
+      }
+
+      return {success: false, error: "Failed to restore audio"};
+    } catch (error: any) {
+      log.error(`[VC-MODE] Error restoring audio: ${error.message}`);
+      return {success: false, error: error.message};
+    }
+  }
+
+  /**
+   * Восстанавливает аудио при выходе из конференции
+   */
+  private async restoreRoutedAudio(): Promise<void> {
+    if (this.routedProcessPath) {
+      log.info(`[VC-MODE] Restoring routed audio on conference exit`);
+      await this.restoreAppAudio(this.routedProcessPath);
+      this.routedProcessPath = null;
+    }
+  }
+
+  // ==================== End Virtual Cable Methods ====================
+
   async closeWindow(): Promise<void> {
     if (this.currentRoomName != "") {
       this.closureFunction(this.currentRoomName);
       this.currentRoomName = "";
+    }
+
+    // Восстанавливаем аудио при закрытии
+    await this.restoreRoutedAudio();
+
+    // Останавливаем нативный захват на macOS и деактивируем bridge
+    if (process.platform === "darwin" && this.nativeCaptureManager) {
+      try {
+        log.info("[JITSI-SDK] Stopping native capture on window close");
+
+        // Деактивируем audio bridge в Jitsi окне
+        if (this.state.window && !this.state.window.isDestroyed()) {
+          await this.state.window.webContents.executeJavaScript(`
+            if (window.nativeAudioBridge && window.nativeAudioBridge.deactivate) {
+              window.nativeAudioBridge.deactivate();
+              console.log('[NATIVE-AUDIO] Bridge deactivated on window close');
+            }
+          `).catch(() => {});
+        }
+
+        await this.nativeCaptureManager.stopCapture();
+        this.updateAudioStatus(false, 0);
+      } catch (error: any) {
+        log.warn(`[JITSI-SDK] Error stopping native capture: ${error.message}`);
+      }
     }
 
     if (!this.state.window || this.state.window.isDestroyed()) {

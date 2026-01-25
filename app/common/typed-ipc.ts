@@ -99,6 +99,24 @@ export type MainMessage = {
   "toggle-tray": (state: boolean) => void;
 };
 
+// Audio Session Types for Virtual Cable
+export type AudioSession = {
+  processId: number;
+  processName: string;
+  displayName: string;
+  processPath: string;
+  volume: number;
+  muted: boolean;
+  deviceName?: string;
+};
+
+export type AudioDevice = {
+  name: string;
+  deviceName: string;
+  id: string;
+  isDefault: boolean;
+};
+
 export type MainCall = {
   "get-app-version": () => string;
   "handle-zulip-update": (
@@ -141,6 +159,21 @@ export type MainCall = {
   "create-jitsi-sdk-from-zulip": (
     data: JitsiOptions | {},
   ) => Promise<{success: boolean; error?: string; result: string}>;
+  // Audio Session API for Virtual Cable (Windows)
+  "audio:checkReady": () => Promise<{success: boolean; isReady?: boolean; error?: string}>;
+  "audio:getSessions": () => Promise<{success: boolean; sessions: AudioSession[]; error?: string}>;
+  "audio:getDevices": () => Promise<{success: boolean; devices: AudioDevice[]; error?: string}>;
+  "audio:routeToCable": (processName: string) => Promise<{success: boolean; deviceName?: string; error?: string}>;
+  "audio:restoreDefault": (processName: string) => Promise<{success: boolean; error?: string}>;
+  "audio:setManualPath": (exePath: string) => Promise<{success: boolean; error?: string}>;
+  "audio:hasVBCable": () => Promise<{success: boolean; hasVBCable: boolean}>;
+  "audio:getSVVPath": () => Promise<{success: boolean; path: string | null}>;
+  // Virtual Cable Mode
+  "jitsi:set-virtual-cable-mode": (enable: boolean) => Promise<void>;
+  "jitsi:get-virtual-cable-status": () => Promise<boolean>;
+  "jitsi:route-app-audio-to-cable": (processPath: string) => Promise<{success: boolean; error?: string; deviceName?: string}>;
+  "jitsi:restore-app-audio": (processPath: string) => Promise<{success: boolean; error?: string}>;
+  "jitsi:get-audio-sessions": () => Promise<AudioSession[]>;
 };
 
 export type RendererMessage = {

@@ -83,6 +83,9 @@ export class NativeCaptureManager {
   private currentQuality: CaptureQuality = CAPTURE_PRESETS.ULTRALOW.quality;
   private addonType: "mac-swift" | "windows-cpp" | "unknown" = "unknown";
   private debugCallback?: (packetInfo: any) => void; // 🆕
+  private audioStatusCallback?: (isActive: boolean, packetCount: number) => void; // Callback для индикатора
+  private audioDataCallback?: (audioData: ArrayBuffer) => void; // Callback для передачи аудио данных в Jitsi
+  private lastAudioStatusUpdate = 0; // Throttle updates
 
   // private useWindowsSync: boolean = false;
   // private windowsSyncBuffer?: AudioSyncBuffer;
@@ -91,6 +94,33 @@ export class NativeCaptureManager {
   setDebugCallback(callback: (packetInfo: any) => void): void {
     this.debugCallback = callback;
     log.info("[NATIVE-CAPTURE] Debug callback set");
+  }
+
+  /**
+   * Устанавливает callback для уведомления о статусе аудио (для индикатора в UI)
+   */
+  setAudioStatusCallback(callback: (isActive: boolean, packetCount: number) => void): void {
+    this.audioStatusCallback = callback;
+    log.info("[NATIVE-CAPTURE] Audio status callback set for indicator");
+  }
+
+  /**
+   * Устанавливает callback для передачи аудио данных в Jitsi
+   */
+  setAudioDataCallback(callback: (audioData: ArrayBuffer) => void): void {
+    this.audioDataCallback = callback;
+    log.info("[NATIVE-CAPTURE] Audio data callback set for Jitsi bridge");
+  }
+
+  /**
+   * Уведомляет о статусе аудио (throttled - не чаще раза в 500мс)
+   */
+  private notifyAudioStatus(isActive: boolean): void {
+    const now = Date.now();
+    if (this.audioStatusCallback && (now - this.lastAudioStatusUpdate > 500)) {
+      this.lastAudioStatusUpdate = now;
+      this.audioStatusCallback(isActive, this.state.audioFrameCount);
+    }
   }
 
   notifyDebugPacket(frameNumber: number, audioData: any): void {
@@ -928,6 +958,11 @@ export class NativeCaptureManager {
       this.state.isCapturing = false;
       this.state.currentSourceId = null;
 
+      // Уведомляем индикатор что аудио остановлено
+      if (this.audioStatusCallback) {
+        this.audioStatusCallback(false, this.state.audioFrameCount);
+      }
+
       return {success: true};
     } catch (error: any) {
       log.error(`Failed to stop capture: ${error.message}`);
@@ -935,6 +970,11 @@ export class NativeCaptureManager {
       // Force cleanup
       this.state.isCapturing = false;
       this.state.currentSourceId = null;
+
+      // Уведомляем индикатор что аудио остановлено
+      if (this.audioStatusCallback) {
+        this.audioStatusCallback(false, this.state.audioFrameCount);
+      }
 
       return {success: false, error: error.message};
     }
@@ -1109,6 +1149,22 @@ export class NativeCaptureManager {
       // Обработка в зависимости от платформы
       // useWindowsSync отключен - используем стандартную обработку
       this.processStandardAudio(audioData);
+
+      // Уведомляем индикатор о получении аудио пакетов
+      this.notifyAudioStatus(true);
+
+      // Пересылаем аудио данные в Jitsi (если callback установлен)
+      // Передаём Float32 напрямую без конвертации для лучшего качества
+      if (this.audioDataCallback && audioData?.data && audioData.data.byteLength > 0) {
+        try {
+          // Передаём оригинальные Float32 данные напрямую
+          this.audioDataCallback(audioData.data);
+        } catch (error: any) {
+          if (this.state.audioFrameCount % 1000 === 0) {
+            log.warn(`[NATIVE-CAPTURE] Failed to forward audio: ${error.message}`);
+          }
+        }
+      }
 
       if (this.state.audioFrameCount % 100 === 0) {
         console.log(
