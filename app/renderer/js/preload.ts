@@ -897,7 +897,7 @@ electron_bridge.on_event("trigger-update", async (updateInfo: any) => {
 contextBridge.exposeInMainWorld("testUpdate", {
   triggerUpdate() {
     electron_bridge.send_event("zulip-update-available", {
-      version: "5.27.0",
+      version: "5.27.3",
       downloadUrl:
         "https://storage.yandexcloud.net/rm-electron-desktop-win/Rm-Connectte.zip",
       releaseNotes: "Тестовое обновление",

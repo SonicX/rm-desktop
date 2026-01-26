@@ -1,6 +1,6 @@
 {
   "name": "RMConnect",
-  "version": "5.27.0",
+  "version": "5.27.3",
   "productName": "Связь РМ",
   "main": "./dist-electron",
   "description": "Приложение Связь РМ",
