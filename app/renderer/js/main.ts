@@ -165,6 +165,11 @@ export class ServerManagerView {
   }
 
   checkPendingUpdate(): void {
+    // На macOS обновления через App Store, пропускаем эту логику
+    if (process.platform === "darwin") {
+      return;
+    }
+
     const pendingUpdate = ConfigUtil.getConfigItem("pendingUpdate", null);
     if (pendingUpdate) {
       this.updateInfo = pendingUpdate;
@@ -389,8 +394,18 @@ export class ServerManagerView {
       this.$updateButton.append(this.$updateProgress);
 
       this.$updateButton.addEventListener("click", async () => {
+        if (process.platform === "darwin") {
+          // На macOS открываем App Store
+          ipcRenderer.send("force-update");
+          return;
+        }
+
+        // Windows: стандартная логика обновления
         if (this.updateInfo && !this.isDownloading) {
-          await this.startUpdateDownload();
+          // Если обновление уже скачано - устанавливаем, иначе скачиваем
+          await (this.isUpdateReady
+            ? this.installUpdate()
+            : this.startUpdateDownload());
         }
       });
 
@@ -419,8 +434,13 @@ export class ServerManagerView {
         // Обновление установлено, приложение перезапустится
         this.resetUpdateButton();
       } else if (result.action === "postponed") {
-        // Пользователь отложил, кнопка становится яркой
-        this.showUpdateReady();
+        // Пользователь отложил, обновление НЕ скачано
+        // Возвращаем кнопку в состояние "доступно" (не "готово")
+        this.isDownloading = false;
+        this.$updateButton.classList.remove("downloading");
+        this.$updateButton.classList.add("available");
+        this.$updateProgress.style.display = "none";
+        this.$updateTooltip.innerText = `Доступна версия ${this.updateInfo.version}`;
         // Сохраняем для повторного показа
         ConfigUtil.setConfigItem("postponedUpdate", this.updateInfo);
       }
@@ -516,7 +536,7 @@ export class ServerManagerView {
 
   showUpdateReady(): void {
     this.isUpdateReady = true;
-    this.$updateButton.classList.remove("downloading", "inactive");
+    this.$updateButton.classList.remove("downloading", "inactive", "hidden");
     this.$updateButton.classList.add("ready");
     this.$updateProgress.style.display = "none";
     this.$updateTooltip.innerText = "Готово к установке! Нажмите для установки";
@@ -1192,16 +1212,20 @@ export class ServerManagerView {
       this.showUpdateError(error);
     });
 
-    const postponedUpdate = ConfigUtil.getConfigItem("postponedUpdate", null);
+    // На macOS обновления через App Store, пропускаем логику отложенных обновлений
+    if (process.platform !== "darwin") {
+      const postponedUpdate = ConfigUtil.getConfigItem("postponedUpdate", null);
 
-    if (postponedUpdate) {
-      this.updateInfo = postponedUpdate;
-      this.showUpdateReady();
+      if (postponedUpdate) {
+        this.updateInfo = postponedUpdate;
+        // Обновление было отложено, но НЕ скачано - показываем как "доступно"
+        this.showUpdateAvailable(postponedUpdate);
 
-      // Автоматически показываем диалог через 3 секунды
-      setTimeout(() => {
-        this.startUpdateDownload();
-      }, 3000);
+        // Автоматически показываем диалог загрузки через 3 секунды
+        setTimeout(() => {
+          this.startUpdateDownload();
+        }, 3000);
+      }
     }
   }
 }
