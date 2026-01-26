@@ -1678,9 +1678,13 @@ async function createMainWindow(): Promise<BrowserWindow> {
 
       // Или ручная загрузка
       const updateDir = path.join(app.getPath("userData"), "updates");
-      if (!fs.existsSync(updateDir)) {
-        fs.mkdirSync(updateDir, {recursive: true});
+
+      // Очищаем старые обновления перед загрузкой новых
+      if (fs.existsSync(updateDir)) {
+        fs.rmSync(updateDir, {recursive: true, force: true});
       }
+
+      fs.mkdirSync(updateDir, {recursive: true});
 
       await downloadUpdateFile(
         updateInfo.downloadUrl,
