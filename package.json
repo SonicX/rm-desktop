@@ -52,7 +52,7 @@
     "test"
   ],
   "build": {
-    "buildVersion": 17.1,
+    "buildVersion": 18,
     "appId": "org.rm.rm-electron",
     "copyright": "©Цифровые технологии РМ",
     "npmRebuild": false,
