@@ -287,7 +287,7 @@ export class ServerManagerView {
 
   async initTabs(): Promise<void> {
     const server = {
-      url: "https://joinrm-svz.ru",
+      url: "https://connectrm-svz.ru",
       alias: "Цифровые технологии РМ",
       icon: "https://disk.yandex.ru/i/m2aj56OOhsJfyw",
       zulipVersion: app.getVersion(),
