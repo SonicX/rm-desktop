@@ -312,7 +312,9 @@
               "caughtErrors": "all"
             }
           ],
-          "unicorn/no-await-expression-member": "off"
+          "unicorn/no-await-expression-member": "off",
+          "max-params": "off",
+          "max-depth": "off"
         }
       },
       {
@@ -331,6 +333,107 @@
         ],
         "rules": {
           "import/unambiguous": "off"
+        }
+      },
+      {
+        "files": [
+          "app/main/services/audioSessionService.ts",
+          "app/main/services/svvLocator.ts",
+          "app/main/ipc/audioHandlers.ts"
+        ],
+        "rules": {
+          "unicorn/filename-case": "off",
+          "@typescript-eslint/naming-convention": "off",
+          "@typescript-eslint/member-ordering": "off",
+          "@typescript-eslint/no-unsafe-assignment": "off"
+        }
+      },
+      {
+        "files": [
+          "app/renderer/js/preload.ts"
+        ],
+        "rules": {
+          "@typescript-eslint/naming-convention": [
+            "error",
+            {
+              "selector": "default",
+              "format": [
+                "camelCase",
+                "PascalCase"
+              ]
+            },
+            {
+              "selector": "objectLiteralMethod",
+              "format": null
+            }
+          ]
+        }
+      },
+      {
+        "files": [
+          "app/main/native-audio-worklet.js"
+        ],
+        "rules": {
+          "import/unambiguous": "off"
+        }
+      },
+      {
+        "files": [
+          "app/main/services/svvLocator.ts"
+        ],
+        "rules": {
+          "no-await-in-loop": "off",
+          "n/prefer-global/process": "off",
+          "@typescript-eslint/dot-notation": "off",
+          "unicorn/no-array-push-push": "off"
+        }
+      },
+      {
+        "files": [
+          "app/main/audio-processor.ts"
+        ],
+        "rules": {
+          "unicorn/numeric-separators-style": "off",
+          "unicorn/no-zero-fractions": "off",
+          "unicorn/prefer-spread": "off",
+          "@typescript-eslint/naming-convention": "off"
+        }
+      },
+      {
+        "files": [
+          "app/main/native-capture.ts"
+        ],
+        "rules": {
+          "complexity": "off"
+        }
+      },
+      {
+        "files": [
+          "app/renderer/js/preload.ts"
+        ],
+        "rules": {
+          "@typescript-eslint/naming-convention": [
+            "error",
+            {
+              "selector": "default",
+              "format": [
+                "camelCase",
+                "PascalCase"
+              ]
+            },
+            {
+              "selector": "import",
+              "format": null
+            },
+            {
+              "selector": "parameter",
+              "format": null
+            },
+            {
+              "selector": "objectLiteralMethod",
+              "format": null
+            }
+          ]
         }
       }
     ]

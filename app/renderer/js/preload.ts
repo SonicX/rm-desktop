@@ -948,4 +948,7 @@ contextBridge.exposeInMainWorld("electronCapabilities", {
   version: "5.27.0",
 });
 
-ipcRenderer.send("preload-log", "Audio API and Electron capabilities exposed to window");
+ipcRenderer.send(
+  "preload-log",
+  "Audio API and Electron capabilities exposed to window",
+);

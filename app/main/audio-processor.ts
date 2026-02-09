@@ -1,5 +1,7 @@
-// audio-processor.ts - Модуль обработки аудио для нативного захвата
-import log from "electron-log";
+// Audio-processor.ts - Модуль обработки аудио для нативного захвата
+import process from "node:process";
+
+import log from "electron-log/main";
 
 // ===== КЛАСС КОЛЬЦЕВОГО БУФЕРА =====
 export class RingBuffer {
@@ -51,25 +53,25 @@ export class RingBuffer {
 }
 
 // ===== ИНТЕРФЕЙСЫ И ТИПЫ =====
-export interface AudioLevels {
+export type AudioLevels = {
   maxLeft: number;
   maxRight: number;
   hasAudio: boolean;
-}
+};
 
-export interface DecodedAudio {
+export type DecodedAudio = {
   leftChannel: Float32Array;
   rightChannel: Float32Array;
-}
+};
 
-export interface ProcessedAudio {
+export type ProcessedAudio = {
   processedLeft: Float32Array;
   processedRight: Float32Array;
-}
+};
 
 // ===== КЛАСС ОБРАБОТКИ АУДИО =====
 export class AudioProcessor {
-  private platform: NodeJS.Platform;
+  private readonly platform: NodeJS.Platform;
 
   constructor() {
     this.platform = process.platform;
@@ -204,8 +206,8 @@ export class AudioProcessor {
     let maxLeft = 0;
     let maxRight = 0;
 
-    for (let i = 0; i < leftChannel.length; i++) {
-      maxLeft = Math.max(maxLeft, Math.abs(leftChannel[i]));
+    for (const [i, left] of leftChannel.entries()) {
+      maxLeft = Math.max(maxLeft, Math.abs(left));
       maxRight = Math.max(maxRight, Math.abs(rightChannel[i]));
     }
 
@@ -252,12 +254,12 @@ export class AudioProcessor {
   }
 
   /**
-   * Получает количество сэмплов для платформы
+   * Returns sample count for platform
    */
-  getSamplesForPlatform(audioData: any): number {
+  getSamplesForPlatform(audioData: {numSamples?: number}): number {
     return this.isWindowsPlatform()
-      ? audioData.numSamples || 480 // Windows: 480 samples
-      : audioData.numSamples || 960; // macOS: 960 samples
+      ? (audioData.numSamples ?? 480)
+      : (audioData.numSamples ?? 960);
   }
 }
 

@@ -83,8 +83,13 @@ export class NativeCaptureManager {
   private currentQuality: CaptureQuality = CAPTURE_PRESETS.ULTRALOW.quality;
   private addonType: "mac-swift" | "windows-cpp" | "unknown" = "unknown";
   private debugCallback?: (packetInfo: any) => void; // 🆕
-  private audioStatusCallback?: (isActive: boolean, packetCount: number) => void; // Callback для индикатора
+  private audioStatusCallback?: (
+    isActive: boolean,
+    packetCount: number,
+  ) => void; // Callback для индикатора
+
   private audioDataCallback?: (audioData: ArrayBuffer) => void; // Callback для передачи аудио данных в Jitsi
+
   private lastAudioStatusUpdate = 0; // Throttle updates
 
   // private useWindowsSync: boolean = false;
@@ -99,7 +104,9 @@ export class NativeCaptureManager {
   /**
    * Устанавливает callback для уведомления о статусе аудио (для индикатора в UI)
    */
-  setAudioStatusCallback(callback: (isActive: boolean, packetCount: number) => void): void {
+  setAudioStatusCallback(
+    callback: (isActive: boolean, packetCount: number) => void,
+  ): void {
     this.audioStatusCallback = callback;
     log.info("[NATIVE-CAPTURE] Audio status callback set for indicator");
   }
@@ -117,7 +124,7 @@ export class NativeCaptureManager {
    */
   private notifyAudioStatus(isActive: boolean): void {
     const now = Date.now();
-    if (this.audioStatusCallback && (now - this.lastAudioStatusUpdate > 500)) {
+    if (this.audioStatusCallback && now - this.lastAudioStatusUpdate > 500) {
       this.lastAudioStatusUpdate = now;
       this.audioStatusCallback(isActive, this.state.audioFrameCount);
     }
@@ -1155,13 +1162,19 @@ export class NativeCaptureManager {
 
       // Пересылаем аудио данные в Jitsi (если callback установлен)
       // Передаём Float32 напрямую без конвертации для лучшего качества
-      if (this.audioDataCallback && audioData?.data && audioData.data.byteLength > 0) {
+      if (
+        this.audioDataCallback &&
+        audioData?.data &&
+        audioData.data.byteLength > 0
+      ) {
         try {
           // Передаём оригинальные Float32 данные напрямую
           this.audioDataCallback(audioData.data);
         } catch (error: any) {
           if (this.state.audioFrameCount % 1000 === 0) {
-            log.warn(`[NATIVE-CAPTURE] Failed to forward audio: ${error.message}`);
+            log.warn(
+              `[NATIVE-CAPTURE] Failed to forward audio: ${error.message}`,
+            );
           }
         }
       }

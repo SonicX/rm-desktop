@@ -1,13 +1,13 @@
 import {execFile} from "node:child_process";
 import {promisify} from "node:util";
 
-import log from "electron-log";
+import log from "electron-log/main";
 
 import {SVVLocator} from "./svvLocator.js";
 
 const execFileAsync = promisify(execFile);
 
-export interface AudioSession {
+export type AudioSession = {
   processId: number;
   processName: string; // "game.exe"
   displayName: string; // "Counter-Strike 2"
@@ -15,22 +15,22 @@ export interface AudioSession {
   volume: number; // 0-100
   muted: boolean;
   deviceName?: string;
-}
+};
 
-export interface AudioDevice {
+export type AudioDevice = {
   name: string; // "Динамики", "CABLE Input" (Display Name)
   deviceName: string; // "Realtek(R) Audio", "VB-Audio Virtual Cable" (Device Name for SetAppDefault)
   id: string;
   isDefault: boolean;
-}
+};
 
 export class AudioSessionService {
-  private svvLocator: SVVLocator;
+  private readonly svvLocator: SVVLocator;
   private initialized = false;
 
   constructor() {
     this.svvLocator = new SVVLocator();
-    this.initialize();
+    void this.initialize();
   }
 
   /**
@@ -42,8 +42,8 @@ export class AudioSessionService {
       const svvPath = await this.svvLocator.findSVV();
       if (svvPath) {
         log.info(`[AudioSession] SoundVolumeView ready at: ${svvPath}`);
-        const hasVC = await this.hasVBCable();
-        if (hasVC) {
+        const hasVc = await this.hasVBCable();
+        if (hasVc) {
           const vcName = await this.getVBCableDeviceName();
           log.info(`[AudioSession] VB-Cable found: ${vcName}`);
         } else {
@@ -56,8 +56,11 @@ export class AudioSessionService {
       }
 
       this.initialized = true;
-    } catch (error: any) {
-      log.error("[AudioSession] Initialization error:", error.message);
+    } catch (error: unknown) {
+      log.error(
+        "[AudioSession] Initialization error:",
+        error instanceof Error ? error.message : String(error),
+      );
     }
   }
 
@@ -95,14 +98,16 @@ export class AudioSessionService {
         ],
         {
           windowsHide: true,
-          encoding: "utf-8",
+          encoding: "utf8",
         },
       );
 
       return this.parseCSV(stdout);
-    } catch (error: any) {
+    } catch (error: unknown) {
       log.error("[AudioSession] Error getting sessions:", error);
-      throw new Error(`Failed to get audio sessions: ${error.message}`);
+      throw new Error(
+        `Failed to get audio sessions: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 
@@ -167,9 +172,7 @@ export class AudioSessionService {
     let current = "";
     let inQuotes = false;
 
-    for (let i = 0; i < line.length; i++) {
-      const char = line[i];
-
+    for (const char of line) {
       if (char === '"') {
         inQuotes = !inQuotes;
       } else if (char === "," && !inQuotes) {
@@ -190,7 +193,7 @@ export class AudioSessionService {
    */
   private extractProcessName(processPath: string): string {
     const parts = processPath.split(/[/\\]/);
-    return parts[parts.length - 1] || "";
+    return parts.at(-1) ?? "";
   }
 
   /**
@@ -221,15 +224,15 @@ export class AudioSessionService {
     }
 
     // Fallback: capitalize имя процесса без расширения
-    const nameWithoutExt = processName.replace(/\.[^.]+$/, "");
-    return this.capitalize(nameWithoutExt);
+    const nameWithoutExtension = processName.replace(/\.[^.]+$/, "");
+    return this.capitalize(nameWithoutExtension);
   }
 
   /**
    * Capitalize строку
    */
-  private capitalize(str: string): string {
-    return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
+  private capitalize(string_: string): string {
+    return string_.charAt(0).toUpperCase() + string_.slice(1).toLowerCase();
   }
 
   /**
@@ -248,14 +251,16 @@ export class AudioSessionService {
         ["/scomma", "", "/Columns", "Name,Type,Direction,Device Name,Default"],
         {
           windowsHide: true,
-          encoding: "utf-8",
+          encoding: "utf8",
         },
       );
 
       return this.parseDevicesCSV(stdout);
-    } catch (error: any) {
+    } catch (error: unknown) {
       log.error("[AudioSession] Error getting devices:", error);
-      throw new Error(`Failed to get audio devices: ${error.message}`);
+      throw new Error(
+        `Failed to get audio devices: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 
@@ -341,12 +346,14 @@ export class AudioSessionService {
         `[AudioSession] Successfully routed "${processPathOrName}" to "${deviceName}"`,
       );
       return true;
-    } catch (error: any) {
+    } catch (error: unknown) {
       log.error(
         `[AudioSession] Error routing "${processPathOrName}" to "${deviceName}":`,
-        error.message,
+        error instanceof Error ? error.message : String(error),
       );
-      throw new Error(`Failed to route audio: ${error.message}`);
+      throw new Error(
+        `Failed to route audio: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 
@@ -371,34 +378,30 @@ export class AudioSessionService {
       let defaultDevice = devices.find((d) => d.isDefault);
 
       // 2. Если нет default, ищем устройство по имени (не VB-Cable)
-      if (!defaultDevice) {
-        defaultDevice = devices.find((d) => {
-          const nameLower = d.name.toLowerCase();
-          const deviceNameLower = d.deviceName.toLowerCase();
-          // Исключаем виртуальные устройства
-          return (
-            !deviceNameLower.includes("vb-audio") &&
-            !deviceNameLower.includes("virtual") &&
-            !nameLower.includes("cable") &&
-            (nameLower.includes("динамики") ||
-              nameLower.includes("speakers") ||
-              deviceNameLower.includes("realtek") ||
-              nameLower.includes("headphone") ||
-              nameLower.includes("наушники"))
-          );
-        });
-      }
+      defaultDevice ||= devices.find((d) => {
+        const nameLower = d.name.toLowerCase();
+        const deviceNameLower = d.deviceName.toLowerCase();
+        // Исключаем виртуальные устройства
+        return (
+          !deviceNameLower.includes("vb-audio") &&
+          !deviceNameLower.includes("virtual") &&
+          !nameLower.includes("cable") &&
+          (nameLower.includes("динамики") ||
+            nameLower.includes("speakers") ||
+            deviceNameLower.includes("realtek") ||
+            nameLower.includes("headphone") ||
+            nameLower.includes("наушники"))
+        );
+      });
 
       // 3. Fallback: первое не-Cable устройство
-      if (!defaultDevice) {
-        defaultDevice = devices.find((d) => {
-          const deviceNameLower = d.deviceName.toLowerCase();
-          return (
-            !deviceNameLower.includes("vb-audio") &&
-            !deviceNameLower.includes("virtual")
-          );
-        });
-      }
+      defaultDevice ||= devices.find((d) => {
+        const deviceNameLower = d.deviceName.toLowerCase();
+        return (
+          !deviceNameLower.includes("vb-audio") &&
+          !deviceNameLower.includes("virtual")
+        );
+      });
 
       if (!defaultDevice) {
         log.error(
@@ -428,12 +431,14 @@ export class AudioSessionService {
         `[AudioSession] Restored "${processPathOrName}" to "${defaultDevice.deviceName}"`,
       );
       return true;
-    } catch (error: any) {
+    } catch (error: unknown) {
       log.error(
         `[AudioSession] Error restoring "${processPathOrName}":`,
-        error.message,
+        error instanceof Error ? error.message : String(error),
       );
-      throw new Error(`Failed to restore audio: ${error.message}`);
+      throw new Error(
+        `Failed to restore audio: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 
@@ -465,7 +470,9 @@ export class AudioSessionService {
         `[AudioSession] Looking for VB-Cable device among ${devices.length} devices:`,
       );
       for (const d of devices) {
-        log.info(`[AudioSession]   - "${d.name}" -> DeviceName: "${d.deviceName}"`);
+        log.info(
+          `[AudioSession]   - "${d.name}" -> DeviceName: "${d.deviceName}"`,
+        );
       }
 
       // Ищем по deviceName (это то, что нужно для SetAppDefault)
@@ -484,9 +491,9 @@ export class AudioSessionService {
 
       log.warn("[AudioSession] VB-Cable device not found");
       return null;
-    } catch (error: any) {
+    } catch (error: unknown) {
       log.error(
-        `[AudioSession] Error getting VB-Cable device: ${error.message}`,
+        `[AudioSession] Error getting VB-Cable device: ${error instanceof Error ? error.message : String(error)}`,
       );
       return null;
     }

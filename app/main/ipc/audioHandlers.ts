@@ -1,8 +1,8 @@
-import {ipcMain} from "electron/main";
-import log from "electron-log";
+import log from "electron-log/main";
 
 import {AudioSessionService} from "../services/audioSessionService.js";
 import {SVVLocator} from "../services/svvLocator.js";
+import {ipcMain} from "../typed-ipc-main.js";
 
 const audioSessionService = new AudioSessionService();
 const svvLocator = new SVVLocator();
@@ -77,22 +77,19 @@ export function registerAudioHandlers(): void {
   /**
    * Вернуть приложение на устройство по умолчанию
    */
-  ipcMain.handle(
-    "audio:restoreDefault",
-    async (event, processName: string) => {
-      try {
-        const success =
-          await audioSessionService.restoreDefaultDevice(processName);
-        return {success};
-      } catch (error: any) {
-        log.error(
-          `[AudioHandlers] restoreDefault error for ${processName}:`,
-          error,
-        );
-        return {success: false, error: error.message};
-      }
-    },
-  );
+  ipcMain.handle("audio:restoreDefault", async (event, processName: string) => {
+    try {
+      const success =
+        await audioSessionService.restoreDefaultDevice(processName);
+      return {success};
+    } catch (error: any) {
+      log.error(
+        `[AudioHandlers] restoreDefault error for ${processName}:`,
+        error,
+      );
+      return {success: false, error: error.message};
+    }
+  });
 
   /**
    * Установить путь к SoundVolumeView вручную

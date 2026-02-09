@@ -4,7 +4,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import {promisify} from "node:util";
 
-import log from "electron-log";
+import log from "electron-log/main";
 
 const execFileAsync = promisify(execFile);
 
@@ -40,8 +40,8 @@ export class SVVLocator {
     // 3. Проверка стандартных путей
     const standardPaths = this.getStandardPaths();
     log.info(`[SVV] Searching in ${standardPaths.length} standard paths...`);
-    for (const dir of standardPaths) {
-      const fullPath = path.join(dir, "SoundVolumeView.exe");
+    for (const directory of standardPaths) {
+      const fullPath = path.join(directory, "SoundVolumeView.exe");
       if (await this.isValidPath(fullPath)) {
         this.cachedPath = fullPath;
         await this.savePath(fullPath);
@@ -63,13 +63,9 @@ export class SVVLocator {
    */
   private async findInPath(): Promise<string | null> {
     try {
-      const {stdout} = await execFileAsync(
-        "where",
-        ["SoundVolumeView.exe"],
-        {
-          windowsHide: true,
-        },
-      );
+      const {stdout} = await execFileAsync("where", ["SoundVolumeView.exe"], {
+        windowsHide: true,
+      });
       const lines = stdout.trim().split("\n");
       if (lines.length > 0 && lines[0]) {
         const foundPath = lines[0].trim();
@@ -78,7 +74,7 @@ export class SVVLocator {
         }
       }
     } catch {
-      // where не найден или SoundVolumeView не в PATH
+      // Where не найден или SoundVolumeView не в PATH
       log.debug("[SVV] Not found in PATH");
     }
 
@@ -96,29 +92,25 @@ export class SVVLocator {
     paths.push(downloadsPath);
 
     // Program Files
-    const programFiles = process.env["ProgramFiles"] || "C:\\Program Files";
-    paths.push(programFiles);
-    paths.push(path.join(programFiles, "SoundVolumeView"));
+    const programFiles = process.env["ProgramFiles"] ?? "C:\\Program Files";
+    paths.push(programFiles, path.join(programFiles, "SoundVolumeView"));
 
     // Program Files (x86)
     const programFilesX86 =
-      process.env["ProgramFiles(x86)"] || "C:\\Program Files (x86)";
-    paths.push(programFilesX86);
-    paths.push(path.join(programFilesX86, "SoundVolumeView"));
+      process.env["ProgramFiles(x86)"] ?? "C:\\Program Files (x86)";
+    paths.push(programFilesX86, path.join(programFilesX86, "SoundVolumeView"));
 
     // Local AppData
     const localAppData = app.getPath("userData");
-    paths.push(localAppData);
-    paths.push(path.join(localAppData, "SoundVolumeView"));
+    paths.push(localAppData, path.join(localAppData, "SoundVolumeView"));
 
     // Текущая директория приложения
-    paths.push(process.cwd());
-    paths.push(path.join(process.cwd(), "tools"));
+    paths.push(process.cwd(), path.join(process.cwd(), "tools"));
 
     // В собранном приложении SoundVolumeView.exe находится в resources/tools/
     if (app.isPackaged) {
       const resourcesPath =
-        process.resourcesPath || path.join(process.execPath, "..", "resources");
+        process.resourcesPath ?? path.join(process.execPath, "..", "resources");
       paths.push(path.join(resourcesPath, "tools"));
     }
 
@@ -143,7 +135,7 @@ export class SVVLocator {
   private getSavedPath(): string | null {
     try {
       if (fs.existsSync(SVV_PATH_FILE)) {
-        const saved = fs.readFileSync(SVV_PATH_FILE, "utf-8").trim();
+        const saved = fs.readFileSync(SVV_PATH_FILE, "utf8").trim();
         if (saved) {
           return saved;
         }
@@ -160,7 +152,7 @@ export class SVVLocator {
    */
   async savePath(filePath: string): Promise<void> {
     try {
-      await fs.promises.writeFile(SVV_PATH_FILE, filePath, "utf-8");
+      await fs.promises.writeFile(SVV_PATH_FILE, filePath, "utf8");
       this.cachedPath = filePath;
       log.info(`[SVV] Path saved: ${filePath}`);
     } catch (error) {

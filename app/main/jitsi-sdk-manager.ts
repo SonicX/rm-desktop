@@ -2,6 +2,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-floating-promises, @typescript-eslint/naming-convention, @typescript-eslint/prefer-nullish-coalescing, @typescript-eslint/no-unused-vars, @typescript-eslint/member-ordering, eqeqeq, @typescript-eslint/no-unsafe-call, no-promise-executor-return, @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports, no-await-in-loop, @typescript-eslint/no-unsafe-return, import/no-extraneous-dependencies, @typescript-eslint/parameter-properties, no-eq-null */
 import {BrowserWindow, ipcMain} from "electron/main"; // eslint-disable-line no-restricted-imports
 import * as path from "node:path";
+import process from "node:process";
 
 import log from "electron-log/main";
 import Store from "electron-store";
@@ -118,22 +119,29 @@ export class JitsiSDKManager {
         // Запускаем нативный захват на macOS
         if (process.platform === "darwin" && this.nativeCaptureManager) {
           try {
-            log.info(`[JITSI-SDK] Starting native capture for source: ${selectedSource.id}`);
+            log.info(
+              `[JITSI-SDK] Starting native capture for source: ${selectedSource.id}`,
+            );
 
             // Устанавливаем callback для пересылки аудио в Jitsi
-            this.nativeCaptureManager.setAudioDataCallback((audioData: ArrayBuffer) => {
-              this.sendNativeAudioToJitsi(audioData);
-            });
+            this.nativeCaptureManager.setAudioDataCallback(
+              (audioData: ArrayBuffer) => {
+                this.sendNativeAudioToJitsi(audioData);
+              },
+            );
 
-            // startCapture уже сам парсит sourceId и устанавливает источник
-            const result = await this.nativeCaptureManager.startCapture(selectedSource.id);
+            // StartCapture уже сам парсит sourceId и устанавливает источник
+            const result = await this.nativeCaptureManager.startCapture(
+              selectedSource.id,
+            );
 
             if (result.success) {
               log.info(`[JITSI-SDK] Native capture started successfully`);
 
               // ВАЖНО: Активируем bridge СИНХРОННО и ждём завершения
               // Это должно быть ПЕРЕД установкой selectedSourceId
-              const activationResult = await this.state.window.webContents.executeJavaScript(`
+              const activationResult = await this.state.window.webContents
+                .executeJavaScript(`
                 (function() {
                   if (window.nativeAudioBridge && window.nativeAudioBridge.activate) {
                     window.nativeAudioBridge.activate();
@@ -146,15 +154,19 @@ export class JitsiSDKManager {
                 })();
               `);
 
-              log.info(`[JITSI-SDK] Bridge activation result: ${JSON.stringify(activationResult)}`);
+              log.info(
+                `[JITSI-SDK] Bridge activation result: ${JSON.stringify(activationResult)}`,
+              );
 
               // Обновляем индикатор статуса
-              this.updateAudioStatus(true, 0);
+              await this.updateAudioStatus(true, 0);
             } else {
               log.error(`[JITSI-SDK] Native capture failed: ${result.error}`);
             }
           } catch (error: any) {
-            log.error(`[JITSI-SDK] Failed to start native capture: ${error.message}`);
+            log.error(
+              `[JITSI-SDK] Failed to start native capture: ${error.message}`,
+            );
           }
         }
 
@@ -301,7 +313,7 @@ export class JitsiSDKManager {
   }
 
   // Состояние нативного плагина для индикатора
-  private nativePluginStatus = {
+  private readonly nativePluginStatus = {
     isLoaded: false,
     isAudioActive: false,
     audioPacketCount: 0,
@@ -312,7 +324,9 @@ export class JitsiSDKManager {
    * - Первая точка: зеленая если плагин загружен, синяя если нет
    * - Вторая точка: зеленая если аудио пакеты идут, синяя если нет
    */
-  private async injectNativeStatusIndicator(nativeAvailable: boolean): Promise<void> {
+  private async injectNativeStatusIndicator(
+    nativeAvailable: boolean,
+  ): Promise<void> {
     if (!this.state.window || this.state.window.isDestroyed()) return;
 
     this.nativePluginStatus.isLoaded = nativeAvailable;
@@ -348,7 +362,7 @@ export class JitsiSDKManager {
             width: 10px;
             height: 10px;
             border-radius: 50%;
-            background: ${nativeAvailable ? '#4CAF50' : '#2196F3'};
+            background: ${nativeAvailable ? "#4CAF50" : "#2196F3"};
             transition: background 0.3s;
             box-shadow: 0 0 4px rgba(0,0,0,0.3);
           \`;
@@ -418,21 +432,28 @@ export class JitsiSDKManager {
 
       log.info("[JITSI-SDK] Native status indicator injected");
     } catch (error: any) {
-      log.error(`[JITSI-SDK] Failed to inject native status indicator: ${error.message}`);
+      log.error(
+        `[JITSI-SDK] Failed to inject native status indicator: ${error.message}`,
+      );
     }
   }
 
   /**
    * Обновляет статус аудио в индикаторе
    */
-  updateAudioStatus(isActive: boolean, packetCount?: number): void {
+  async updateAudioStatus(
+    isActive: boolean,
+    packetCount?: number,
+  ): Promise<void> {
     this.nativePluginStatus.isAudioActive = isActive;
     if (packetCount !== undefined) {
       this.nativePluginStatus.audioPacketCount = packetCount;
     }
 
     if (this.state.window && !this.state.window.isDestroyed()) {
-      this.state.window.webContents.executeJavaScript(`
+      try {
+        await this.state.window.webContents.executeJavaScript(
+          `
         if (window.updateNativeStatusIndicator) {
           window.updateNativeStatusIndicator({
             pluginLoaded: ${this.nativePluginStatus.isLoaded},
@@ -440,7 +461,11 @@ export class JitsiSDKManager {
             packetCount: ${this.nativePluginStatus.audioPacketCount}
           });
         }
-      `).catch(() => {});
+      `,
+        );
+      } catch {
+        // Ignore injection errors
+      }
     }
   }
 
@@ -796,7 +821,9 @@ export class JitsiSDKManager {
         })();
       `);
 
-      log.info(`[JITSI-SDK] Native audio bridge injection result: ${JSON.stringify(result)}`);
+      log.info(
+        `[JITSI-SDK] Native audio bridge injection result: ${JSON.stringify(result)}`,
+      );
     } catch (error: any) {
       log.error(`[JITSI-SDK] Failed to inject audio bridge: ${error.message}`);
     }
@@ -814,13 +841,15 @@ export class JitsiSDKManager {
 
     try {
       // Отправляем через IPC - намного эффективнее чем executeJavaScript
-      this.state.window.webContents.send('native-audio-data', audioData);
+      this.state.window.webContents.send("native-audio-data", audioData);
       this.audioPacketsSent++;
 
       // Логируем каждые 5 секунд
       const now = Date.now();
       if (now - this.lastAudioLogTime > 5000) {
-        log.info(`[JITSI-SDK] Audio packets sent to Jitsi: ${this.audioPacketsSent}`);
+        log.info(
+          `[JITSI-SDK] Audio packets sent to Jitsi: ${this.audioPacketsSent}`,
+        );
         this.lastAudioLogTime = now;
       }
     } catch (error: any) {
@@ -881,28 +910,35 @@ export class JitsiSDKManager {
     }));
 
     // Virtual Cable handlers
-    ipcMain.handle("jitsi:set-virtual-cable-mode", async (event, enable: boolean) => {
-      this.enableVirtualCableMode(enable);
-    });
+    ipcMain.handle(
+      "jitsi:set-virtual-cable-mode",
+      // eslint-disable-next-line @typescript-eslint/no-confusing-void-expression -- void handler
+      (event, enable: boolean) => this.enableVirtualCableMode(enable),
+    );
 
-    ipcMain.handle("jitsi:get-virtual-cable-status", async () => {
-      return this.isVirtualCableMode();
-    });
+    ipcMain.handle("jitsi:get-virtual-cable-status", () =>
+      this.isVirtualCableMode(),
+    );
 
-    ipcMain.handle("jitsi:route-app-audio-to-cable", async (event, processPath: string) => {
-      return this.routeAppAudioToCable(processPath);
-    });
+    ipcMain.handle(
+      "jitsi:route-app-audio-to-cable",
+      async (event, processPath: string) =>
+        this.routeAppAudioToCable(processPath),
+    );
 
-    ipcMain.handle("jitsi:restore-app-audio", async (event, processPath: string) => {
-      return this.restoreAppAudio(processPath);
-    });
+    ipcMain.handle(
+      "jitsi:restore-app-audio",
+      async (event, processPath: string) => this.restoreAppAudio(processPath),
+    );
 
     ipcMain.handle("jitsi:get-audio-sessions", async () => {
       try {
         const sessions = await this.audioSessionService.getAudioSessions();
         log.info(`[VC-MODE] Got ${sessions.length} audio sessions for picker`);
         // Фильтруем Electron
-        return sessions.filter(s => !s.processName.toLowerCase().includes("electron"));
+        return sessions.filter(
+          (s) => !s.processName.toLowerCase().includes("electron"),
+        );
       } catch (error: any) {
         log.error(`[VC-MODE] Error getting audio sessions: ${error.message}`);
         return [];
@@ -1218,7 +1254,11 @@ export class JitsiSDKManager {
     this.state.window.webContents.on(
       "console-message",
       (event, level, message) => {
-        if (message.includes("[JITSI]") || message.includes("conference") || message.includes("[NATIVE-AUDIO]")) {
+        if (
+          message.includes("[JITSI]") ||
+          message.includes("conference") ||
+          message.includes("[NATIVE-AUDIO]")
+        ) {
           log.info(`Jitsi Console: ${message}`);
         }
       },
@@ -1749,7 +1789,9 @@ export class JitsiSDKManager {
    */
   enableVirtualCableMode(enable: boolean): void {
     this.useVirtualCableMode = enable;
-    log.info(`[JITSI-SDK] Virtual Cable mode: ${enable ? "ENABLED" : "DISABLED"}`);
+    log.info(
+      `[JITSI-SDK] Virtual Cable mode: ${enable ? "ENABLED" : "DISABLED"}`,
+    );
   }
 
   /**
@@ -1762,9 +1804,14 @@ export class JitsiSDKManager {
   /**
    * Перенаправляет звук приложения на Virtual Cable
    */
-  async routeAppAudioToCable(processPath: string): Promise<{success: boolean; error?: string; deviceName?: string}> {
+  async routeAppAudioToCable(
+    processPath: string,
+  ): Promise<{success: boolean; error?: string; deviceName?: string}> {
     if (process.platform !== "win32") {
-      return {success: false, error: "Virtual Cable is only supported on Windows"};
+      return {
+        success: false,
+        error: "Virtual Cable is only supported on Windows",
+      };
     }
 
     try {
@@ -1773,15 +1820,23 @@ export class JitsiSDKManager {
       // Получаем имя VB-Cable устройства
       const vbCableName = await this.audioSessionService.getVBCableDeviceName();
       if (!vbCableName) {
-        return {success: false, error: "VB-Cable not found. Please install VB-Audio Virtual Cable."};
+        return {
+          success: false,
+          error: "VB-Cable not found. Please install VB-Audio Virtual Cable.",
+        };
       }
 
       // Перенаправляем звук приложения на VB-Cable
-      const result = await this.audioSessionService.setAppAudioDevice(processPath, vbCableName);
+      const result = await this.audioSessionService.setAppAudioDevice(
+        processPath,
+        vbCableName,
+      );
 
       if (result) {
         this.routedProcessPath = processPath;
-        log.info(`[VC-MODE] Successfully routed "${processPath}" to "${vbCableName}"`);
+        log.info(
+          `[VC-MODE] Successfully routed "${processPath}" to "${vbCableName}"`,
+        );
         return {success: true, deviceName: vbCableName};
       }
 
@@ -1795,15 +1850,21 @@ export class JitsiSDKManager {
   /**
    * Восстанавливает звук приложения на устройство по умолчанию
    */
-  async restoreAppAudio(processPath: string): Promise<{success: boolean; error?: string}> {
+  async restoreAppAudio(
+    processPath: string,
+  ): Promise<{success: boolean; error?: string}> {
     if (process.platform !== "win32") {
-      return {success: false, error: "Virtual Cable is only supported on Windows"};
+      return {
+        success: false,
+        error: "Virtual Cable is only supported on Windows",
+      };
     }
 
     try {
       log.info(`[VC-MODE] Restoring audio for: ${processPath}`);
 
-      const result = await this.audioSessionService.restoreDefaultDevice(processPath);
+      const result =
+        await this.audioSessionService.restoreDefaultDevice(processPath);
 
       if (result) {
         if (this.routedProcessPath === processPath) {
@@ -1850,16 +1911,22 @@ export class JitsiSDKManager {
 
         // Деактивируем audio bridge в Jitsi окне
         if (this.state.window && !this.state.window.isDestroyed()) {
-          await this.state.window.webContents.executeJavaScript(`
+          await this.state.window.webContents
+            .executeJavaScript(
+              `
             if (window.nativeAudioBridge && window.nativeAudioBridge.deactivate) {
               window.nativeAudioBridge.deactivate();
               console.log('[NATIVE-AUDIO] Bridge deactivated on window close');
             }
-          `).catch(() => {});
+          `,
+            )
+            .catch(() => {
+              // Ignore deactivation errors
+            });
         }
 
         await this.nativeCaptureManager.stopCapture();
-        this.updateAudioStatus(false, 0);
+        await this.updateAudioStatus(false, 0);
       } catch (error: any) {
         log.warn(`[JITSI-SDK] Error stopping native capture: ${error.message}`);
       }

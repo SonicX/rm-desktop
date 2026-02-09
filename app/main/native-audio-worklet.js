@@ -1,27 +1,27 @@
-// native-audio-worklet.js - AudioWorklet processor for native audio
+// Native-audio-worklet.js - AudioWorklet processor for native audio
 // This runs in the AudioWorklet thread
 
 class NativeAudioProcessor extends AudioWorkletProcessor {
   constructor() {
     super();
     this.audioQueue = [];
-    this.sampleRate = 48000;
+    this.sampleRate = 48_000;
     this.channels = 2;
     this.samplesPerFrame = 960; // 20ms at 48kHz
 
     // Receive audio data from main thread
-    this.port.onmessage = (event) => {
-      if (event.data.type === 'audio') {
-        // event.data.samples is Float32Array with interleaved stereo
+    this.port.addEventListener("message", (event) => {
+      if (event.data.type === "audio") {
+        // Event.data.samples is Float32Array with interleaved stereo
         this.audioQueue.push(event.data.samples);
-      } else if (event.data.type === 'config') {
-        this.sampleRate = event.data.sampleRate || 48000;
-        this.channels = event.data.channels || 2;
+      } else if (event.data.type === "config") {
+        this.sampleRate = event.data.sampleRate ?? 48_000;
+        this.channels = event.data.channels ?? 2;
       }
-    };
+    });
   }
 
-  process(inputs, outputs, parameters) {
+  process(inputs, outputs, _parameters) {
     const output = outputs[0];
     const leftChannel = output[0];
     const rightChannel = output[1];
@@ -36,11 +36,11 @@ class NativeAudioProcessor extends AudioWorkletProcessor {
 
       // De-interleave stereo to separate channels
       for (let i = 0; i < frameSamples; i++) {
-        const srcIndex = i * 2;
-        if (srcIndex < audioData.length) {
-          leftChannel[i] = audioData[srcIndex];
-          if (rightChannel && srcIndex + 1 < audioData.length) {
-            rightChannel[i] = audioData[srcIndex + 1];
+        const sourceIndex = i * 2;
+        if (sourceIndex < audioData.length) {
+          leftChannel[i] = audioData[sourceIndex];
+          if (rightChannel && sourceIndex + 1 < audioData.length) {
+            rightChannel[i] = audioData[sourceIndex + 1];
           }
         } else {
           leftChannel[i] = 0;
@@ -49,7 +49,7 @@ class NativeAudioProcessor extends AudioWorkletProcessor {
       }
 
       // Remove used samples from the buffer
-      const usedSamples = frameSamples * 2; // stereo
+      const usedSamples = frameSamples * 2; // Stereo
       if (usedSamples >= audioData.length) {
         this.audioQueue.shift();
       } else {
@@ -67,4 +67,4 @@ class NativeAudioProcessor extends AudioWorkletProcessor {
   }
 }
 
-registerProcessor('native-audio-processor', NativeAudioProcessor);
+registerProcessor("native-audio-processor", NativeAudioProcessor); // ESM export for AudioWorklet

@@ -160,19 +160,41 @@ export type MainCall = {
     data: JitsiOptions | {},
   ) => Promise<{success: boolean; error?: string; result: string}>;
   // Audio Session API for Virtual Cable (Windows)
-  "audio:checkReady": () => Promise<{success: boolean; isReady?: boolean; error?: string}>;
-  "audio:getSessions": () => Promise<{success: boolean; sessions: AudioSession[]; error?: string}>;
-  "audio:getDevices": () => Promise<{success: boolean; devices: AudioDevice[]; error?: string}>;
-  "audio:routeToCable": (processName: string) => Promise<{success: boolean; deviceName?: string; error?: string}>;
-  "audio:restoreDefault": (processName: string) => Promise<{success: boolean; error?: string}>;
-  "audio:setManualPath": (exePath: string) => Promise<{success: boolean; error?: string}>;
+  "audio:checkReady": () => Promise<{
+    success: boolean;
+    isReady?: boolean;
+    error?: string;
+  }>;
+  "audio:getSessions": () => Promise<{
+    success: boolean;
+    sessions: AudioSession[];
+    error?: string;
+  }>;
+  "audio:getDevices": () => Promise<{
+    success: boolean;
+    devices: AudioDevice[];
+    error?: string;
+  }>;
+  "audio:routeToCable": (
+    processName: string,
+  ) => Promise<{success: boolean; deviceName?: string; error?: string}>;
+  "audio:restoreDefault": (
+    processName: string,
+  ) => Promise<{success: boolean; error?: string}>;
+  "audio:setManualPath": (
+    exePath: string,
+  ) => Promise<{success: boolean; error?: string}>;
   "audio:hasVBCable": () => Promise<{success: boolean; hasVBCable: boolean}>;
   "audio:getSVVPath": () => Promise<{success: boolean; path: string | null}>;
   // Virtual Cable Mode
   "jitsi:set-virtual-cable-mode": (enable: boolean) => Promise<void>;
   "jitsi:get-virtual-cable-status": () => Promise<boolean>;
-  "jitsi:route-app-audio-to-cable": (processPath: string) => Promise<{success: boolean; error?: string; deviceName?: string}>;
-  "jitsi:restore-app-audio": (processPath: string) => Promise<{success: boolean; error?: string}>;
+  "jitsi:route-app-audio-to-cable": (
+    processPath: string,
+  ) => Promise<{success: boolean; error?: string; deviceName?: string}>;
+  "jitsi:restore-app-audio": (
+    processPath: string,
+  ) => Promise<{success: boolean; error?: string}>;
   "jitsi:get-audio-sessions": () => Promise<AudioSession[]>;
 };
 
