@@ -1305,6 +1305,26 @@ async function createMainWindow(): Promise<BrowserWindow> {
     setupMic(rawKey);
   });
 
+  /**
+   * Отправляет сообщение горячей клавиши во все webview (Zulip).
+   * Используется когда нет отдельного нативного окна Jitsi SDK —
+   * команды управления аудио/микрофоном пересылаются в webview,
+   * чтобы веб-приложение (Zulip) могло обработать их самостоятельно.
+   */
+  function sendHotkeyToWebviews(
+    channel: "hotkey-audio-muted" | "hotkey-mic-muted",
+    muted: boolean,
+  ) {
+    log.info(
+      `Main: Нет активного Jitsi окна — отправляем ${channel}(${muted}) в webview`,
+    );
+    for (const content of webContents.getAllWebContents()) {
+      // Отправляем во все webContents — preload-скрипт в каждом webview
+      // обработает сообщение и пробросит его через electron_bridge
+      content.send(channel, muted);
+    }
+  }
+
   function setupAudio(rawKey: string) {
     // 🔊 Регистрируем горячую клавишу для управления громкостью
     if (currentVolumeHotkey || rawKey == "") {
@@ -1356,7 +1376,15 @@ async function createMainWindow(): Promise<BrowserWindow> {
 
           // Переключаем состояние: если был выключен — включаем, и наоборот
           const newMutedState = !currentVolumeHotkeyPressed;
-          jitsiSDKManager.setLocalAudioMuted(newMutedState);
+
+          if (jitsiSDKManager.hasActiveWindow()) {
+            // Есть нативное окно Jitsi — управляем через SDK
+            jitsiSDKManager.setLocalAudioMuted(newMutedState);
+          } else {
+            // Нет нативного окна — отправляем в webview
+            sendHotkeyToWebviews("hotkey-audio-muted", newMutedState);
+          }
+
           currentVolumeHotkeyPressed = newMutedState;
         }
 
@@ -1408,12 +1436,24 @@ async function createMainWindow(): Promise<BrowserWindow> {
 
       if (down[pressedKeyName] && !currentMicHotkeyPressed) {
         log.info(`Main: Нажата клавиша микрофона — включаем микрофон`);
-        jitsiSDKManager.setLocalMicMuted(false); // Включить вывод звук
+
+        if (jitsiSDKManager.hasActiveWindow()) {
+          jitsiSDKManager.setLocalMicMuted(false);
+        } else {
+          sendHotkeyToWebviews("hotkey-mic-muted", false);
+        }
+
         currentMicHotkeyPressed = true;
       } else if (down[pressedKeyName] && currentMicHotkeyPressed) {
       } else {
         log.info(`Main: Отпущена клавиша микрофона — выключаем микрофон`);
-        jitsiSDKManager.setLocalMicMuted(true); // Выключить вывод звук
+
+        if (jitsiSDKManager.hasActiveWindow()) {
+          jitsiSDKManager.setLocalMicMuted(true);
+        } else {
+          sendHotkeyToWebviews("hotkey-mic-muted", true);
+        }
+
         currentMicHotkeyPressed = false;
       }
     });

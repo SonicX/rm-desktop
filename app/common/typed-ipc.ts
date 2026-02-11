@@ -264,4 +264,7 @@ export type RendererMessage = {
   update_error: (message: string) => void;
   "quit-app": () => void;
   "create-native-stream-for-jitsi": () => void;
+  // Горячие клавиши аудио/микрофона для webview (когда нет нативного Jitsi окна)
+  "hotkey-audio-muted": (muted: boolean) => void;
+  "hotkey-mic-muted": (muted: boolean) => void;
 };

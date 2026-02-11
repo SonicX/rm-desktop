@@ -314,6 +314,28 @@ electron_bridge.on_event("desktop-sources-response", (response) => {
   }
 });
 
+// === Обработчики горячих клавиш аудио/микрофона от main процесса ===
+// Когда нет отдельного нативного окна Jitsi, main процесс отправляет
+// команды горячих клавиш в webview. Здесь мы пробрасываем их через
+// electron_bridge, чтобы Zulip (веб-приложение) мог обработать.
+ipcRenderer.on("hotkey-audio-muted", (_event: any, muted: boolean) => {
+  ipcRenderer.send(
+    "preload-log",
+    `🔊 Preload: Получена команда hotkey-audio-muted: ${muted}`,
+  );
+  // Пробрасываем через electron_bridge для обработки в Zulip
+  bridgeEvents.emit("hotkey-audio-muted", muted);
+});
+
+ipcRenderer.on("hotkey-mic-muted", (_event: any, muted: boolean) => {
+  ipcRenderer.send(
+    "preload-log",
+    `🎤 Preload: Получена команда hotkey-mic-muted: ${muted}`,
+  );
+  // Пробрасываем через electron_bridge для обработки в Zulip
+  bridgeEvents.emit("hotkey-mic-muted", muted);
+});
+
 // Network error handler
 window.addEventListener("load", () => {
   if (!location.href.includes("app/renderer/network.html")) {

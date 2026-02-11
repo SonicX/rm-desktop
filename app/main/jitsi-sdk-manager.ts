@@ -1078,6 +1078,15 @@ export class JitsiSDKManager {
     }
   }
 
+  /**
+   * Синхронная проверка наличия активного окна Jitsi SDK.
+   * Используется для решения, куда отправлять команды горячих клавиш:
+   * в нативное окно Jitsi или в webview.
+   */
+  hasActiveWindow(): boolean {
+    return Boolean(this.state.window) && !this.state.window?.isDestroyed();
+  }
+
   async setLocalAudioMuted(muted: boolean): Promise<boolean> {
     if (!this.state.window || this.state.window.isDestroyed()) {
       log.warn("[JITSI-SDK] Cannot set audio muted - no window");
