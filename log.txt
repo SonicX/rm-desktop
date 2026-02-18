@@ -15,7 +15,7 @@ build started...
 
 build started...
 
-  VITE v5.4.20  ready in 270 ms
+  VITE v5.4.20  ready in 221 ms
 
   ➜  Local:   http://localhost:5173/
   ➜  Network: use --host to expose
@@ -26,261 +26,257 @@ transforming...
 ✓ 6 modules transformed.
 rendering chunks...
 computing gzip size...
-dist-electron/preload.js  109.98 kB │ gzip: 29.85 kB │ map: 58.20 kB
-built in 879ms.
+dist-electron/preload.js  112.31 kB │ gzip: 30.47 kB │ map: 59.36 kB
+built in 884ms.
 ✓ 405 modules transformed.
-✓ 2079 modules transformed.
+✓ 2085 modules transformed.
 rendering chunks...
 computing gzip size...
-dist-electron/renderer.js  637.46 kB │ gzip: 134.73 kB │ map: 1,434.74 kB
-built in 3730ms.
+dist-electron/renderer.js  637.45 kB │ gzip: 134.74 kB │ map: 1,434.73 kB
+built in 3699ms.
 rendering chunks...
-dist-electron/index.js  2,390.70 kB │ map: 5,469.41 kB
-built in 4072ms.
-16:58:34.860 › [AudioSession] Initializing AudioSessionService...
-16:58:34.864 › [SVV] Starting SoundVolumeView search...
-16:58:34.864 › [SVV] Searching in PATH...
-16:58:34.978 › 🎯[Jitsi SDK] Module loaded: object
-[16:58:35] 🔧 Custom config for mac: serverPath = /Users/jtereschenko/Documents/IDE/rm-desktop/node_modules/node-global-key-listener/bin/MacKeyServer
-[16:58:35] ✅ Lib binary chmod: /Users/jtereschenko/Documents/IDE/rm-desktop/node_modules/node-global-key-listener/bin/MacKeyServer
-[16:58:35] 🔧 Custom config for mac: serverPath = /Users/jtereschenko/Documents/IDE/rm-desktop/node_modules/node-global-key-listener/bin/MacKeyServer
-[16:58:35] ✅ Lib binary chmod: /Users/jtereschenko/Documents/IDE/rm-desktop/node_modules/node-global-key-listener/bin/MacKeyServer
-[16:58:35] [SVV] Searching in 9 standard paths...
-[16:58:35] [NativeCapture] Checking for addon in 3 locations:
-[16:58:35] [NativeCapture] Platform: darwin
-[16:58:35] [NativeCapture] Is Packaged: false
-[16:58:35] [NativeCapture] __dirname: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron
-[16:58:35] [NativeCapture] process.resourcesPath: /Users/jtereschenko/Documents/IDE/rm-desktop/node_modules/electron/dist/Electron.app/Contents/Resources
-[16:58:35] [NativeCapture] Checking: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron/native-addon.node - ✅ FOUND
-[16:58:35] [NativeCapture] Loading native addon from: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron/native-addon.node
+dist-electron/index.js  2,389.51 kB │ map: 5,470.98 kB
+built in 4403ms.
+16:07:41.689 › [AudioSession] Initializing AudioSessionService...
+16:07:41.691 › [SVV] Starting SoundVolumeView search...
+16:07:41.692 › [SVV] Searching in PATH...
+16:07:41.771 › 🎯[Jitsi SDK] Module loaded: object
+[16:07:41] 🔧 Custom config for mac: serverPath = /Users/jtereschenko/Documents/IDE/rm-desktop/node_modules/node-global-key-listener/bin/MacKeyServer
+[16:07:41] ✅ Lib binary chmod: /Users/jtereschenko/Documents/IDE/rm-desktop/node_modules/node-global-key-listener/bin/MacKeyServer
+[16:07:41] 🔧 Custom config for mac: serverPath = /Users/jtereschenko/Documents/IDE/rm-desktop/node_modules/node-global-key-listener/bin/MacKeyServer
+[16:07:41] ✅ Lib binary chmod: /Users/jtereschenko/Documents/IDE/rm-desktop/node_modules/node-global-key-listener/bin/MacKeyServer
+[16:07:41] [SVV] Searching in 9 standard paths...
+[16:07:41] [NativeCapture] Checking for addon in 3 locations:
+[16:07:41] [NativeCapture] Platform: darwin
+[16:07:41] [NativeCapture] Is Packaged: false
+[16:07:41] [NativeCapture] __dirname: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron
+[16:07:41] [NativeCapture] process.resourcesPath: /Users/jtereschenko/Documents/IDE/rm-desktop/node_modules/electron/dist/Electron.app/Contents/Resources
+[16:07:41] [NativeCapture] Checking: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron/native-addon.node - ✅ FOUND
+[16:07:41] [NativeCapture] Loading native addon from: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron/native-addon.node
 🪟 [detectAddonType] Start detect
 🪟 [detectAddonType] Start more
 Test from ScreenCaptureManager
 🍎 [detectAddonType] Detected macOS Swift addon
 🪟 [detectAddonType] End detect
-[16:58:35] [NativeCapture] ✅ Native addon loaded successfully
+[16:07:41] [NativeCapture] ✅ Native addon loaded successfully
 🪟 [detectAddonType] Start detect
 🪟 [detectAddonType] Start more
 Test from ScreenCaptureManager
 🍎 [detectAddonType] Detected macOS Swift addon
 🪟 [detectAddonType] End detect
-[16:58:35] [AudioSession] Initializing AudioSessionService...
-[16:58:35] [SVV] Starting SoundVolumeView search...
-[16:58:35] [SVV] Searching in PATH...
-[16:58:35] [JITSI-SDK] Failed to setup always on top: Cannot read properties of undefined (reading 'webContents')
-[16:58:35] [JITSI-SDK] Failed to setup power monitor: Cannot read properties of undefined (reading 'on')
-[16:58:35] [JITSI-SDK] SDK helper functions initialized
-[16:58:35] [JITSI-SDK] Manager created
-[16:58:35] [JITSI-SDK] NativeCaptureManager reference set
-[16:58:35] [NATIVE-CAPTURE] Audio status callback set for indicator
-[16:58:35] [AudioHandlers] Audio IPC handlers registered
-[16:58:35] [SVV] Searching in 9 standard paths...
-[16:58:35] [SVV] SoundVolumeView NOT FOUND! Audio routing will not work.
-[16:58:35] [SVV] Download from: https://www.nirsoft.net/utils/sound_volume_view.html
-[16:58:35] [SVV] Extract to: tools/ folder in project root
-[16:58:35] [AudioSession] SoundVolumeView not found - audio routing disabled
-[16:58:35] [SVV] SoundVolumeView NOT FOUND! Audio routing will not work.
-[16:58:35] [SVV] Download from: https://www.nirsoft.net/utils/sound_volume_view.html
-[16:58:35] [SVV] Extract to: tools/ folder in project root
-[16:58:35] [AudioSession] SoundVolumeView not found - audio routing disabled
-[70324:0210/165836.242203:ERROR:sandbox/mac/system_services.cc:35] SetApplicationIsDaemon: Error Domain=NSOSStatusErrorDomain Code=-50 "paramErr: error in user parameter list" (-50)
-[16:58:36] Main: WebView создается с URL: https://connectrm-svz.ru/
-[16:58:36] Main: Webview preload установлен: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron/preload.js
+[16:07:41] [AudioSession] Initializing AudioSessionService...
+[16:07:41] [SVV] Starting SoundVolumeView search...
+[16:07:41] [SVV] Searching in PATH...
+[16:07:41] [JITSI-SDK] Failed to setup always on top: Cannot read properties of undefined (reading 'webContents')
+[16:07:42] [JITSI-SDK] Failed to setup power monitor: Cannot read properties of undefined (reading 'on')
+[16:07:42] [JITSI-SDK] SDK helper functions initialized
+[16:07:42] [JITSI-SDK] Manager created
+[16:07:42] [JITSI-SDK] NativeCaptureManager reference set
+[16:07:42] [NATIVE-CAPTURE] Audio status callback set for indicator
+[16:07:42] [AudioHandlers] Audio IPC handlers registered
+[16:07:42] [SVV] Searching in 9 standard paths...
+[16:07:42] [SVV] SoundVolumeView NOT FOUND! Audio routing will not work.
+[16:07:42] [SVV] Download from: https://www.nirsoft.net/utils/sound_volume_view.html
+[16:07:42] [SVV] Extract to: tools/ folder in project root
+[16:07:42] [AudioSession] SoundVolumeView not found - audio routing disabled
+[16:07:42] [SVV] SoundVolumeView NOT FOUND! Audio routing will not work.
+[16:07:42] [SVV] Download from: https://www.nirsoft.net/utils/sound_volume_view.html
+[16:07:42] [SVV] Extract to: tools/ folder in project root
+[16:07:42] [AudioSession] SoundVolumeView not found - audio routing disabled
+[21292:0216/160742.445268:ERROR:sandbox/mac/system_services.cc:35] SetApplicationIsDaemon: Error Domain=NSOSStatusErrorDomain Code=-50 "paramErr: error in user parameter list" (-50)
+[16:07:42] Main: WebView создается с URL: https://joinrm-svz.ru/
+[16:07:42] Main: Webview preload установлен: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron/preload.js
 ✅ Окно создано!
-[16:58:36] Tray created with icon: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron/resources/tray/traymacOSTemplate.png
-[16:58:36] Tray: Создан
+[16:07:43] Tray created with icon: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron/resources/tray/traymacOSTemplate.png
+[16:07:43] Tray: Создан
 ✅ Окно создано!
-[16:58:36] Main: WebView создается с URL: https://connectrm-svz.ru/
-[16:58:36] Main: Webview preload установлен: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron/preload.js
-[16:58:36] Main: WebView создается с URL: https://connectrm-svz.ru/
-[16:58:36] Main: Webview preload установлен: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron/preload.js
-[16:58:36] Main: Preload файл существует: true
-[16:58:36] Tray: Обновлён badge на 0
+[16:07:43] Main: WebView создается с URL: https://joinrm-svz.ru/
+[16:07:43] Main: Webview preload установлен: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron/preload.js
+[16:07:43] Main: WebView создается с URL: https://joinrm-svz.ru/
+[16:07:43] Main: Webview preload установлен: /Users/jtereschenko/Documents/IDE/rm-desktop/dist-electron/preload.js
+[16:07:43] Main: Preload файл существует: true
+[16:07:43] Tray: Обновлён badge на 0
 Preload Log: ✅ Preload: Начало выполнения
-[16:58:36] Preload Log: ✅ Preload: Начало выполнения
-[16:58:36] Preload Log: ✅ Preload: Начало выполнения
+[16:07:45] Preload Log: ✅ Preload: Начало выполнения
+[16:07:45] Preload Log: ✅ Preload: Начало выполнения
 Preload Log: ✅ Preload: Начало выполнения
-Preload Log: ✅ Preload: Загружен для URL: about:blank
-[16:58:36] Preload Log: ✅ Preload: Загружен для URL: about:blank
-[16:58:36] Preload Log: ✅ Preload: Загружен для URL: about:blank
-Preload Log: ✅ Preload: Загружен для URL: about:blank
+Preload Log: ✅ Preload: Загружен для URL: https://joinrm-svz.ru/
+[16:07:45] Preload Log: ✅ Preload: Загружен для URL: https://joinrm-svz.ru/
+[16:07:45] Preload Log: ✅ Preload: Загружен для URL: https://joinrm-svz.ru/
+Preload Log: ✅ Preload: Загружен для URL: https://joinrm-svz.ru/
 Preload Log: ✅ Preload: Initialization complete
-[16:58:36] Preload Log: ✅ Preload: Initialization complete
-[16:58:36] Preload Log: ✅ Preload: Initialization complete
-Preload Log: ✅ Preload: Initialization complete
-Preload Log: Audio API and Electron capabilities exposed to window
-[16:58:36] Preload Log: Audio API and Electron capabilities exposed to window
-[16:58:36] Preload Log: Audio API and Electron capabilities exposed to window
-Preload Log: Audio API and Electron capabilities exposed to window
-Preload Log: ✅ Preload: Начало выполнения
-[16:58:41] Preload Log: ✅ Preload: Начало выполнения
-[16:58:41] Preload Log: ✅ Preload: Начало выполнения
-Preload Log: ✅ Preload: Начало выполнения
-Preload Log: ✅ Preload: Загружен для URL: https://connectrm-svz.ru/
-[16:58:41] Preload Log: ✅ Preload: Загружен для URL: https://connectrm-svz.ru/
-[16:58:41] Preload Log: ✅ Preload: Загружен для URL: https://connectrm-svz.ru/
-Preload Log: ✅ Preload: Загружен для URL: https://connectrm-svz.ru/
-Preload Log: ✅ Preload: Initialization complete
-[16:58:41] Preload Log: ✅ Preload: Initialization complete
-[16:58:41] Preload Log: ✅ Preload: Initialization complete
+[16:07:45] Preload Log: ✅ Preload: Initialization complete
+[16:07:45] Preload Log: ✅ Preload: Initialization complete
 Preload Log: ✅ Preload: Initialization complete
 Preload Log: Audio API and Electron capabilities exposed to window
-[16:58:41] Preload Log: Audio API and Electron capabilities exposed to window
-[16:58:41] Preload Log: Audio API and Electron capabilities exposed to window
+[16:07:45] Preload Log: Audio API and Electron capabilities exposed to window
+[16:07:45] Preload Log: Audio API and Electron capabilities exposed to window
 Preload Log: Audio API and Electron capabilities exposed to window
-[16:58:41] Tray: Обновлён badge на 0
+[16:07:45] Tray: Обновлён badge на 0
+[16:07:45] Tray: Обновлён badge на 0
 (electron) 'console-message' arguments are deprecated and will be removed. Please use Event<WebContentsConsoleMessageEventParams> object instead.
-[16:58:42] Tray: Обновлён badge на 0
-Preload Log: Bridge: Отправлено событие: total_unread_count [29]
-[16:58:42] Preload Log: Bridge: Отправлено событие: total_unread_count [29]
-[16:58:42] Preload Log: Bridge: Отправлено событие: total_unread_count [29]
-Preload Log: Bridge: Отправлено событие: total_unread_count [29]
-[16:58:42] Tray: Обновлён badge на 29
-[16:58:42] Tray: Обновлён badge на 29
+[16:07:46] Tray: Обновлён badge на 0
 Preload Log: Bridge: Отправлено событие: request-electron-version []
-[16:58:42] Preload Log: Bridge: Отправлено событие: request-electron-version []
-[16:58:42] Preload Log: Bridge: Отправлено событие: request-electron-version []
+[16:07:46] Preload Log: Bridge: Отправлено событие: request-electron-version []
+[16:07:46] Preload Log: Bridge: Отправлено событие: request-electron-version []
 Preload Log: Bridge: Отправлено событие: request-electron-version []
 Preload Log: 📦 Zulip requested Electron version
-[16:58:42] Preload Log: 📦 Zulip requested Electron version
-[16:58:42] Preload Log: 📦 Zulip requested Electron version
+[16:07:46] Preload Log: 📦 Zulip requested Electron version
+[16:07:46] Preload Log: 📦 Zulip requested Electron version
 Preload Log: 📦 Zulip requested Electron version
 Preload Log: Bridge: Отправлено событие: electron-version [{"version":"5.27.3"}]
-[16:58:42] Preload Log: Bridge: Отправлено событие: electron-version [{"version":"5.27.3"}]
-[16:58:42] Preload Log: Bridge: Отправлено событие: electron-version [{"version":"5.27.3"}]
+[16:07:46] Preload Log: Bridge: Отправлено событие: electron-version [{"version":"5.27.3"}]
+[16:07:46] Preload Log: Bridge: Отправлено событие: electron-version [{"version":"5.27.3"}]
 Preload Log: Bridge: Отправлено событие: electron-version [{"version":"5.27.3"}]
 Preload Log: Bridge: Отправлено событие: jitsi-log-event [{"level":"info","message":"Zulip Webview: Получена версия Electron: 5.27.3"}]
-[16:58:42] Preload Log: Bridge: Отправлено событие: jitsi-log-event [{"level":"info","message":"Zulip Webview: Получена версия Electron: 5.27.3"}]
-[16:58:42] Preload Log: Bridge: Отправлено событие: jitsi-log-event [{"level":"info","message":"Zulip Webview: Получена версия Electron: 5.27.3"}]
+[16:07:46] Preload Log: Bridge: Отправлено событие: jitsi-log-event [{"level":"info","message":"Zulip Webview: Получена версия Electron: 5.27.3"}]
+[16:07:46] Preload Log: Bridge: Отправлено событие: jitsi-log-event [{"level":"info","message":"Zulip Webview: Получена версия Electron: 5.27.3"}]
 Preload Log: Bridge: Отправлено событие: jitsi-log-event [{"level":"info","message":"Zulip Webview: Получена версия Electron: 5.27.3"}]
 Preload Log: 📦 Sent version back to Zulip via IPC: 5.27.3
-[16:58:42] Preload Log: 📦 Sent version back to Zulip via IPC: 5.27.3
-[16:58:42] Preload Log: 📦 Sent version back to Zulip via IPC: 5.27.3
+[16:07:46] Preload Log: 📦 Sent version back to Zulip via IPC: 5.27.3
+[16:07:46] Preload Log: 📦 Sent version back to Zulip via IPC: 5.27.3
 Preload Log: 📦 Sent version back to Zulip via IPC: 5.27.3
-[16:58:49] Tray: Обновлён badge на 29
-[16:58:51] Tray: Обновлён badge на 29
+[16:07:48] Tray: Обновлён badge на 0
+[16:07:49] Tray: Обновлён badge на 0
+Preload Log: Bridge: Отправлено событие: jitsi-initialized []
+[16:07:50] Preload Log: Bridge: Отправлено событие: jitsi-initialized []
+[16:07:50] Preload Log: Bridge: Отправлено событие: jitsi-initialized []
+Preload Log: Bridge: Отправлено событие: jitsi-initialized []
+Preload Log: Bridge: Отправлено событие: jitsi-log-event [{"level":"info","message":"Zulip: Инициализация Jitsi Meet API в iframe, URL: https://joinrm-svz.ru/#narrow/channel/30-.D0.9A.D0.BB.D0.B0.D0.BD-.D1.81.D0.B8.D0.B1.D0.B8.D1.80.D1.8C2/topic/.F0.9F.94.8A.20.D0.90.D1.83.D0.B4.D0.B8.D0.BE"}]
+[16:07:50] Preload Log: Bridge: Отправлено событие: jitsi-log-event [{"level":"info","message":"Zulip: Инициализация Jitsi Meet API в iframe, URL: https://joinrm-svz.ru/#narrow/channel/30-.D0.9A.D0.BB.D0.B0.D0.BD-.D1.81.D0.B8.D0.B1.D0.B8.D1.80.D1.8C2/topic/.F0.9F.94.8A.20.D0.90.D1.83.D0.B4.D0.B8.D0.BE"}]
+[16:07:50] Preload Log: Bridge: Отправлено событие: jitsi-log-event [{"level":"info","message":"Zulip: Инициализация Jitsi Meet API в iframe, URL: https://joinrm-svz.ru/#narrow/channel/30-.D0.9A.D0.BB.D0.B0.D0.BD-.D1.81.D0.B8.D0.B1.D0.B8.D1.80.D1.8C2/topic/.F0.9F.94.8A.20.D0.90.D1.83.D0.B4.D0.B8.D0.BE"}]
+Preload Log: Bridge: Отправлено событие: jitsi-log-event [{"level":"info","message":"Zulip: Инициализация Jitsi Meet API в iframe, URL: https://joinrm-svz.ru/#narrow/channel/30-.D0.9A.D0.BB.D0.B0.D0.BD-.D1.81.D0.B8.D0.B1.D0.B8.D1.80.D1.8C2/topic/.F0.9F.94.8A.20.D0.90.D1.83.D0.B4.D0.B8.D0.BE"}]
+Preload Log: Bridge: Отправлено событие: webview-mic-state-changed [{"micMuted":false}]
+[16:07:50] Preload Log: Bridge: Отправлено событие: webview-mic-state-changed [{"micMuted":false}]
+[16:07:50] Preload Log: Bridge: Отправлено событие: webview-mic-state-changed [{"micMuted":false}]
+Preload Log: Bridge: Отправлено событие: webview-mic-state-changed [{"micMuted":false}]
+Preload Log: Bridge: Отправлено событие: global-volume-hotkey [{"key":"N"}]
+[16:07:50] Preload Log: Bridge: Отправлено событие: global-volume-hotkey [{"key":"N"}]
+[16:07:50] Preload Log: Bridge: Отправлено событие: global-volume-hotkey [{"key":"N"}]
+Preload Log: Bridge: Отправлено событие: global-volume-hotkey [{"key":"N"}]
+[16:07:50] Main: Получено новое событие global-volume-hotkey: {"key":"N"}
+[16:07:50] 🔧 Starting listener with custom config
+Preload Log: Bridge: Отправлено событие: walkie-talkie-status [{"enabled":false,"key":"S"}]
+[16:07:59] Preload Log: Bridge: Отправлено событие: walkie-talkie-status [{"enabled":false,"key":"S"}]
+[16:07:59] Preload Log: Bridge: Отправлено событие: walkie-talkie-status [{"enabled":false,"key":"S"}]
+Preload Log: Bridge: Отправлено событие: walkie-talkie-status [{"enabled":false,"key":"S"}]
+[16:07:59] Main: Получено новое событие walkie-talkie-status: {"enabled":false,"key":"S"}
+[16:07:59] 🔧 Starting listener with custom config
+Preload Log: Bridge: Отправлено событие: walkie-talkie-status [{"enabled":false,"key":"S"}]
+[16:08:03] Preload Log: Bridge: Отправлено событие: walkie-talkie-status [{"enabled":false,"key":"S"}]
+[16:08:03] Preload Log: Bridge: Отправлено событие: walkie-talkie-status [{"enabled":false,"key":"S"}]
+Preload Log: Bridge: Отправлено событие: walkie-talkie-status [{"enabled":false,"key":"S"}]
+[16:08:03] Main: Получено новое событие walkie-talkie-status: {"enabled":false,"key":"S"}
+[16:08:03] Main: Остановлен node-global-key-listener для предыдущей клавиши: s
+[16:08:03] 🔧 Starting listener with custom config
+Preload Log: Bridge: Отправлено событие: global-volume-hotkey [{"key":"N"}]
+[16:08:03] Preload Log: Bridge: Отправлено событие: global-volume-hotkey [{"key":"N"}]
+[16:08:03] Preload Log: Bridge: Отправлено событие: global-volume-hotkey [{"key":"N"}]
+Preload Log: Bridge: Отправлено событие: global-volume-hotkey [{"key":"N"}]
+[16:08:03] Main: Получено новое событие global-volume-hotkey: {"key":"N"}
+[16:08:03] Main: Остановлен предыдущий слушатель: n
+[16:08:03] 🔧 Starting listener with custom config
 Preload Log: Zulip: ipcRenderer.invoke jitsi-connect-with-zulip-config
-[16:58:52] Preload Log: Zulip: ipcRenderer.invoke jitsi-connect-with-zulip-config
-[16:58:52] Preload Log: Zulip: ipcRenderer.invoke jitsi-connect-with-zulip-config
+[16:08:08] Preload Log: Zulip: ipcRenderer.invoke jitsi-connect-with-zulip-config
+[16:08:08] Preload Log: Zulip: ipcRenderer.invoke jitsi-connect-with-zulip-config
 Preload Log: Zulip: ipcRenderer.invoke jitsi-connect-with-zulip-config
-[16:58:52] 🎯[Jitsi] Connecting with Zulip config using SDK...
-[16:58:52] 🎯[Jitsi] Options received: {"roomUrl":"https://jitsi-connectrm.ru/392821616587407-55357565863210401091107610801086","roomName":"392821616587407-55357565863210401091107610801086","serverUrl":"https://jitsi-connectrm.ru","jwt":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjb250ZXh0Ijp7InVzZXIiOnsibmFtZSI6Ill1cmFfWWFfTiIsImlkIjoiaXNvbmljdXBAZ21haWwuY29tIiwiZW1haWwiOiJpc29uaWN1cEBnbWFpbC5jb20iLCJhdmF0YXIiOiJodHRwczovL3N0b3JhZ2UueWFuZGV4Y2xvdWQubmV0L2Nvbm5lY3RybS1wdWJsaWMtYXZhdGFycy8yL2IwYjY0YTE0ZTkxOTM0MTExNmIyNmU0MGY1ZGY3MDEwODY1NGI0YzYucG5nIn19LCJhcHBfaWQiOiJjb25uZWN0cm1fc3Z6IiwiYXVkIjoiaml0c2kiLCJpc3MiOiJjb25uZWN0cm1fc3Z6Iiwic3ViIjoiaml0c2ktY29ubmVjdHJtLnJ1Iiwicm9vbSI6IioiLCJpYXQiOjE3NzA3MTc1MzIsImV4cCI6MTc3MDc4OTUzMn0.KxJZmHXUWLWKVH5F4ErjysAVpyeWu9nc-pBkrVALalk","topic":"🔊 Аудио","stream":"Новорос Тест","streamId":1903,"userInfo":{"displayName":"Yura_Ya_N","email":"isonicup@gmail.com","avatarUrl":"https://storage.yandexcloud.net/connectrm-public-avatars/2/b0b64a14e919341116b26e40f5df70108654b4c6.png"},"preInitialized":true,"currentTopic":"🔊 Аудио","isSwitchMode":true}
-[16:58:52] 🎯[Jitsi] Starting conference without pre-selection
-[16:58:52] [JITSI-SDK] Creating window for room: 392821616587407-55357565863210401091107610801086
-[16:58:52] [JITSI-SDK] Failed to setup screen sharing: Cannot read properties of undefined (reading 'session')
-[16:58:52] [JITSI-SDK] Loading conference URL: https://jitsi-connectrm.ru/392821616587407-55357565863210401091107610801086?jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjb250ZXh0Ijp7InVzZXIiOnsibmFtZSI6Ill1cmFfWWFfTiIsImlkIjoiaXNvbmljdXBAZ21haWwuY29tIiwiZW1haWwiOiJpc29uaWN1cEBnbWFpbC5jb20iLCJhdmF0YXIiOiJodHRwczovL3N0b3JhZ2UueWFuZGV4Y2xvdWQubmV0L2Nvbm5lY3RybS1wdWJsaWMtYXZhdGFycy8yL2IwYjY0YTE0ZTkxOTM0MTExNmIyNmU0MGY1ZGY3MDEwODY1NGI0YzYucG5nIn19LCJhcHBfaWQiOiJjb25uZWN0cm1fc3Z6IiwiYXVkIjoiaml0c2kiLCJpc3MiOiJjb25uZWN0cm1fc3Z6Iiwic3ViIjoiaml0c2ktY29ubmVjdHJtLnJ1Iiwicm9vbSI6IioiLCJpYXQiOjE3NzA3MTc1MzIsImV4cCI6MTc3MDc4OTUzMn0.KxJZmHXUWLWKVH5F4ErjysAVpyeWu9nc-pBkrVALalk#config.disableDeepLinking=true&config.prejoinPageEnabled=false&config.startWithAudioMuted=false&config.startWithVideoMuted=true&config.enableWelcomePage=false&config.enableClosePage=false&config.resolution=720&config.disableInitialGUM=false&config.enableLayerSuspension=true&config.p2p.enabled=true&config.p2p.preferH264=true&interfaceConfig.SHOW_JITSI_WATERMARK=false&interfaceConfig.SHOW_WATERMARK_FOR_GUESTS=false&interfaceConfig.SHOW_BRAND_WATERMARK=false&interfaceConfig.HIDE_INVITE_MORE_HEADER=true&interfaceConfig.MOBILE_APP_PROMO=false&interfaceConfig.SHOW_MEETING_NAME=false&interfaceConfig.DISPLAY_WELCOME_PAGE_CONTENT=false&interfaceConfig.APP_NAME=%F0%9F%94%8A+%D0%90%D1%83%D0%B4%D0%B8%D0%BE&interfaceConfig.NATIVE_APP_NAME=%F0%9F%94%8A+%D0%90%D1%83%D0%B4%D0%B8%D0%BE&config.requireDisplayName=false&config.hideConferenceSubject=true&config.hideConferenceTimer=false&config.hideDominantSpeakerBadge=false&interfaceConfig.SHOW_CONFERENCE_SUBJECT=false&interfaceConfig.HIDE_CONFERENCE_SUBJECT=true&config.subject=+&interfaceConfig.TOOLBAR_BUTTONS=%5B%22camera%22%2C%22desktop%22%2C%22microphone%22%2C%22participants%22%2C%22settings%22%2C%22fullscreen%22%2C%22hangup%22%5D&userInfo.displayName=Yura_Ya_N&userInfo.email=isonicup%40gmail.com&config.subject=%F0%9F%94%8A+%D0%90%D1%83%D0%B4%D0%B8%D0%BE&userInfo.avatarURL=https%3A%2F%2Fstorage.yandexcloud.net%2Fconnectrm-public-avatars%2F2%2Fb0b64a14e919341116b26e40f5df70108654b4c6.png&config.gravatar.disabled=true
-[16:58:53] Jitsi Console: 2026-02-10T09:58:53.141Z [features/conference] (TIME) init action dispatched: 920.5
-[16:58:53] [JITSI-SDK] DOM ready
-[16:58:53] [JITSI-SDK] Page loaded
-[16:58:53] [JITSI-SDK] Loading overlay shown
-[16:58:53] Jitsi Console: [JITSI] Using toggleAudioMuted to mute
-[16:58:53] [JITSI-SDK] Microphone muted: true
-[16:58:53] [JITSI-SDK] Conference ready
-[16:58:53] Jitsi Console: [JITSI] Setting up conference handlers...
-[16:58:53] Jitsi Console: [JITSI] Conference handlers installed
-[16:58:53] [JITSI-SDK] Conference handlers injected
-[16:58:53] [JITSI-SDK] Audio mute indicator button injected
-[16:58:53] [JITSI-SDK] Native status indicator injected
-[16:58:53] [JITSI-SDK] Injecting native audio bridge for macOS...
-[16:58:53] Jitsi Console: [NATIVE-AUDIO] Initializing native audio bridge with getDisplayMedia interception...
-[16:58:53] Jitsi Console: [NATIVE-AUDIO] ipcRenderer loaded
-[16:58:53] Jitsi Console: [NATIVE-AUDIO] AudioContext created, state: running
-[16:58:53] Jitsi Console: [NATIVE-AUDIO] Requested sampleRate: 48000, actual: 48000
-[16:58:53] Jitsi Console: [NATIVE-AUDIO] Resample ratio: 1.0000 needs resample: false
-[16:58:53] Jitsi Console: [NATIVE-AUDIO] IPC listener registered (Float32 mode)
-[16:58:53] Jitsi Console: [NATIVE-AUDIO] getDisplayMedia overridden
-[16:58:53] Jitsi Console: [NATIVE-AUDIO] Bridge initialized successfully
-[16:58:53] [JITSI-SDK] Native audio bridge injection result: {"success":true,"status":"initialized"}
-[16:58:53] [JITSI-SDK] Conference window created successfully
-[16:58:53] 🎯[Jitsi SDK] Conference window created successfully
-[16:58:53] 🔧 Starting listener with custom config
-[16:58:53] 🔧 Starting listener with custom config
-[16:58:53] Jitsi Console: [JITSI] Found JitsiMeetScreenObtainer, overriding openDesktopPicker
-[16:58:53] Jitsi Console: [NATIVE-AUDIO] JitsiMeetJS.createLocalTracks overridden
-[16:58:53] Jitsi Console: 2026-02-10T09:58:53.822Z [features/conference] (TIME) setupInitialDevices finished: 1601.2999999970198
-[16:58:53] Jitsi Console: 2026-02-10T09:58:53.822Z [conference.js] <Object.init>:  Executed conference.init with roomName: 392821616587407-55357565863210401091107610801086 (performance.now=1602)
-[16:58:53] Jitsi Console: 2026-02-10T09:58:53.826Z [conference.js] <Object.init>:  (TIME) createInitialLocalTracks: 1605.8999999985099 
-[16:58:53] Jitsi Console: 2026-02-10T09:58:53.829Z [conference.js] <Object.init>:  Dispatching connect from init since prejoin is not visible.
-[16:58:53] Jitsi Console: 2026-02-10T09:58:53.831Z [modules/xmpp/moderator] <new fc>:  Using xmpp for conference requests.
-[16:58:53] Jitsi Console: [NATIVE-AUDIO] JitsiMeetJS.createLocalTracks intercepted: {"constraints":{"video":{"height":{"ideal":720,"max":720,"min":240}}},"devices":["audio"],"effects":[],"facingMode":"user","resolution":720,"timeout":15000}
-[16:58:53] Jitsi Console: [NATIVE-AUDIO] Original createLocalTracks returned 1 tracks
-[16:58:53] Jitsi Console: 2026-02-10T09:58:53.979Z [conference.js] (TIME) createInitialLocalTracks finished: 1758 
-[16:58:53] Jitsi Console: 2026-02-10T09:58:53.980Z [conference.js] Resolving the initialGUM promise!
-[16:58:54] [JITSI-SDK] Loading overlay hidden
-[16:58:54] Jitsi Console: 2026-02-10T09:58:54.888Z [features/base/conference] On connection established: prejoinVisible: false, initialGUMPromiseExists=true, promiseExists=true
-[16:58:54] Jitsi Console: 2026-02-10T09:58:54.891Z [conference.js] audio mute: initially muted.
-[16:58:54] Jitsi Console: 2026-02-10T09:58:54.909Z [modules/xmpp/moderator] Sending conference request over XMPP to focus.meet.jitsi
-[16:58:54] Jitsi Console: 2026-02-10T09:58:54.922Z [conference.js] Initialized with 1 local tracks
-[16:58:55] Jitsi Console: 2026-02-10T09:58:55.320Z [conference.js] <fo.<anonymous>>:  My role changed, new role: none
-[16:58:55] Jitsi Console: 2026-02-10T09:58:55.328Z [conference.js] <fo.<anonymous>>:  My role changed, new role: moderator
-[16:58:55] Jitsi Console: 2026-02-10T09:58:55.340Z [features/base/conference] Wake lock created.
-[16:58:59] [JITSI-SDK] Audio output muted
-[16:59:00] [JITSI-SDK] Audio output unmuted
-Preload Log: Zulip: ipcRenderer.invoke jitsi-connect-with-zulip-config
-[16:59:08] Preload Log: Zulip: ipcRenderer.invoke jitsi-connect-with-zulip-config
-[16:59:08] Preload Log: Zulip: ipcRenderer.invoke jitsi-connect-with-zulip-config
-Preload Log: Zulip: ipcRenderer.invoke jitsi-connect-with-zulip-config
-[16:59:08] 🎯[Jitsi] Connecting with Zulip config using SDK...
-[16:59:08] 🎯[Jitsi] Options received: {"roomUrl":"https://jitsi-connectrm.ru/392821616587407-55357565863210401091107610801086","roomName":"392821616587407-55357565863210401091107610801086","serverUrl":"https://jitsi-connectrm.ru","jwt":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjb250ZXh0Ijp7InVzZXIiOnsibmFtZSI6Ill1cmFfWWFfTiIsImlkIjoiaXNvbmljdXBAZ21haWwuY29tIiwiZW1haWwiOiJpc29uaWN1cEBnbWFpbC5jb20iLCJhdmF0YXIiOiJodHRwczovL3N0b3JhZ2UueWFuZGV4Y2xvdWQubmV0L2Nvbm5lY3RybS1wdWJsaWMtYXZhdGFycy8yL2IwYjY0YTE0ZTkxOTM0MTExNmIyNmU0MGY1ZGY3MDEwODY1NGI0YzYucG5nIn19LCJhcHBfaWQiOiJjb25uZWN0cm1fc3Z6IiwiYXVkIjoiaml0c2kiLCJpc3MiOiJjb25uZWN0cm1fc3Z6Iiwic3ViIjoiaml0c2ktY29ubmVjdHJtLnJ1Iiwicm9vbSI6IioiLCJpYXQiOjE3NzA3MTc1NDgsImV4cCI6MTc3MDc4OTU0OH0.nHnLuj-na_rlE4p0f2BEJCSl1MzcU40r0nVbTNV6Iqo","topic":"🔊 Аудио","stream":"Новорос Тест","streamId":1903,"userInfo":{"displayName":"Yura_Ya_N","email":"isonicup@gmail.com","avatarUrl":"https://storage.yandexcloud.net/connectrm-public-avatars/2/b0b64a14e919341116b26e40f5df70108654b4c6.png"},"preInitialized":true,"currentTopic":"🔊 Аудио","isSwitchMode":true}
-[16:59:08] 🎯[Jitsi] Starting conference without pre-selection
-[16:59:08] [JITSI-SDK] Window already exists for room: 392821616587407-55357565863210401091107610801086, focusing existing window
-[16:59:16] Jitsi Console: 2026-02-10T09:59:16.518Z [features/base/conference] <WakeLockSentinel.r6>:  Wake lock released
-[16:59:18] Jitsi Console: 2026-02-10T09:59:18.528Z [features/base/conference] Wake lock created.
-Preload Log: Zulip: ipcRenderer.invoke jitsi-connect-with-zulip-config
-[16:59:20] Preload Log: Zulip: ipcRenderer.invoke jitsi-connect-with-zulip-config
-[16:59:20] Preload Log: Zulip: ipcRenderer.invoke jitsi-connect-with-zulip-config
-Preload Log: Zulip: ipcRenderer.invoke jitsi-connect-with-zulip-config
-[16:59:20] 🎯[Jitsi] Connecting with Zulip config using SDK...
-[16:59:20] 🎯[Jitsi] Options received: {"roomUrl":"https://jitsi-connectrm.ru/392821616587407-55357565863210401091107610801086","roomName":"392821616587407-55357565863210401091107610801086","serverUrl":"https://jitsi-connectrm.ru","jwt":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjb250ZXh0Ijp7InVzZXIiOnsibmFtZSI6Ill1cmFfWWFfTiIsImlkIjoiaXNvbmljdXBAZ21haWwuY29tIiwiZW1haWwiOiJpc29uaWN1cEBnbWFpbC5jb20iLCJhdmF0YXIiOiJodHRwczovL3N0b3JhZ2UueWFuZGV4Y2xvdWQubmV0L2Nvbm5lY3RybS1wdWJsaWMtYXZhdGFycy8yL2IwYjY0YTE0ZTkxOTM0MTExNmIyNmU0MGY1ZGY3MDEwODY1NGI0YzYucG5nIn19LCJhcHBfaWQiOiJjb25uZWN0cm1fc3Z6IiwiYXVkIjoiaml0c2kiLCJpc3MiOiJjb25uZWN0cm1fc3Z6Iiwic3ViIjoiaml0c2ktY29ubmVjdHJtLnJ1Iiwicm9vbSI6IioiLCJpYXQiOjE3NzA3MTc1NjAsImV4cCI6MTc3MDc4OTU2MH0.yjnl8SIO8iQXBDRVLp5_RU894BcyovE_7xox1AA6amQ","topic":"🔊 Аудио","stream":"Новорос Тест","streamId":1903,"userInfo":{"displayName":"Yura_Ya_N","email":"isonicup@gmail.com","avatarUrl":"https://storage.yandexcloud.net/connectrm-public-avatars/2/b0b64a14e919341116b26e40f5df70108654b4c6.png"},"preInitialized":true,"currentTopic":"🔊 Аудио","isSwitchMode":true}
-[16:59:20] 🎯[Jitsi] Starting conference without pre-selection
-[16:59:20] [JITSI-SDK] Window already exists for room: 392821616587407-55357565863210401091107610801086, focusing existing window
-[16:59:21] Jitsi Console: [JITSI] Hangup button clicked
-[16:59:21] Jitsi Console: [JITSI] Initiating conference close
-[16:59:21] [JITSI-SDK] Window close requested - performing cleanup
-[16:59:21] [JITSI-SDK] Performing conference cleanup
-[16:59:21] Jitsi Console: [JITSI] Starting conference cleanup
-[16:59:21] Jitsi Console: [JITSI] Found APP.conference, attempting cleanup
-[16:59:21] Jitsi Console: [JITSI] Calling hangup
-[16:59:21] Jitsi Console: [JITSI] Stopping all media streams
-[16:59:21] Jitsi Console: [JITSI] Cleanup completed
-[16:59:21] Jitsi Console: 2026-02-10T09:59:21.913Z [features/base/conference] <e6>:  Releasing wake lock.
-[16:59:21] Jitsi Console: 2026-02-10T09:59:21.914Z [features/base/conference] <WakeLockSentinel.r6>:  Wake lock released
-[16:59:22] [JITSI-SDK] Conference cleanup completed
-[16:59:22] [JITSI-SDK] Closing screen shown
-[16:59:22] [JITSI-SDK] Navigation attempt to: https://jitsi-connectrm.ru/?jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjb250ZXh0Ijp7InVzZXIiOnsibmFtZSI6Ill1cmFfWWFfTiIsImlkIjoiaXNvbmljdXBAZ21haWwuY29tIiwiZW1haWwiOiJpc29uaWN1cEBnbWFpbC5jb20iLCJhdmF0YXIiOiJodHRwczovL3N0b3JhZ2UueWFuZGV4Y2xvdWQubmV0L2Nvbm5lY3RybS1wdWJsaWMtYXZhdGFycy8yL2IwYjY0YTE0ZTkxOTM0MTExNmIyNmU0MGY1ZGY3MDEwODY1NGI0YzYucG5nIn19LCJhcHBfaWQiOiJjb25uZWN0cm1fc3Z6IiwiYXVkIjoiaml0c2kiLCJpc3MiOiJjb25uZWN0cm1fc3Z6Iiwic3ViIjoiaml0c2ktY29ubmVjdHJtLnJ1Iiwicm9vbSI6IioiLCJpYXQiOjE3NzA3MTc1MzIsImV4cCI6MTc3MDc4OTUzMn0.KxJZmHXUWLWKVH5F4ErjysAVpyeWu9nc-pBkrVALalk#config.disableDeepLinking=true&config.prejoinPageEnabled=false&config.startWithAudioMuted=false&config.startWithVideoMuted=true&config.enableWelcomePage=false&config.enableClosePage=false&config.resolution=720&config.disableInitialGUM=false&config.enableLayerSuspension=true&config.p2p.enabled=true&config.p2p.preferH264=true&interfaceConfig.SHOW_JITSI_WATERMARK=false&interfaceConfig.SHOW_WATERMARK_FOR_GUESTS=false&interfaceConfig.SHOW_BRAND_WATERMARK=false&interfaceConfig.HIDE_INVITE_MORE_HEADER=true&interfaceConfig.MOBILE_APP_PROMO=false&interfaceConfig.SHOW_MEETING_NAME=false&interfaceConfig.DISPLAY_WELCOME_PAGE_CONTENT=false&interfaceConfig.APP_NAME=%F0%9F%94%8A+%D0%90%D1%83%D0%B4%D0%B8%D0%BE&interfaceConfig.NATIVE_APP_NAME=%F0%9F%94%8A+%D0%90%D1%83%D0%B4%D0%B8%D0%BE&config.requireDisplayName=false&config.hideConferenceSubject=true&config.hideConferenceTimer=false&config.hideDominantSpeakerBadge=false&interfaceConfig.SHOW_CONFERENCE_SUBJECT=false&interfaceConfig.HIDE_CONFERENCE_SUBJECT=true&config.subject=+&interfaceConfig.TOOLBAR_BUTTONS=%5B%22camera%22%2C%22desktop%22%2C%22microphone%22%2C%22participants%22%2C%22settings%22%2C%22fullscreen%22%2C%22hangup%22%5D&userInfo.displayName=Yura_Ya_N&userInfo.email=isonicup%40gmail.com&config.subject=%F0%9F%94%8A+%D0%90%D1%83%D0%B4%D0%B8%D0%BE&userInfo.avatarURL=https%3A%2F%2Fstorage.yandexcloud.net%2Fconnectrm-public-avatars%2F2%2Fb0b64a14e919341116b26e40f5df70108654b4c6.png&config.gravatar.disabled=true
-[16:59:22] [JITSI-SDK] Blocking navigation to different page
-[16:59:22] [JITSI-SDK] Performing conference cleanup
-[16:59:22] Jitsi Console: [JITSI] Starting conference cleanup
-[16:59:22] Jitsi Console: [JITSI] Found APP.conference, attempting cleanup
-[16:59:22] Jitsi Console: [JITSI] Calling hangup
-[16:59:22] [JITSI-SDK] Permanent closing screen shown
-[16:59:22] Jitsi Console: [JITSI] Stopping all media streams
-[16:59:22] Jitsi Console: [JITSI] Cleanup completed
-[16:59:22] [JITSI-SDK] Conference cleanup completed
-[16:59:24] [JITSI-SDK] Stopping native capture on window close
-[16:59:24] Jitsi Console: [NATIVE-AUDIO] Native capture deactivated
-[16:59:24] Jitsi Console: [NATIVE-AUDIO] Bridge deactivated on window close
-[16:59:24] [JITSI-SDK] Closing conference window
-[16:59:24] [JITSI-SDK] Performing conference cleanup
-[16:59:24] Jitsi Console: [JITSI] Starting conference cleanup
-[16:59:24] Jitsi Console: [JITSI] Found APP.conference, attempting cleanup
-[16:59:24] Jitsi Console: [JITSI] Calling hangup
-[16:59:24] Jitsi Console: [JITSI] Stopping all media streams
-[16:59:24] Jitsi Console: [JITSI] Cleanup completed
-[16:59:24] [JITSI-SDK] Stopping native capture on window close
-[16:59:24] Jitsi Console: [NATIVE-AUDIO] Native capture deactivated
-[16:59:24] Jitsi Console: [NATIVE-AUDIO] Bridge deactivated on window close
-[16:59:24] [JITSI-SDK] Closing conference window
-[16:59:24] [JITSI-SDK] Performing conference cleanup
-[16:59:24] Jitsi Console: [JITSI] Starting conference cleanup
-[16:59:24] Jitsi Console: [JITSI] Found APP.conference, attempting cleanup
-[16:59:24] Jitsi Console: [JITSI] Calling hangup
-[16:59:24] Jitsi Console: [JITSI] Stopping all media streams
-[16:59:24] Jitsi Console: [JITSI] Cleanup completed
-[16:59:24] [JITSI-SDK] Conference cleanup completed
-[16:59:24] [JITSI-SDK] Window closed successfully
-[16:59:24] [JITSI-SDK] Conference cleanup completed
-[16:59:24] [JITSI-SDK] Error closing window: Cannot read properties of null (reading 'webContents')
-[16:59:26] Tray: Закрытие приложения
-[16:59:26] Main: Горячая клавиша f удалена при выходе
-[16:59:26] Main: Горячая клавиша n удалена при выходе
+[16:08:08] 🎯[Jitsi] Connecting with Zulip config using SDK...
+[16:08:08] 🎯[Jitsi] Options received: {"roomUrl":"https://jitsi-connectrm.ru/464604561496819-55357565863210401091107610801086","roomName":"464604561496819-55357565863210401091107610801086","serverUrl":"https://jitsi-connectrm.ru","jwt":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjb250ZXh0Ijp7InVzZXIiOnsibmFtZSI6ItCS0LjRgtCw0LvRj1_QryIsImlkIjoicm9vdDMzQGxpdmUucnUiLCJlbWFpbCI6InJvb3QzM0BsaXZlLnJ1IiwiYXZhdGFyIjoiaHR0cHM6Ly9qb2lucm0tc3Z6LnJ1L3N0YXRpYy9pbWFnZXMvdXNlcnMtYXZhdGFycy8xNC5wbmcifX0sImFwcF9pZCI6ImNvbm5lY3RybV9zdnoiLCJhdWQiOiJqaXRzaSIsImlzcyI6ImNvbm5lY3RybV9zdnoiLCJzdWIiOiJqaXRzaS1jb25uZWN0cm0ucnUiLCJyb29tIjoiKiIsImlhdCI6MTc3MTIzMjg4OCwiZXhwIjoxNzcxMzA0ODg4fQ.ZewRA6KDsA9DD1VpTj2FHyVqB1sRBNZAQR1nShTx23A","topic":"🔊 Аудио","stream":"Клан сибирь2","streamId":30,"userInfo":{"displayName":"Виталя_Я","email":"root33@live.ru","avatarUrl":"https://joinrm-svz.ru/static/images/users-avatars/14.png"},"preInitialized":true,"currentTopic":"🔊 Аудио","isSwitchMode":true}
+[16:08:08] 🎯[Jitsi] Starting conference without pre-selection
+[16:08:08] [JITSI-SDK] Creating window for room: 464604561496819-55357565863210401091107610801086
+[16:08:08] [JITSI-SDK] Failed to setup screen sharing: Cannot read properties of undefined (reading 'session')
+[16:08:08] [JITSI-SDK] Loading conference URL: https://jitsi-connectrm.ru/464604561496819-55357565863210401091107610801086?jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjb250ZXh0Ijp7InVzZXIiOnsibmFtZSI6ItCS0LjRgtCw0LvRj1_QryIsImlkIjoicm9vdDMzQGxpdmUucnUiLCJlbWFpbCI6InJvb3QzM0BsaXZlLnJ1IiwiYXZhdGFyIjoiaHR0cHM6Ly9qb2lucm0tc3Z6LnJ1L3N0YXRpYy9pbWFnZXMvdXNlcnMtYXZhdGFycy8xNC5wbmcifX0sImFwcF9pZCI6ImNvbm5lY3RybV9zdnoiLCJhdWQiOiJqaXRzaSIsImlzcyI6ImNvbm5lY3RybV9zdnoiLCJzdWIiOiJqaXRzaS1jb25uZWN0cm0ucnUiLCJyb29tIjoiKiIsImlhdCI6MTc3MTIzMjg4OCwiZXhwIjoxNzcxMzA0ODg4fQ.ZewRA6KDsA9DD1VpTj2FHyVqB1sRBNZAQR1nShTx23A#config.disableDeepLinking=true&config.prejoinPageEnabled=false&config.startWithAudioMuted=false&config.startWithVideoMuted=true&config.enableWelcomePage=false&config.enableClosePage=false&config.resolution=720&config.disableInitialGUM=false&config.enableLayerSuspension=true&config.p2p.enabled=true&config.p2p.preferH264=true&interfaceConfig.SHOW_JITSI_WATERMARK=false&interfaceConfig.SHOW_WATERMARK_FOR_GUESTS=false&interfaceConfig.SHOW_BRAND_WATERMARK=false&interfaceConfig.HIDE_INVITE_MORE_HEADER=true&interfaceConfig.MOBILE_APP_PROMO=false&interfaceConfig.SHOW_MEETING_NAME=false&interfaceConfig.DISPLAY_WELCOME_PAGE_CONTENT=false&interfaceConfig.APP_NAME=%F0%9F%94%8A+%D0%90%D1%83%D0%B4%D0%B8%D0%BE&interfaceConfig.NATIVE_APP_NAME=%F0%9F%94%8A+%D0%90%D1%83%D0%B4%D0%B8%D0%BE&config.requireDisplayName=false&config.hideConferenceSubject=true&config.hideConferenceTimer=false&config.hideDominantSpeakerBadge=false&interfaceConfig.SHOW_CONFERENCE_SUBJECT=false&interfaceConfig.HIDE_CONFERENCE_SUBJECT=true&config.subject=+&interfaceConfig.TOOLBAR_BUTTONS=%5B%22camera%22%2C%22desktop%22%2C%22microphone%22%2C%22participants%22%2C%22settings%22%2C%22fullscreen%22%2C%22hangup%22%5D&userInfo.displayName=%D0%92%D0%B8%D1%82%D0%B0%D0%BB%D1%8F_%D0%AF&userInfo.email=root33%40live.ru&config.subject=%F0%9F%94%8A+%D0%90%D1%83%D0%B4%D0%B8%D0%BE&userInfo.avatarURL=https%3A%2F%2Fjoinrm-svz.ru%2Fstatic%2Fimages%2Fusers-avatars%2F14.png&config.gravatar.disabled=true
+[16:08:08] Jitsi Console: 2026-02-16T09:08:08.609Z [features/conference] (TIME) init action dispatched: 362.5
+[16:08:08] [JITSI-SDK] DOM ready
+[16:08:08] Jitsi Console: 2026-02-16T09:08:08.659Z [features/conference] (TIME) setupInitialDevices finished: 413
+[16:08:08] Jitsi Console: 2026-02-16T09:08:08.660Z [conference.js] <Object.init>:  Executed conference.init with roomName: 464604561496819-55357565863210401091107610801086 (performance.now=413.59999999403954)
+[16:08:08] Jitsi Console: 2026-02-16T09:08:08.679Z [conference.js] <Object.init>:  (TIME) createInitialLocalTracks: 432.79999999701977 
+[16:08:08] Jitsi Console: 2026-02-16T09:08:08.681Z [conference.js] <Object.init>:  Dispatching connect from init since prejoin is not visible.
+[16:08:08] Jitsi Console: 2026-02-16T09:08:08.683Z [modules/xmpp/moderator] <new fc>:  Using xmpp for conference requests.
+[16:08:08] [JITSI-SDK] Page loaded
+[16:08:08] [JITSI-SDK] Loading overlay shown
+[16:08:08] Jitsi Console: [JITSI] Using toggleAudioMuted to mute
+[16:08:08] [JITSI-SDK] Microphone muted: true
+[16:08:08] [JITSI-SDK] Conference ready
+[16:08:08] Jitsi Console: [JITSI] Setting up conference handlers...
+[16:08:08] Jitsi Console: [JITSI] Conference handlers installed
+[16:08:08] [JITSI-SDK] Conference handlers injected
+[16:08:08] [JITSI-SDK] Audio mute indicator button injected
+[16:08:08] [JITSI-SDK] Native status indicator injected
+[16:08:08] [JITSI-SDK] Injecting native audio bridge for macOS...
+[16:08:08] Jitsi Console: [NATIVE-AUDIO] Initializing native audio bridge with getDisplayMedia interception...
+[16:08:08] Jitsi Console: [NATIVE-AUDIO] ipcRenderer loaded
+[16:08:08] Jitsi Console: [NATIVE-AUDIO] AudioContext created, state: running
+[16:08:08] Jitsi Console: [NATIVE-AUDIO] Requested sampleRate: 48000, actual: 48000
+[16:08:08] Jitsi Console: [NATIVE-AUDIO] Resample ratio: 1.0000 needs resample: false
+[16:08:08] Jitsi Console: [NATIVE-AUDIO] IPC listener registered (Float32 mode)
+[16:08:08] Jitsi Console: [NATIVE-AUDIO] getDisplayMedia overridden
+[16:08:08] Jitsi Console: [NATIVE-AUDIO] Bridge initialized successfully
+[16:08:08] [JITSI-SDK] Native audio bridge injection result: {"success":true,"status":"initialized"}
+[16:08:08] [JITSI-SDK] Conference window created successfully
+[16:08:08] 🎯[Jitsi SDK] Conference window created successfully
+[16:08:08] Main: Остановлен предыдущий слушатель: n
+[16:08:08] 🔧 Starting listener with custom config
+[16:08:08] Main: Остановлен node-global-key-listener для предыдущей клавиши: s
+[16:08:08] 🔧 Starting listener with custom config
+[16:08:08] Jitsi Console: 2026-02-16T09:08:08.931Z [conference.js] (TIME) createInitialLocalTracks finished: 685.2999999970198 
+[16:08:08] Jitsi Console: 2026-02-16T09:08:08.933Z [conference.js] Resolving the initialGUM promise!
+[16:08:09] Jitsi Console: [JITSI] Found JitsiMeetScreenObtainer, overriding openDesktopPicker
+[16:08:09] Jitsi Console: [NATIVE-AUDIO] JitsiMeetJS.createLocalTracks overridden
+[16:08:09] Jitsi Console: 2026-02-16T09:08:09.214Z [features/base/conference] On connection established: prejoinVisible: false, initialGUMPromiseExists=true, promiseExists=true
+[16:08:09] Jitsi Console: 2026-02-16T09:08:09.217Z [conference.js] audio mute: initially muted.
+[16:08:09] Jitsi Console: 2026-02-16T09:08:09.228Z [modules/xmpp/moderator] Sending conference request over XMPP to focus.meet.jitsi
+[16:08:09] Jitsi Console: 2026-02-16T09:08:09.238Z [conference.js] Initialized with 1 local tracks
+[16:08:09] Jitsi Console: 2026-02-16T09:08:09.500Z [conference.js] <fo.<anonymous>>:  My role changed, new role: none
+[16:08:09] Jitsi Console: 2026-02-16T09:08:09.511Z [conference.js] <fo.<anonymous>>:  My role changed, new role: moderator
+[16:08:09] Jitsi Console: 2026-02-16T09:08:09.523Z [features/base/conference] Wake lock created.
+[16:08:09] [JITSI-SDK] Loading overlay hidden
+[16:08:14] Jitsi Console: [JITSI] Hangup button clicked
+[16:08:14] Jitsi Console: [JITSI] Initiating conference close
+[16:08:14] [JITSI-SDK] Window close requested - performing cleanup
+[16:08:14] [JITSI-SDK] Performing conference cleanup
+[16:08:14] Jitsi Console: [JITSI] Starting conference cleanup
+[16:08:14] Jitsi Console: [JITSI] Found APP.conference, attempting cleanup
+[16:08:14] Jitsi Console: [JITSI] Calling hangup
+[16:08:14] Jitsi Console: [JITSI] Stopping all media streams
+[16:08:15] Jitsi Console: [JITSI] Cleanup completed
+[16:08:15] Jitsi Console: 2026-02-16T09:08:15.049Z [features/base/conference] <e6>:  Releasing wake lock.
+[16:08:15] Jitsi Console: 2026-02-16T09:08:15.049Z [features/base/conference] <WakeLockSentinel.r6>:  Wake lock released
+[16:08:15] [JITSI-SDK] Conference cleanup completed
+[16:08:15] [JITSI-SDK] Closing screen shown
+[16:08:15] [JITSI-SDK] Navigation attempt to: https://jitsi-connectrm.ru/?jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjb250ZXh0Ijp7InVzZXIiOnsibmFtZSI6ItCS0LjRgtCw0LvRj1_QryIsImlkIjoicm9vdDMzQGxpdmUucnUiLCJlbWFpbCI6InJvb3QzM0BsaXZlLnJ1IiwiYXZhdGFyIjoiaHR0cHM6Ly9qb2lucm0tc3Z6LnJ1L3N0YXRpYy9pbWFnZXMvdXNlcnMtYXZhdGFycy8xNC5wbmcifX0sImFwcF9pZCI6ImNvbm5lY3RybV9zdnoiLCJhdWQiOiJqaXRzaSIsImlzcyI6ImNvbm5lY3RybV9zdnoiLCJzdWIiOiJqaXRzaS1jb25uZWN0cm0ucnUiLCJyb29tIjoiKiIsImlhdCI6MTc3MTIzMjg4OCwiZXhwIjoxNzcxMzA0ODg4fQ.ZewRA6KDsA9DD1VpTj2FHyVqB1sRBNZAQR1nShTx23A#config.disableDeepLinking=true&config.prejoinPageEnabled=false&config.startWithAudioMuted=false&config.startWithVideoMuted=true&config.enableWelcomePage=false&config.enableClosePage=false&config.resolution=720&config.disableInitialGUM=false&config.enableLayerSuspension=true&config.p2p.enabled=true&config.p2p.preferH264=true&interfaceConfig.SHOW_JITSI_WATERMARK=false&interfaceConfig.SHOW_WATERMARK_FOR_GUESTS=false&interfaceConfig.SHOW_BRAND_WATERMARK=false&interfaceConfig.HIDE_INVITE_MORE_HEADER=true&interfaceConfig.MOBILE_APP_PROMO=false&interfaceConfig.SHOW_MEETING_NAME=false&interfaceConfig.DISPLAY_WELCOME_PAGE_CONTENT=false&interfaceConfig.APP_NAME=%F0%9F%94%8A+%D0%90%D1%83%D0%B4%D0%B8%D0%BE&interfaceConfig.NATIVE_APP_NAME=%F0%9F%94%8A+%D0%90%D1%83%D0%B4%D0%B8%D0%BE&config.requireDisplayName=false&config.hideConferenceSubject=true&config.hideConferenceTimer=false&config.hideDominantSpeakerBadge=false&interfaceConfig.SHOW_CONFERENCE_SUBJECT=false&interfaceConfig.HIDE_CONFERENCE_SUBJECT=true&config.subject=+&interfaceConfig.TOOLBAR_BUTTONS=%5B%22camera%22%2C%22desktop%22%2C%22microphone%22%2C%22participants%22%2C%22settings%22%2C%22fullscreen%22%2C%22hangup%22%5D&userInfo.displayName=%D0%92%D0%B8%D1%82%D0%B0%D0%BB%D1%8F_%D0%AF&userInfo.email=root33%40live.ru&config.subject=%F0%9F%94%8A+%D0%90%D1%83%D0%B4%D0%B8%D0%BE&userInfo.avatarURL=https%3A%2F%2Fjoinrm-svz.ru%2Fstatic%2Fimages%2Fusers-avatars%2F14.png&config.gravatar.disabled=true
+[16:08:15] [JITSI-SDK] Blocking navigation to different page
+[16:08:15] [JITSI-SDK] Performing conference cleanup
+[16:08:15] Jitsi Console: [JITSI] Starting conference cleanup
+[16:08:15] Jitsi Console: [JITSI] Found APP.conference, attempting cleanup
+[16:08:15] Jitsi Console: [JITSI] Calling hangup
+[16:08:15] [JITSI-SDK] Permanent closing screen shown
+[16:08:15] Jitsi Console: [JITSI] Stopping all media streams
+[16:08:15] Jitsi Console: [JITSI] Cleanup completed
+[16:08:16] [JITSI-SDK] Conference cleanup completed
+[16:08:17] [JITSI-SDK] Stopping native capture on window close
+[16:08:17] Jitsi Console: [NATIVE-AUDIO] Native capture deactivated
+[16:08:17] Jitsi Console: [NATIVE-AUDIO] Bridge deactivated on window close
+[16:08:17] [JITSI-SDK] Closing conference window
+[16:08:17] [JITSI-SDK] Performing conference cleanup
+[16:08:17] Jitsi Console: [JITSI] Starting conference cleanup
+[16:08:17] Jitsi Console: [JITSI] Found APP.conference, attempting cleanup
+[16:08:17] Jitsi Console: [JITSI] Calling hangup
+[16:08:17] Jitsi Console: [JITSI] Stopping all media streams
+[16:08:17] Jitsi Console: [JITSI] Cleanup completed
+[16:08:17] [JITSI-SDK] Stopping native capture on window close
+[16:08:17] Jitsi Console: [NATIVE-AUDIO] Native capture deactivated
+[16:08:17] Jitsi Console: [NATIVE-AUDIO] Bridge deactivated on window close
+[16:08:17] [JITSI-SDK] Closing conference window
+[16:08:17] [JITSI-SDK] Performing conference cleanup
+[16:08:17] Jitsi Console: [JITSI] Starting conference cleanup
+[16:08:17] Jitsi Console: [JITSI] Found APP.conference, attempting cleanup
+[16:08:17] Jitsi Console: [JITSI] Calling hangup
+[16:08:17] Jitsi Console: [JITSI] Stopping all media streams
+[16:08:17] Jitsi Console: [JITSI] Cleanup completed
+[16:08:18] [JITSI-SDK] Conference cleanup completed
+[16:08:18] [JITSI-SDK] Window closed successfully
+[16:08:18] [JITSI-SDK] Conference cleanup completed
+[16:08:18] [JITSI-SDK] Error closing window: Cannot read properties of null (reading 'webContents')
+[16:08:26] Main: Горячая клавиша n удалена при выходе
+[16:08:26] Main: Горячая клавиша s удалена при выходе

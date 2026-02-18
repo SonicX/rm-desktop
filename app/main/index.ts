@@ -64,6 +64,11 @@ import {registerAudioHandlers} from "./ipc/audioHandlers.js";
 import AdmZip from "adm-zip";
 
 const {setupScreenSharingMain} = require("@jitsi/electron-sdk");
+const {
+  getPressedKeyNameFromEvent,
+  normalizeHotkeyString,
+  normalizeKeyNameForMatch,
+} = require("./hotkey-utils.js");
 
 // Const { JitsiMeetElectron } = require('@jitsi/electron-sdk');
 
@@ -259,7 +264,17 @@ type KeyName =
   | "PAGE UP"
   | "PAGE DOWN"
   | "HOME"
-  | "END";
+  | "END"
+  // Мышь
+  | "MOUSE LEFT"
+  | "MOUSE RIGHT"
+  | "MOUSE MIDDLE"
+  | "MOUSE X1"
+  | "MOUSE X2"
+  | `MOUSE BUTTON ${number}`
+  // Расширенные кнопки навигации (часто боковые кнопки мыши на Windows)
+  | "BROWSER BACK"
+  | "BROWSER FORWARD";
 
 // Map для Windows: VK Code (decimal) → KeyName
 const winVKToName: Record<number, KeyName> = {
@@ -334,6 +349,9 @@ const winVKToName: Record<number, KeyName> = {
   34: "PAGE DOWN", // VK_NEXT
   36: "HOME", // VK_HOME
   35: "END",
+  // Расширенные браузерные кнопки (обычно Mouse4/Mouse5)
+  166: "BROWSER BACK", // VK_BROWSER_BACK
+  167: "BROWSER FORWARD", // VK_BROWSER_FORWARD
 };
 
 // Map для macOS: CGKeyCode (decimal) → KeyName (Apple Carbon Codes)
@@ -464,52 +482,6 @@ class CustomKeyboardListener extends GlobalKeyboardListener {
   public stopListener(): void {
     this.stop();
   }
-}
-
-function normalizeKey(key: string): string {
-  // Преобразование кириллических букв в латинские эквиваленты
-  const cyrillicToLatin: Record<string, string> = {
-    а: "a", // Ф
-    б: "b", // И
-    в: "v", // Ц
-    г: "g", // У
-    д: "d", // В
-    е: "e", // У
-    ё: "e", // Ё (можно сопоставить с E)
-    ж: "zh", // Ж (нет прямого эквивалента, используем zh)
-    з: "z", // Я
-    и: "i", // Ш
-    й: "j", // Й
-    к: "k", // Л
-    л: "l", // Д
-    м: "m", // Ь
-    н: "n", // Т
-    о: "o", // Щ
-    п: "p", // З
-    р: "r", // К
-    с: "s", // Ы
-    т: "t", // Е
-    у: "u", // Г
-    ф: "f", // А
-    х: "h", // Р
-    ц: "c", // С
-    ч: "ch", // Ч (нет прямого эквивалента, используем ch)
-    ш: "sh", // Ш (нет прямого эквивалента, используем sh)
-    щ: "sch", // Щ (нет прямого эквивалента, используем sch)
-    ъ: "hard_sign", // Ъ (нет прямого эквивалента)
-    ы: "y", // Ы
-    ь: "soft_sign", // Ь (нет прямого эквивалента)
-    э: "e", // Э
-    ю: "yu", // Ю (нет прямого эквивалента, используем yu)
-    я: "ya", // Я (нет прямого эквивалента, используем ya)
-  };
-
-  let normalized = key.toLowerCase().replace("command", "meta");
-  for (const [cyr, lat] of Object.entries(cyrillicToLatin)) {
-    normalized = normalized.replace(cyr, lat);
-  }
-
-  return normalized;
 }
 
 const mainUrl = new URL("app/renderer/main.html", bundleUrl).href;
@@ -1338,7 +1310,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
       return;
     }
 
-    const key = normalizeKey(rawKey);
+    const key = String(normalizeHotkeyString(rawKey));
 
     currentVolumeHotkey = key;
     store.set("currentVolumeHotkey", key);
@@ -1349,16 +1321,24 @@ async function createMainWindow(): Promise<BrowserWindow> {
 
     keyboardVolume.addListener(
       (e: IGlobalKeyEvent, down: IGlobalKeyDownMap) => {
-        const parts = key.split("+").map((p) => p.toLowerCase());
+        const parts = key.split("+").map((p: string) => p.toLowerCase());
         const mainKey = parts.pop()!;
 
-        let pressedKeyName = "";
-        pressedKeyName =
-          process.platform === "darwin"
-            ? macKeyCodeToName[e.vKey] || ""
-            : winVKToName[e.vKey] || "";
-
-        const normalizedMainKey = mainKey.toUpperCase() as KeyName;
+        const pressedKeyName = String(
+          normalizeKeyNameForMatch(
+            String(
+              getPressedKeyNameFromEvent(e, process.platform, {
+                mac: macKeyCodeToName,
+                win: winVKToName,
+              }),
+            ).toLowerCase(),
+          ),
+        ).toUpperCase();
+        const isPressed = Boolean(
+          (down as Record<string, boolean>)[pressedKeyName],
+        );
+        const normalizedMainKey =
+          normalizeKeyNameForMatch(mainKey).toUpperCase();
 
         // Проверяем, что нажата именно нужная клавиша
         if (pressedKeyName !== normalizedMainKey) {
@@ -1366,7 +1346,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
         }
 
         // Если клавиша нажата И ранее не была зажата — это новое нажатие!
-        if (down[pressedKeyName] && !volumeHotkeyWasPressed) {
+        if (isPressed && !volumeHotkeyWasPressed) {
           volumeHotkeyWasPressed = true; // Помечаем, что клавиша уже обработана
 
           log.info(`Main: Полное нажатие клавиши громкости — переключаем звук`);
@@ -1389,7 +1369,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
         }
 
         // Если клавиша отпущена — сбрасываем флаг
-        if (!down[pressedKeyName] && volumeHotkeyWasPressed) {
+        if (!isPressed && volumeHotkeyWasPressed) {
           volumeHotkeyWasPressed = false;
         }
       },
@@ -1411,7 +1391,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
       return;
     }
 
-    const key = normalizeKey(rawKey);
+    const key = String(normalizeHotkeyString(rawKey));
 
     currentMicHotkey = key;
     store.set("currentMicHotkey", key);
@@ -1421,20 +1401,28 @@ async function createMainWindow(): Promise<BrowserWindow> {
     });
 
     keyboardMic.addListener((e: IGlobalKeyEvent, down: IGlobalKeyDownMap) => {
-      const parts = key.split("+").map((p) => p.toLowerCase());
+      const parts = key.split("+").map((p: string) => p.toLowerCase());
       const mainKey = parts.pop()!;
-      let pressedKeyName = "";
-      pressedKeyName =
-        process.platform === "darwin"
-          ? macKeyCodeToName[e.vKey] || ""
-          : winVKToName[e.vKey] || "";
-      const normalizedMainKey = mainKey.toUpperCase() as KeyName;
+      const pressedKeyName = String(
+        normalizeKeyNameForMatch(
+          String(
+            getPressedKeyNameFromEvent(e, process.platform, {
+              mac: macKeyCodeToName,
+              win: winVKToName,
+            }),
+          ).toLowerCase(),
+        ),
+      ).toUpperCase();
+      const isPressed = Boolean(
+        (down as Record<string, boolean>)[pressedKeyName],
+      );
+      const normalizedMainKey = normalizeKeyNameForMatch(mainKey).toUpperCase();
 
       if (pressedKeyName !== normalizedMainKey) {
         return;
       }
 
-      if (down[pressedKeyName] && !currentMicHotkeyPressed) {
+      if (isPressed && !currentMicHotkeyPressed) {
         log.info(`Main: Нажата клавиша микрофона — включаем микрофон`);
 
         if (jitsiSDKManager.hasActiveWindow()) {
@@ -1444,7 +1432,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
         }
 
         currentMicHotkeyPressed = true;
-      } else if (down[pressedKeyName] && currentMicHotkeyPressed) {
+      } else if (isPressed && currentMicHotkeyPressed) {
       } else {
         log.info(`Main: Отпущена клавиша микрофона — выключаем микрофон`);
 
