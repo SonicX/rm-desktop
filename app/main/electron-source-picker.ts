@@ -14,6 +14,7 @@ export type DesktopSource = {
 
 export class ElectronSourcePicker {
   private pickerWindow: BrowserWindow | null = null;
+  private pickerPromise: Promise<DesktopSource | null> | null = null;
 
   constructor() {
     this.registerHandlers();
@@ -66,7 +67,29 @@ export class ElectronSourcePicker {
   }
 
   async showPicker(sources: DesktopSource[]): Promise<DesktopSource | null> {
-    return new Promise((resolve) => {
+    if (
+      this.pickerWindow &&
+      !this.pickerWindow.isDestroyed() &&
+      this.pickerPromise
+    ) {
+      if (this.pickerWindow.isMinimized()) {
+        this.pickerWindow.restore();
+      }
+
+      this.pickerWindow.focus();
+      this.pickerWindow.moveTop();
+      return this.pickerPromise;
+    }
+
+    this.pickerPromise = new Promise((resolve) => {
+      let isResolved = false;
+      const resolveOnce = (selected: DesktopSource | null): void => {
+        if (isResolved) return;
+        isResolved = true;
+        this.pickerPromise = null;
+        resolve(selected);
+      };
+
       // Создаем окно для выбора источника - увеличиваем высоту на 10%
       this.pickerWindow = new BrowserWindow({
         width: 900,
@@ -105,7 +128,7 @@ export class ElectronSourcePicker {
       // Обработчик закрытия окна
       this.pickerWindow.on("closed", () => {
         this.pickerWindow = null;
-        resolve(null);
+        resolveOnce(null);
       });
 
       // Обработчик выбора источника (через веб-содержимое)
@@ -115,21 +138,21 @@ export class ElectronSourcePicker {
           if (channel === "source-selected") {
             const sourceId = arguments_[0];
             const selectedSource = sources.find((s) => s.id === sourceId);
+            resolveOnce(selectedSource || null);
             if (this.pickerWindow && !this.pickerWindow.isDestroyed()) {
               this.pickerWindow.close();
             }
-
-            resolve(selectedSource || null);
           } else if (channel === "cancel-selection") {
+            resolveOnce(null);
             if (this.pickerWindow && !this.pickerWindow.isDestroyed()) {
               this.pickerWindow.close();
             }
-
-            resolve(null);
           }
         },
       );
     });
+
+    return this.pickerPromise;
   }
 
   private generatePickerHTML(sources: DesktopSource[]): string {
