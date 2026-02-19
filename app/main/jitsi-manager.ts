@@ -4879,8 +4879,8 @@ export class JitsiManager {
                                         if (callback) {
                                             console.log('[JitsiManager] Calling original Jitsi callback for standard mode');
                                             callback(selectedId, { 
-                                                audio: false,
-                                                screenShareAudio: false 
+                                                audio: true,
+                                                screenShareAudio: true 
                                             });
                                         }
                                         
