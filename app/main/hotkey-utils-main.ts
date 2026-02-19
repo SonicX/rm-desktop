@@ -1,6 +1,4 @@
-/* eslint-disable import/unambiguous */
-
-const cyrillicToLatin = {
+const cyrillicToLatin: Record<string, string> = {
   а: "a",
   б: "b",
   в: "v",
@@ -36,7 +34,7 @@ const cyrillicToLatin = {
   я: "ya",
 };
 
-const specialMouseAliases = {
+const specialMouseAliases: Record<string, string> = {
   "browser back": "mouse x1",
   browserback: "mouse x1",
   mouse4: "mouse x1",
@@ -57,7 +55,7 @@ const specialMouseAliases = {
   mbutton: "mouse middle",
 };
 
-const normalizeAliasPart = (part) => {
+const normalizeAliasPart = (part: string): string => {
   const alias = part
     .replaceAll("-", " ")
     .replaceAll("_", " ")
@@ -66,7 +64,7 @@ const normalizeAliasPart = (part) => {
   const compactAlias = alias.replaceAll(" ", "");
 
   const mappedAlias =
-    specialMouseAliases[alias] || specialMouseAliases[compactAlias];
+    specialMouseAliases[alias] ?? specialMouseAliases[compactAlias];
   if (mappedAlias) {
     return mappedAlias;
   }
@@ -81,7 +79,7 @@ const normalizeAliasPart = (part) => {
   return part;
 };
 
-function normalizeHotkeyString(key) {
+export const normalizeHotkeyString = (key: string): string => {
   let normalized = String(key).toLowerCase().replace("command", "meta");
   for (const [cyr, lat] of Object.entries(cyrillicToLatin)) {
     normalized = normalized.replace(cyr, lat);
@@ -93,30 +91,38 @@ function normalizeHotkeyString(key) {
     .map((part) => normalizeAliasPart(part));
 
   return normalizedParts.join("+");
-}
+};
 
-function normalizeKeyNameForMatch(name) {
+export const normalizeKeyNameForMatch = (name: string): string => {
   const normalized = normalizeHotkeyString(name).replaceAll(/\s+/g, " ").trim();
   if (normalized === "browser back") return "mouse x1";
   if (normalized === "browser forward") return "mouse x2";
   return normalized;
-}
+};
 
-function getPressedKeyNameFromEvent(event, platform, maps) {
+type KeyboardMaps = {
+  mac?: Record<number, string>;
+  win?: Record<number, string>;
+};
+
+type KeyEvent = {
+  name?: unknown;
+  vKey: number;
+};
+
+export const getPressedKeyNameFromEvent = (
+  event: KeyEvent,
+  platform: NodeJS.Platform,
+  maps?: KeyboardMaps,
+): string => {
   const eventName = event?.name?.toString?.().toUpperCase()?.trim?.();
   if (eventName) {
     return eventName;
   }
 
   if (platform === "darwin") {
-    return maps?.mac?.[event.vKey] || "";
+    return maps?.mac?.[event.vKey] ?? "";
   }
 
-  return maps?.win?.[event.vKey] || "";
-}
-
-module.exports = {
-  getPressedKeyNameFromEvent,
-  normalizeHotkeyString,
-  normalizeKeyNameForMatch,
+  return maps?.win?.[event.vKey] ?? "";
 };

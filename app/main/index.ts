@@ -50,6 +50,11 @@ import type {
 
 import * as BadgeSettings from "./badge-settings.js";
 import handleExternalLink from "./handle-external-link.js";
+import {
+  getPressedKeyNameFromEvent,
+  normalizeHotkeyString,
+  normalizeKeyNameForMatch,
+} from "./hotkey-utils-main.js";
 import * as AppMenu from "./menu.js";
 import {_getServerSettings, _isOnline, _saveServerIcon} from "./request.js";
 import {sentryInit} from "./sentry.js";
@@ -64,11 +69,6 @@ import {registerAudioHandlers} from "./ipc/audioHandlers.js";
 import AdmZip from "adm-zip";
 
 const {setupScreenSharingMain} = require("@jitsi/electron-sdk");
-const {
-  getPressedKeyNameFromEvent,
-  normalizeHotkeyString,
-  normalizeKeyNameForMatch,
-} = require("./hotkey-utils.js");
 
 // Const { JitsiMeetElectron } = require('@jitsi/electron-sdk');
 
