@@ -4758,17 +4758,10 @@ export class JitsiManager {
                     
                     window.JitsiMeetScreenObtainer.openDesktopPicker = async function(options, callback) {
                         console.log('[JitsiManager] Desktop picker intercepted');
-
-                        if (window.__screenPickerDialogOpen === true) {
-                            console.log('[JitsiManager] Picker dialog already open, ignoring duplicate request');
-                            return;
-                        }
-                        window.__screenPickerDialogOpen = true;
                         
                         // Проверяем флаг
                         if (window.__interceptorFlag === true) {
                             console.log('[JitsiManager] Already processing, skipping');
-                            window.__screenPickerDialogOpen = false;
                             return;
                         }
                         
@@ -4796,7 +4789,6 @@ export class JitsiManager {
                             window.isNativeActive = false;
                             window.__interceptorFlag = false;
                             window.isStandardMode = false;
-                            window.__screenPickerDialogOpen = false;
                             
                             if (window.jitsiNativeMediaStream) {
                                 window.jitsiNativeMediaStream.getTracks().forEach(track => track.stop());
@@ -4832,7 +4824,6 @@ export class JitsiManager {
                             
                             if (!audioMode) {
                                 window.__interceptorFlag = false;
-                                window.__screenPickerDialogOpen = false;
                                 console.log('[JitsiManager] User cancelled audio mode');
                                 return;
                             }
@@ -4853,7 +4844,6 @@ export class JitsiManager {
                                 showSourcePicker(sources, async (selectedId) => {
                                     if (!selectedId) {
                                         window.__interceptorFlag = false;
-                                        window.__screenPickerDialogOpen = false;
                                         console.log('[JitsiManager] User cancelled source selection');
                                         return;
                                     }
@@ -4873,7 +4863,6 @@ export class JitsiManager {
                                         
                                         // Сбрасываем флаг перед вызовом оригинального callback
                                         window.__interceptorFlag = false;
-                                        window.__screenPickerDialogOpen = false;
                                         
                                         // Вызываем оригинальный callback Jitsi
                                         if (callback) {
@@ -4887,7 +4876,6 @@ export class JitsiManager {
                                     } catch (error) {
                                         console.error('[JitsiManager] Error in standard mode:', error);
                                         window.__interceptorFlag = false;
-                                        window.__screenPickerDialogOpen = false;
                                     }
                                 });
                                 
@@ -4901,7 +4889,6 @@ export class JitsiManager {
                             showSourcePicker(sources, async (selectedId) => {
                                 if (!selectedId) {
                                     window.__interceptorFlag = false;
-                                    window.__screenPickerDialogOpen = false;
                                     console.log('[JitsiManager] User cancelled source');
                                     return;
                                 }
@@ -4916,7 +4903,6 @@ export class JitsiManager {
                                     if (!streamResult.success) {
                                         console.error('[JitsiManager] Stream creation failed');
                                         window.__interceptorFlag = false;
-                                        window.__screenPickerDialogOpen = false;
                                         return;
                                     }
                                     
@@ -4956,7 +4942,6 @@ export class JitsiManager {
                                             isScreenShare: window.isScreenShareActive
                                         });
                                         window.__interceptorFlag = false;
-                                        window.__screenPickerDialogOpen = false;
                                         return;
                                     }
                                     
@@ -4976,7 +4961,6 @@ export class JitsiManager {
                                             // Сбрасываем флаг после успешного вызова
                                             setTimeout(() => {
                                                 window.__interceptorFlag = false;
-                                                window.__screenPickerDialogOpen = false;
                                             }, 1000);
                                         }, 100);
                                     }
@@ -4984,7 +4968,6 @@ export class JitsiManager {
                                     // Восстановление микрофона после задержки
                                     setTimeout(async () => {
                                         window.__interceptorFlag = false;
-                                        window.__screenPickerDialogOpen = false;
                                         
                                         try {
                                             const tracks = window.APP.conference.getLocalTracks();
@@ -5021,14 +5004,12 @@ export class JitsiManager {
                                 } catch (error) {
                                     console.error('[JitsiManager] Error in native mode:', error);
                                     window.__interceptorFlag = false;
-                                    window.__screenPickerDialogOpen = false;
                                 }
                             });
                             
                         } catch (error) {
                             console.error('[JitsiManager] Error in picker:', error);
                             window.__interceptorFlag = false;
-                            window.__screenPickerDialogOpen = false;
                         }
                     };
                 });

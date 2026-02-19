@@ -1,6 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, no-useless-catch, no-inner-declarations, @typescript-eslint/prefer-nullish-coalescing, @typescript-eslint/only-throw-error, @typescript-eslint/no-unused-vars, unicorn/no-array-for-each, @typescript-eslint/use-unknown-in-catch-callback-variable, @typescript-eslint/restrict-template-expressions, @typescript-eslint/no-var-requires, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-require-imports, promise/prefer-await-to-then */
 import {contextBridge} from "electron/renderer";
-import process from "node:process";
 
 import {WalkieTalkieStatus} from "../../common/typed-ipc.js";
 
@@ -13,243 +12,6 @@ ipcRenderer.send(
   "preload-log",
   `✅ Preload: Загружен для URL: ${window.location.href}`,
 );
-
-const isWindowsPlatform = process.platform === "win32";
-type UserHotkeyType = "mic" | "audio";
-type UserHotkeyState = {
-  mic: string;
-  audio: string;
-};
-
-const userHotkeys: UserHotkeyState = {
-  mic: "",
-  audio: "",
-};
-
-const normalizeHotkey = (raw: string): string =>
-  raw
-    .toLowerCase()
-    .replaceAll("_", " ")
-    .replaceAll("-", " ")
-    .replaceAll(/\s+/g, " ")
-    .trim();
-
-const hotkeyAliases = new Map<string, string>([
-  ["ctrl", "ctrl"],
-  ["control", "ctrl"],
-  ["left ctrl", "ctrl"],
-  ["right ctrl", "ctrl"],
-  ["lctrl", "ctrl"],
-  ["rctrl", "ctrl"],
-  ["alt", "alt"],
-  ["option", "alt"],
-  ["left alt", "alt"],
-  ["right alt", "alt"],
-  ["shift", "shift"],
-  ["left shift", "shift"],
-  ["right shift", "shift"],
-  ["meta", "meta"],
-  ["command", "meta"],
-  ["cmd", "meta"],
-  ["win", "meta"],
-  ["windows", "meta"],
-  ["super", "meta"],
-  ["browser back", "mouse x1"],
-  ["browserback", "mouse x1"],
-  ["xbutton1", "mouse x1"],
-  ["mouse4", "mouse x1"],
-  ["mouse 4", "mouse x1"],
-  ["mouse x1", "mouse x1"],
-  ["browser forward", "mouse x2"],
-  ["browserforward", "mouse x2"],
-  ["xbutton2", "mouse x2"],
-  ["mouse5", "mouse x2"],
-  ["mouse 5", "mouse x2"],
-  ["mouse x2", "mouse x2"],
-]);
-
-const keyAliases = new Map<string, string>([
-  ["dot", "."],
-  ["forward slash", "/"],
-  ["backslash", "\\"],
-  ["semicolon", ";"],
-  ["comma", ","],
-  ["equals", "="],
-  ["minus", "-"],
-  ["quote", "'"],
-  ["space", "space"],
-  ["tab", "tab"],
-  ["escape", "escape"],
-  ["backspace", "backspace"],
-  ["delete", "delete"],
-  ["up arrow", "arrowup"],
-  ["down arrow", "arrowdown"],
-  ["left arrow", "arrowleft"],
-  ["right arrow", "arrowright"],
-  ["page up", "pageup"],
-  ["page down", "pagedown"],
-  ["home", "home"],
-  ["end", "end"],
-]);
-
-const normalizeHotkeyPart = (rawPart: string): string => {
-  const part = normalizeHotkey(rawPart);
-  const compact = part.replaceAll(" ", "");
-
-  return (
-    hotkeyAliases.get(part) ??
-    hotkeyAliases.get(compact) ??
-    keyAliases.get(part) ??
-    part
-  );
-};
-
-const getKeyboardKeyName = (event: KeyboardEvent): string => {
-  const key = normalizeHotkeyPart(event.key);
-  if (key.length === 1) {
-    return key;
-  }
-
-  if (event.code.startsWith("Key") && event.code.length === 4) {
-    return event.code.slice(3).toLowerCase();
-  }
-
-  if (event.code.startsWith("Digit") && event.code.length === 6) {
-    return event.code.slice(5);
-  }
-
-  const codeAlias: Record<string, string> = {
-    Backquote: "`",
-    Minus: "-",
-    Equal: "=",
-    BracketLeft: "[",
-    BracketRight: "]",
-    Backslash: "\\",
-    Semicolon: ";",
-    Quote: "'",
-    Comma: ",",
-    Period: ".",
-    Slash: "/",
-    Space: "space",
-    Escape: "escape",
-    Enter: "enter",
-    Tab: "tab",
-    Backspace: "backspace",
-    Delete: "delete",
-    ArrowUp: "arrowup",
-    ArrowDown: "arrowdown",
-    ArrowLeft: "arrowleft",
-    ArrowRight: "arrowright",
-    PageUp: "pageup",
-    PageDown: "pagedown",
-    Home: "home",
-    End: "end",
-  };
-
-  return codeAlias[event.code] ?? key;
-};
-
-const mouseButtonToHotkey = (button: number): string => {
-  if (button === 3) return "mouse x1";
-  if (button === 4) return "mouse x2";
-  if (button === 0) return "mouse left";
-  if (button === 1) return "mouse middle";
-  if (button === 2) return "mouse right";
-  return `mouse button ${button}`;
-};
-
-const isEditableTarget = (target: EventTarget | null): boolean => {
-  if (!(target instanceof HTMLElement)) {
-    return false;
-  }
-
-  if (target.isContentEditable) {
-    return true;
-  }
-
-  if (
-    target instanceof HTMLInputElement ||
-    target instanceof HTMLTextAreaElement
-  ) {
-    return !target.readOnly && !target.disabled;
-  }
-
-  return false;
-};
-
-const eventMatchesHotkey = (
-  rawHotkey: string,
-  event: KeyboardEvent | MouseEvent,
-): boolean => {
-  const normalized = normalizeHotkey(rawHotkey);
-  if (normalized === "") {
-    return false;
-  }
-
-  const hotkeyParts = normalized
-    .split("+")
-    .map((part) => normalizeHotkeyPart(part))
-    .filter(Boolean);
-  if (hotkeyParts.length === 0) {
-    return false;
-  }
-
-  const mainPart = hotkeyParts.at(-1)!;
-  const ctrlPressed = event.ctrlKey;
-  const altPressed = event.altKey;
-  const shiftPressed = event.shiftKey;
-  const metaPressed = event.metaKey;
-
-  if (hotkeyParts.includes("ctrl") !== ctrlPressed) return false;
-  if (hotkeyParts.includes("alt") !== altPressed) return false;
-  if (hotkeyParts.includes("shift") !== shiftPressed) return false;
-  if (hotkeyParts.includes("meta") !== metaPressed) return false;
-
-  if (event instanceof KeyboardEvent) {
-    if (isEditableTarget(event.target)) {
-      return false;
-    }
-
-    return getKeyboardKeyName(event) === mainPart;
-  }
-
-  return mouseButtonToHotkey(event.button) === mainPart;
-};
-
-const shouldSuppressForUserHotkeys = (
-  event: KeyboardEvent | MouseEvent,
-): boolean =>
-  eventMatchesHotkey(userHotkeys.mic, event) ||
-  eventMatchesHotkey(userHotkeys.audio, event);
-
-const hardSuppressEvent = (event: Event): void => {
-  event.preventDefault();
-  event.stopPropagation();
-  event.stopImmediatePropagation();
-};
-
-if (isWindowsPlatform) {
-  const suppressor = (event: KeyboardEvent | MouseEvent) => {
-    if (shouldSuppressForUserHotkeys(event)) {
-      hardSuppressEvent(event);
-    }
-  };
-
-  window.addEventListener("keydown", suppressor, true);
-  window.addEventListener("keyup", suppressor, true);
-  window.addEventListener("keypress", suppressor, true);
-  window.addEventListener("mousedown", suppressor, true);
-  window.addEventListener("mouseup", suppressor, true);
-  window.addEventListener("auxclick", suppressor, true);
-}
-
-const updateUserHotkey = (type: UserHotkeyType, hotkey: string): void => {
-  userHotkeys[type] = String(hotkey ?? "");
-  ipcRenderer.send(
-    "preload-log",
-    `Preload: user hotkey override updated [${type}] = "${userHotkeys[type]}"`,
-  );
-};
 
 // === ОСНОВНОЕ: Обработчик запроса источников ===
 // ЭТО КРИТИЧНО! Без этого диалог будет пустой
@@ -331,7 +93,6 @@ contextBridge.exposeInMainWorld("electron_bridge", {
       "preload-log",
       `Preload: Установка горячей клавиши на микрофон: ${hotkey}`,
     );
-    updateUserHotkey("mic", hotkey);
     ipcRenderer.send("walkie-talkie-status", {enabled, key: hotkey});
   },
   setSoundHotkey(enabled: boolean, hotkey: string) {
@@ -339,20 +100,9 @@ contextBridge.exposeInMainWorld("electron_bridge", {
       "preload-log",
       `Preload: Установка горячей клавиши на звук: ${hotkey}`,
     );
-    updateUserHotkey("audio", hotkey);
     ipcRenderer.send("global-volume-hotkey", {enabled, key: hotkey});
   },
 });
-
-electron_bridge.on_event(
-  "user-hotkey-config-updated",
-  (payload: {type: UserHotkeyType; status?: {key?: string}}) => {
-    const hotkey = payload?.status?.key ?? "";
-    if (payload?.type === "mic" || payload?.type === "audio") {
-      updateUserHotkey(payload.type, hotkey);
-    }
-  },
-);
 
 // Expose screen capture API
 contextBridge.exposeInMainWorld("screenCapture", {

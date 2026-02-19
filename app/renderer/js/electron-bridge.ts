@@ -61,10 +61,6 @@ const electron_bridge: ElectronBridge = {
       }
 
       ipcRenderer.send("walkie-talkie-status", status as WalkieTalkieStatus);
-      bridgeEvents.emit("user-hotkey-config-updated", {
-        type: "mic",
-        status,
-      });
       return true;
     }
 
@@ -83,10 +79,6 @@ const electron_bridge: ElectronBridge = {
         "global-volume-hotkey",
         status as GlobalVolumeHotkeyStatus,
       );
-      bridgeEvents.emit("user-hotkey-config-updated", {
-        type: "audio",
-        status,
-      });
       return true;
     }
 
