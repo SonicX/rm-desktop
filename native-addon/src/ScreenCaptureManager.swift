@@ -207,7 +207,7 @@ actor CaptureActor {
         // Валидация параметров
         requestedWidth = max(320, min(3840, width))   // От 320 до 4K
         requestedHeight = max(240, min(2160, height))  // От 240 до 4K
-        requestedFPS = max(5, min(60, fps))           // От 5 до 60 fps
+        requestedFPS = max(30, min(60, fps))          // Релизный диапазон FPS
         
         print("📐 Validated quality: \(requestedWidth)x\(requestedHeight) @ \(requestedFPS) fps")
     }

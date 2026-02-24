@@ -63,10 +63,6 @@ static std::atomic<uint64_t> g_video_frame_count{0};
 static std::atomic<uint64_t> g_audio_frame_count{0};
 static std::atomic<bool> g_capture_active{false};
 
-// НОВАЯ ГЛОБАЛЬНАЯ ПЕРЕМЕННАЯ ДЛЯ УПРАВЛЕНИЯ ГРОМКОСТЬЮ
-static std::atomic<float> g_participants_volume{0.20f};
-static std::mutex g_volume_mutex;
-
 // Структуры для передачи данных
 struct VideoFrameData {
     uint8_t* data;
@@ -98,9 +94,9 @@ struct CaptureSource {
 
 // Глобальные параметры качества
 struct QualitySettings {
-    int width = 1;
-    int height = 1;
-    int fps = 1;
+    int width = 1280;
+    int height = 720;
+    int fps = 30;
     std::mutex mutex;
 } g_quality;
 
@@ -389,200 +385,6 @@ public:
     }
 };
 
-// Класс для управления громкостью других приложений
-class VolumeController {
-private:
-    IMMDeviceEnumerator* deviceEnumerator = nullptr;
-    IMMDevice* device = nullptr;
-    IAudioSessionManager2* sessionManager = nullptr;
-    DWORD currentProcessId = 0;
-    std::thread volumeThread;
-    std::atomic<bool> isRunning{false};
-    
-public:
-    bool Initialize() {
-        currentProcessId = GetCurrentProcessId();
-        
-        HRESULT hr = CoCreateInstance(
-            __uuidof(MMDeviceEnumerator),
-            nullptr,
-            CLSCTX_ALL,
-            __uuidof(IMMDeviceEnumerator),
-            (void**)&deviceEnumerator
-        );
-        
-        if (FAILED(hr)) return false;
-        
-        hr = deviceEnumerator->GetDefaultAudioEndpoint(
-            eRender,
-            eConsole,
-            &device
-        );
-        
-        if (FAILED(hr)) return false;
-        
-        hr = device->Activate(
-            __uuidof(IAudioSessionManager2),
-            CLSCTX_ALL,
-            nullptr,
-            (void**)&sessionManager
-        );
-        
-        return SUCCEEDED(hr);
-    }
-    
-    void StartVolumeControl() {
-        if (isRunning) return;
-        
-        isRunning = true;
-        volumeThread = std::thread([this]() {
-            CoInitialize(nullptr);
-            
-            while (isRunning) {
-                UpdateVolumes();
-                Sleep(100); // Обновляем каждые 100мс
-            }
-            
-            CoUninitialize();
-        });
-    }
-    
-    void UpdateVolumes() {
-        if (!sessionManager) return;
-        
-        IAudioSessionEnumerator* sessionEnumerator = nullptr;
-        HRESULT hr = sessionManager->GetSessionEnumerator(&sessionEnumerator);
-        if (FAILED(hr)) return;
-        
-        int sessionCount = 0;
-        sessionEnumerator->GetCount(&sessionCount);
-        
-        float targetVolume = g_participants_volume.load();
-        
-        for (int i = 0; i < sessionCount; i++) {
-            IAudioSessionControl* sessionControl = nullptr;
-            hr = sessionEnumerator->GetSession(i, &sessionControl);
-            if (FAILED(hr)) continue;
-            
-            IAudioSessionControl2* sessionControl2 = nullptr;
-            hr = sessionControl->QueryInterface(__uuidof(IAudioSessionControl2), (void**)&sessionControl2);
-            
-            if (SUCCEEDED(hr)) {
-                DWORD processId = 0;
-                hr = sessionControl2->GetProcessId(&processId);
-                
-                // Применяем громкость только к другим процессам (не к нашему Electron)
-                if (SUCCEEDED(hr) && processId != currentProcessId && processId != 0) {
-                    
-                    // Проверяем, является ли это браузером или коммуникационным приложением
-                    HANDLE hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, processId);
-                    if (hProcess) {
-                        wchar_t exePath[MAX_PATH];
-                        DWORD pathLen = MAX_PATH;
-                        if (QueryFullProcessImageNameW(hProcess, 0, exePath, &pathLen)) {
-                            std::wstring fullPath(exePath);
-                            
-                            // Проверяем, является ли это браузером или VoIP приложением
-                            if (fullPath.find(L"chrome.exe") != std::wstring::npos ||
-                                fullPath.find(L"firefox.exe") != std::wstring::npos ||
-                                fullPath.find(L"msedge.exe") != std::wstring::npos ||
-                                fullPath.find(L"opera.exe") != std::wstring::npos ||
-                                fullPath.find(L"brave.exe") != std::wstring::npos ||
-                                fullPath.find(L"teams.exe") != std::wstring::npos ||
-                                fullPath.find(L"zoom.exe") != std::wstring::npos ||
-                                fullPath.find(L"skype.exe") != std::wstring::npos) {
-                                
-                                ISimpleAudioVolume* simpleVolume = nullptr;
-                                hr = sessionControl->QueryInterface(__uuidof(ISimpleAudioVolume), (void**)&simpleVolume);
-                                
-                                if (SUCCEEDED(hr)) {
-                                    // Устанавливаем громкость
-                                    simpleVolume->SetMasterVolume(targetVolume, nullptr);
-                                    simpleVolume->Release();
-                                    
-                                    char log[256];
-                                    sprintf_s(log, "Volume set to %.2f for PID: %lu\n", targetVolume, processId);
-                                    OutputDebugStringA(log);
-                                }
-                            }
-                        }
-                        CloseHandle(hProcess);
-                    }
-                }
-                
-                sessionControl2->Release();
-            }
-            
-            sessionControl->Release();
-        }
-        
-        sessionEnumerator->Release();
-    }
-    
-    void StopVolumeControl() {
-        isRunning = false;
-        if (volumeThread.joinable()) {
-            volumeThread.join();
-        }
-        
-        // Восстанавливаем громкость всех приложений на 100%
-        if (sessionManager) {
-            RestoreVolumes();
-        }
-    }
-    
-    void RestoreVolumes() {
-        IAudioSessionEnumerator* sessionEnumerator = nullptr;
-        HRESULT hr = sessionManager->GetSessionEnumerator(&sessionEnumerator);
-        if (FAILED(hr)) return;
-        
-        int sessionCount = 0;
-        sessionEnumerator->GetCount(&sessionCount);
-        
-        for (int i = 0; i < sessionCount; i++) {
-            IAudioSessionControl* sessionControl = nullptr;
-            hr = sessionEnumerator->GetSession(i, &sessionControl);
-            if (FAILED(hr)) continue;
-            
-            ISimpleAudioVolume* simpleVolume = nullptr;
-            hr = sessionControl->QueryInterface(__uuidof(ISimpleAudioVolume), (void**)&simpleVolume);
-            
-            if (SUCCEEDED(hr)) {
-                simpleVolume->SetMasterVolume(1.0f, nullptr);
-                simpleVolume->Release();
-            }
-            
-            sessionControl->Release();
-        }
-        
-        sessionEnumerator->Release();
-    }
-    
-    ~VolumeController() {
-        StopVolumeControl();
-        
-        // Правильная очистка COM объектов
-        if (sessionManager) {
-            sessionManager->Release();
-            sessionManager = nullptr;
-        }
-        if (device) {
-            device->Release();
-            device = nullptr;
-        }
-        if (deviceEnumerator) {
-            deviceEnumerator->Release();
-            deviceEnumerator = nullptr;
-        }
-        
-        // Деинициализация COM для основного потока
-        CoUninitialize();
-    }
-};
-
-// Глобальный экземпляр контроллера громкости
-static std::unique_ptr<VolumeController> g_volumeController;
-
 // Класс для захвата экрана через DXGI
 class DXGIScreenCapture {
 private:
@@ -672,9 +474,10 @@ public:
     }
     
     void SetQuality(int width, int height, int fps) {
-        targetWidth = 1;
-        targetHeight = 1;
-        targetFps = 1;
+        // Production defaults and hard limits to avoid invalid capture configs.
+        targetWidth = (std::max)(320, (std::min)(3840, width));
+        targetHeight = (std::max)(240, (std::min)(2160, height));
+        targetFps = (std::max)(30, (std::min)(60, fps));
     }
     
     void StartCapture() {
@@ -838,7 +641,7 @@ private:
     bool echoEnabled = true;
 
     EchoTestAndCancel echoTester;  // Добавляем тестер
-    bool testMode = true;  // Включаем тестовый режим
+    bool testMode = false;  // В релизе тестовый режим должен быть отключён
 
 
     std::atomic<bool> isCapturing{false};
@@ -859,7 +662,7 @@ private:
     size_t testSignalPhase = 0;
     
     // Режим диагностики
-    bool diagnosticMode = false; // ВКЛЮЧАЕМ для теста
+    bool diagnosticMode = false;
     int diagnosticFrameCount = 0;
     
 public:
@@ -1445,57 +1248,7 @@ static CaptureSource g_currentSource;
 // Тестовый метод
 napi_value TestMethod(napi_env env, napi_callback_info info) {
     napi_value result;
-    napi_create_string_utf8(env, "Windows Native Module v1.0 - Application Audio Support with Volume Control", NAPI_AUTO_LENGTH, &result);
-    return result;
-}
-
-napi_value SetParticipantsVolume(napi_env env, napi_callback_info info) {
-    size_t argc = 1;
-    napi_value argv[1];
-    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
-    
-    float volume = 0.20f; // Значение по умолчанию
-    
-    if (argc >= 1) {
-        double inputVolume;
-        napi_status status = napi_get_value_double(env, argv[0], &inputVolume);
-        
-        if (status == napi_ok) {
-            // Ограничиваем значение от 0 до 1
-            volume = (float)std::max(0.0, std::min(1.0, inputVolume));
-        }
-    }
-    
-    // Устанавливаем новое значение громкости
-    {
-        std::lock_guard<std::mutex> lock(g_volume_mutex);
-        g_participants_volume = volume;
-    }
-    
-    char log[128];
-    sprintf_s(log, "Participants volume set to: %.2f\n", volume);
-    OutputDebugStringA(log);
-    
-    napi_value result;
-    napi_create_object(env, &result);
-    
-    napi_value success, volumeSet;
-    napi_get_boolean(env, true, &success);
-    napi_create_double(env, volume, &volumeSet);
-    
-    napi_set_named_property(env, result, "success", success);
-    napi_set_named_property(env, result, "volume", volumeSet);
-    
-    return result;
-}
-
-// НОВАЯ ФУНКЦИЯ: Получение текущей громкости участников
-napi_value GetParticipantsVolume(napi_env env, napi_callback_info info) {
-    float currentVolume = g_participants_volume.load();
-    
-    napi_value result;
-    napi_create_double(env, currentVolume, &result);
-    
+    napi_create_string_utf8(env, "Windows Native Module v1.0 - Application Audio Support", NAPI_AUTO_LENGTH, &result);
     return result;
 }
 
@@ -1655,26 +1408,69 @@ napi_value GetAvailableSources(napi_env env, napi_callback_info info) {
 
 // Установка источника захвата
 napi_value SetCaptureSource(napi_env env, napi_callback_info info) {
-    size_t argc = 1;
-    napi_value argv[1];
+    size_t argc = 2;
+    napi_value argv[2];
     napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
     
     if (argc < 1) {
-        napi_throw_type_error(env, nullptr, "Expected source object");
+        napi_throw_type_error(env, nullptr, "Expected source object or (type, id)");
         return nullptr;
     }
-    
-    napi_value typeVal, idVal;
-    napi_get_named_property(env, argv[0], "type", &typeVal);
-    napi_get_named_property(env, argv[0], "id", &idVal);
-    
-    char type[256], id[256];
-    size_t typeLen, idLen;
-    napi_get_value_string_utf8(env, typeVal, type, sizeof(type), &typeLen);
-    napi_get_value_string_utf8(env, idVal, id, sizeof(id), &idLen);
-    
-    g_currentSource.type = type;
-    g_currentSource.id = id;
+
+    std::string sourceType;
+    std::string sourceId;
+    napi_valuetype firstArgType = napi_undefined;
+    napi_typeof(env, argv[0], &firstArgType);
+
+    if (firstArgType == napi_object) {
+        napi_value typeVal, idVal;
+        bool hasType = false;
+        bool hasId = false;
+        napi_has_named_property(env, argv[0], "type", &hasType);
+        napi_has_named_property(env, argv[0], "id", &hasId);
+
+        if (!hasType || !hasId) {
+            napi_throw_type_error(env, nullptr, "Source object must contain type and id");
+            return nullptr;
+        }
+
+        napi_get_named_property(env, argv[0], "type", &typeVal);
+        napi_get_named_property(env, argv[0], "id", &idVal);
+
+        char type[256] = {0};
+        char id[256] = {0};
+        size_t typeLen = 0;
+        size_t idLen = 0;
+        napi_get_value_string_utf8(env, typeVal, type, sizeof(type), &typeLen);
+        napi_get_value_string_utf8(env, idVal, id, sizeof(id), &idLen);
+        sourceType = type;
+        sourceId = id;
+    } else if (firstArgType == napi_string) {
+        if (argc < 2) {
+            napi_throw_type_error(env, nullptr, "Expected setCaptureSource(type, id)");
+            return nullptr;
+        }
+
+        char type[256] = {0};
+        char id[256] = {0};
+        size_t typeLen = 0;
+        size_t idLen = 0;
+        napi_get_value_string_utf8(env, argv[0], type, sizeof(type), &typeLen);
+        napi_get_value_string_utf8(env, argv[1], id, sizeof(id), &idLen);
+        sourceType = type;
+        sourceId = id;
+    } else {
+        napi_throw_type_error(env, nullptr, "Expected source object or (type, id)");
+        return nullptr;
+    }
+
+    if (sourceType.empty() || sourceId.empty()) {
+        napi_throw_type_error(env, nullptr, "Source type and id must be non-empty");
+        return nullptr;
+    }
+
+    g_currentSource.type = sourceType;
+    g_currentSource.id = sourceId;
     
     napi_value result;
     napi_create_object(env, &result);
@@ -1682,30 +1478,89 @@ napi_value SetCaptureSource(napi_env env, napi_callback_info info) {
     napi_value success;
     napi_get_boolean(env, true, &success);
     napi_set_named_property(env, result, "success", success);
+
+    napi_value typeOut, idOut;
+    napi_create_string_utf8(env, g_currentSource.type.c_str(), NAPI_AUTO_LENGTH, &typeOut);
+    napi_create_string_utf8(env, g_currentSource.id.c_str(), NAPI_AUTO_LENGTH, &idOut);
+    napi_set_named_property(env, result, "type", typeOut);
+    napi_set_named_property(env, result, "id", idOut);
     
     return result;
 }
 
 // Установка качества захвата
 napi_value SetCaptureQuality(napi_env env, napi_callback_info info) {
-    // ИГНОРИРУЕМ входящие параметры
-    // Всегда используем минимум для экономии CPU  
+    size_t argc = 3;
+    napi_value argv[3];
+    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+
+    int32_t width = g_quality.width;
+    int32_t height = g_quality.height;
+    int32_t fps = g_quality.fps;
+
+    if (argc >= 1) {
+        napi_valuetype firstArgType = napi_undefined;
+        napi_typeof(env, argv[0], &firstArgType);
+
+        if (firstArgType == napi_object) {
+            napi_value widthVal, heightVal, fpsVal;
+            bool hasWidth = false;
+            bool hasHeight = false;
+            bool hasFps = false;
+            napi_has_named_property(env, argv[0], "width", &hasWidth);
+            napi_has_named_property(env, argv[0], "height", &hasHeight);
+            napi_has_named_property(env, argv[0], "fps", &hasFps);
+
+            if (hasWidth) {
+                napi_get_named_property(env, argv[0], "width", &widthVal);
+                napi_get_value_int32(env, widthVal, &width);
+            }
+            if (hasHeight) {
+                napi_get_named_property(env, argv[0], "height", &heightVal);
+                napi_get_value_int32(env, heightVal, &height);
+            }
+            if (hasFps) {
+                napi_get_named_property(env, argv[0], "fps", &fpsVal);
+                napi_get_value_int32(env, fpsVal, &fps);
+            }
+        } else if (firstArgType == napi_number) {
+            napi_get_value_int32(env, argv[0], &width);
+            if (argc >= 2) {
+                napi_get_value_int32(env, argv[1], &height);
+            }
+            if (argc >= 3) {
+                napi_get_value_int32(env, argv[2], &fps);
+            }
+        }
+    }
+
+    width = (std::max)(320, (std::min)(3840, width));
+    height = (std::max)(240, (std::min)(2160, height));
+    fps = (std::max)(30, (std::min)(60, fps));
+
     {
         std::lock_guard<std::mutex> lock(g_quality.mutex);
-        g_quality.width = 1;
-        g_quality.height = 1;
-        g_quality.fps = 1;
+        g_quality.width = width;
+        g_quality.height = height;
+        g_quality.fps = fps;
     }
-    
+
     if (g_screenCapture) {
-        g_screenCapture->SetQuality(1, 1, 1);
+        g_screenCapture->SetQuality(width, height, fps);
     }
     
     napi_value result;
     napi_create_object(env, &result);
     napi_value success;
+    napi_value widthOut, heightOut, fpsOut;
     napi_get_boolean(env, true, &success);
+    napi_create_int32(env, width, &widthOut);
+    napi_create_int32(env, height, &heightOut);
+    napi_create_int32(env, fps, &fpsOut);
     napi_set_named_property(env, result, "success", success);
+    napi_set_named_property(env, result, "width", widthOut);
+    napi_set_named_property(env, result, "height", heightOut);
+    napi_set_named_property(env, result, "fps", fpsOut);
     
     return result;
 }
@@ -1715,19 +1570,6 @@ napi_value StartCapture(napi_env env, napi_callback_info info) {
     g_syncManager.Initialize();
     g_syncManager.Reset();
     OutputDebugStringA("Sync manager initialized\n");
-    
-    // Инициализируем и запускаем контроллер громкости
-    if (!g_volumeController) {
-        CoInitialize(nullptr); // Инициализация COM для главного потока
-        g_volumeController = std::make_unique<VolumeController>();
-        if (g_volumeController->Initialize()) {
-            g_volumeController->StartVolumeControl();
-            OutputDebugStringA("Volume controller started\n");
-        } else {
-            OutputDebugStringA("Failed to initialize volume controller\n");
-            g_volumeController.reset(); // Очищаем если не удалось инициализировать
-        }
-    }
     
     if (g_screenCapture) {
         g_screenCapture->StopCapture();
@@ -1815,15 +1657,6 @@ napi_value StartCapture(napi_env env, napi_callback_info info) {
 // Остановка захвата
 napi_value StopCapture(napi_env env, napi_callback_info info) {
     g_capture_active = false;
-    
-    // Останавливаем контроллер громкости
-    if (g_volumeController) {
-        g_volumeController->StopVolumeControl();
-        g_volumeController.reset();
-        CoUninitialize(); // Деинициализация COM
-        OutputDebugStringA("Volume controller stopped and cleaned up\n");
-    }
-
     
     if (g_screenCapture) {
         g_screenCapture->StopCapture();
@@ -2016,9 +1849,7 @@ napi_value Init(napi_env env, napi_value exports) {
         {"setCaptureQuality", nullptr, SetCaptureQuality, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"setCaptureSource", nullptr, SetCaptureSource, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"setWebRTCVideoCallback", nullptr, SetWebRTCVideoCallback, nullptr, nullptr, nullptr, napi_default, nullptr},
-        {"setWebRTCAudioCallback", nullptr, SetWebRTCAudioCallback, nullptr, nullptr, nullptr, napi_default, nullptr},
-        {"setParticipantsVolume", nullptr, SetParticipantsVolume, nullptr, nullptr, nullptr, napi_default, nullptr},
-        {"getParticipantsVolume", nullptr, GetParticipantsVolume, nullptr, nullptr, nullptr, napi_default, nullptr}
+        {"setWebRTCAudioCallback", nullptr, SetWebRTCAudioCallback, nullptr, nullptr, nullptr, napi_default, nullptr}
     };
     
     napi_define_properties(env, exports, sizeof(desc) / sizeof(desc[0]), desc);

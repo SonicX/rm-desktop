@@ -8,6 +8,7 @@ import log from "electron-log/main";
 import Store from "electron-store";
 
 import {ElectronSourcePicker} from "./electron-source-picker.js";
+import {CAPTURE_PRESETS, type CaptureQuality} from "./native-capture.js";
 import {AudioSessionService} from "./services/audioSessionService.js";
 
 // Интерфейсы
@@ -52,6 +53,7 @@ export class JitsiSDKManager {
 
   // Native Capture Manager reference (для macOS нативного захвата)
   private nativeCaptureManager: any = null;
+  private currentNativeQualityPreset: keyof typeof CAPTURE_PRESETS = "MEDIUM";
 
   constructor(iconPath: string, closure: (roomName: string) => void) {
     this.closureFunction = closure;
@@ -70,7 +72,265 @@ export class JitsiSDKManager {
    */
   setNativeCaptureManager(manager: any): void {
     this.nativeCaptureManager = manager;
+    const savedPreset = store.get(
+      "jitsi-sdk-native-quality-preset",
+      "MEDIUM",
+    ) as keyof typeof CAPTURE_PRESETS;
+    if (CAPTURE_PRESETS[savedPreset]) {
+      this.currentNativeQualityPreset = savedPreset;
+    }
+
     log.info("[JITSI-SDK] NativeCaptureManager reference set");
+  }
+
+  private getNativeQualityPresets(): Array<{
+    key: string;
+    name: string;
+    description: string;
+    width: number;
+    height: number;
+    fps: number;
+  }> {
+    return Object.entries(CAPTURE_PRESETS).map(([key, preset]) => ({
+      key,
+      name: preset.name,
+      description: preset.description,
+      width: preset.quality.width,
+      height: preset.quality.height,
+      fps: preset.quality.fps,
+    }));
+  }
+
+  private async changeNativeQualityPreset(
+    presetName: keyof typeof CAPTURE_PRESETS,
+  ): Promise<{success: boolean; error?: string; quality?: CaptureQuality}> {
+    if (!this.nativeCaptureManager) {
+      return {success: false, error: "Native capture manager not available"};
+    }
+
+    const preset = CAPTURE_PRESETS[presetName];
+    if (!preset) {
+      return {success: false, error: `Unknown preset: ${String(presetName)}`};
+    }
+
+    try {
+      if (typeof this.nativeCaptureManager.useQualityPreset === "function") {
+        const result =
+          await this.nativeCaptureManager.useQualityPreset(presetName);
+        if (!result?.success) {
+          return {
+            success: false,
+            error: result?.error || "Failed to apply quality preset",
+          };
+        }
+      } else if (
+        typeof this.nativeCaptureManager.setCaptureQuality === "function"
+      ) {
+        const result = await this.nativeCaptureManager.setCaptureQuality(
+          preset.quality,
+        );
+        if (!result?.success) {
+          return {
+            success: false,
+            error: result?.error || "Failed to apply quality preset",
+          };
+        }
+      } else {
+        return {
+          success: false,
+          error: "Native capture manager has no quality API",
+        };
+      }
+
+      this.currentNativeQualityPreset = presetName;
+      store.set("jitsi-sdk-native-quality-preset", presetName);
+      return {success: true, quality: {...preset.quality}};
+    } catch (error: any) {
+      return {success: false, error: error.message};
+    }
+  }
+
+  private async setCustomNativeQuality(
+    width: number,
+    height: number,
+    fps: number,
+  ): Promise<{success: boolean; error?: string; quality?: CaptureQuality}> {
+    if (
+      !this.nativeCaptureManager ||
+      typeof this.nativeCaptureManager.setCaptureQuality !== "function"
+    ) {
+      return {success: false, error: "Native quality API is not available"};
+    }
+
+    try {
+      const result = await this.nativeCaptureManager.setCaptureQuality({
+        width,
+        height,
+        fps,
+      });
+      if (!result?.success) {
+        return {
+          success: false,
+          error: result?.error || "Failed to apply custom quality",
+        };
+      }
+
+      return {
+        success: true,
+        quality: result.quality || {width, height, fps},
+      };
+    } catch (error: any) {
+      return {success: false, error: error.message};
+    }
+  }
+
+  private async injectQualityControls(): Promise<void> {
+    if (!this.state.window || this.state.window.isDestroyed()) return;
+    const presetsJson = JSON.stringify(this.getNativeQualityPresets());
+    const defaultPreset = this.currentNativeQualityPreset;
+
+    try {
+      await this.state.window.webContents.executeJavaScript(`
+        (function() {
+          const PANEL_ID = 'electron-quality-controls';
+          if (document.getElementById(PANEL_ID)) return;
+
+          let ipcRenderer;
+          try {
+            ipcRenderer = require('electron').ipcRenderer;
+          } catch {
+            return;
+          }
+
+          const triggerButton = document.createElement('button');
+          triggerButton.id = 'electron-quality-trigger';
+          triggerButton.textContent = '⚙️';
+          triggerButton.title = 'Открыть настройки качества';
+          triggerButton.style.cssText = 'position:fixed; top:44px; left:12px; width:32px; height:32px; border-radius:50%; border:1px solid rgba(255,255,255,.25); background:rgba(0,0,0,0.72); color:#fff; font-size:16px; cursor:pointer; z-index:2147483647; display:flex; align-items:center; justify-content:center; backdrop-filter: blur(8px);';
+
+          const panel = document.createElement('div');
+          panel.id = PANEL_ID;
+          panel.style.cssText = 'display:none; position:fixed; top:44px; left:52px; z-index:2147483647; background:rgba(0,0,0,0.78); border-radius:10px; padding:8px; min-width:260px; color:#fff; font-family:system-ui; backdrop-filter: blur(8px); border:1px solid rgba(255,255,255,.15);';
+
+          const header = document.createElement('div');
+          header.style.cssText = 'display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:6px;';
+
+          const title = document.createElement('div');
+          title.textContent = 'Качество трансляции';
+          title.style.cssText = 'font-size:11px; opacity:.9;';
+
+          const closeButton = document.createElement('button');
+          closeButton.id = 'electron-quality-close';
+          closeButton.textContent = '✕';
+          closeButton.title = 'Закрыть';
+          closeButton.style.cssText = 'width:22px; height:22px; border-radius:6px; border:1px solid rgba(255,255,255,.2); background:rgba(255,255,255,.08); color:#fff; font-size:12px; cursor:pointer; line-height:1;';
+
+          const select = document.createElement('select');
+          select.id = 'electron-quality-preset';
+          select.style.cssText = 'width:100%; padding:6px; border-radius:6px; border:1px solid rgba(255,255,255,.25); background:rgba(255,255,255,.12); color:#fff; font-size:11px;';
+
+          const presets = ${presetsJson};
+          for (const p of presets) {
+            const option = document.createElement('option');
+            option.value = p.key;
+            option.textContent = p.name + ' (' + p.width + 'x' + p.height + ' @ ' + p.fps + 'fps)';
+            option.style.background = '#1f1f1f';
+            if (p.key === '${defaultPreset}') option.selected = true;
+            select.appendChild(option);
+          }
+
+          const customRow = document.createElement('div');
+          customRow.style.cssText = 'display:flex; gap:6px; margin-top:6px;';
+
+          const widthInput = document.createElement('input');
+          widthInput.type = 'number';
+          widthInput.placeholder = 'W';
+          widthInput.min = '320';
+          widthInput.max = '3840';
+          widthInput.style.cssText = 'width:70px; padding:4px; border-radius:4px; border:1px solid rgba(255,255,255,.25); background:rgba(255,255,255,.1); color:#fff;';
+
+          const heightInput = document.createElement('input');
+          heightInput.type = 'number';
+          heightInput.placeholder = 'H';
+          heightInput.min = '240';
+          heightInput.max = '2160';
+          heightInput.style.cssText = 'width:70px; padding:4px; border-radius:4px; border:1px solid rgba(255,255,255,.25); background:rgba(255,255,255,.1); color:#fff;';
+
+          const fpsInput = document.createElement('input');
+          fpsInput.type = 'number';
+          fpsInput.placeholder = 'FPS';
+          fpsInput.min = '30';
+          fpsInput.max = '60';
+          fpsInput.style.cssText = 'width:56px; padding:4px; border-radius:4px; border:1px solid rgba(255,255,255,.25); background:rgba(255,255,255,.1); color:#fff;';
+
+          customRow.appendChild(widthInput);
+          customRow.appendChild(heightInput);
+          customRow.appendChild(fpsInput);
+
+          const applyButton = document.createElement('button');
+          applyButton.textContent = 'Сохранить';
+          applyButton.style.cssText = 'margin-top:6px; width:100%; padding:6px; border:0; border-radius:6px; background:#4CAF50; color:#fff; font-size:11px; cursor:pointer;';
+
+          const status = document.createElement('div');
+          status.id = 'electron-quality-status';
+          status.textContent = 'Готово';
+          status.style.cssText = 'margin-top:6px; font-size:10px; opacity:.8;';
+
+          triggerButton.onclick = function(e) {
+            e.stopPropagation();
+            panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+          };
+
+          closeButton.onclick = function() {
+            panel.style.display = 'none';
+          };
+
+          document.addEventListener('click', function(e) {
+            if (!panel.contains(e.target) && e.target !== triggerButton) {
+              panel.style.display = 'none';
+            }
+          });
+
+          select.onchange = function() {
+            status.textContent = 'Изменения не сохранены';
+          };
+
+          applyButton.onclick = async function() {
+            const hasCustom = Boolean(widthInput.value || heightInput.value || fpsInput.value);
+
+            if (hasCustom) {
+              const width = Number.parseInt(widthInput.value || '0', 10);
+              const height = Number.parseInt(heightInput.value || '0', 10);
+              const fps = Number.parseInt(fpsInput.value || '0', 10);
+              if (!width || !height || !fps) {
+                status.textContent = 'Заполните W/H/FPS';
+                return;
+              }
+              const result = await ipcRenderer.invoke('jitsi:set-native-custom-quality', width, height, fps);
+              status.textContent = result?.success ? 'Сохранено' : ('Ошибка: ' + (result?.error || 'unknown'));
+            } else {
+              const value = select.value;
+              const result = await ipcRenderer.invoke('jitsi:change-native-quality', value);
+              status.textContent = result?.success ? 'Сохранено' : ('Ошибка: ' + (result?.error || 'unknown'));
+            }
+          };
+
+          header.appendChild(title);
+          header.appendChild(closeButton);
+          panel.appendChild(header);
+          panel.appendChild(select);
+          panel.appendChild(customRow);
+          panel.appendChild(applyButton);
+          panel.appendChild(status);
+          document.body.appendChild(triggerButton);
+          document.body.appendChild(panel);
+        })();
+      `);
+    } catch (error: any) {
+      log.warn(
+        `[JITSI-SDK] Failed to inject quality controls: ${error.message}`,
+      );
+    }
   }
 
   private setupJitsiIPC(): void {
@@ -944,6 +1204,40 @@ export class JitsiSDKManager {
         return [];
       }
     });
+
+    ipcMain.handle("jitsi:get-quality-presets", async () => ({
+      audio: this.getNativeQualityPresets().map((p) => ({
+        key: p.key,
+        name: p.name,
+        description: p.description,
+      })),
+    }));
+
+    ipcMain.handle(
+      "jitsi:change-native-quality",
+      async (_event, presetName: keyof typeof CAPTURE_PRESETS) =>
+        this.changeNativeQualityPreset(presetName),
+    );
+
+    // Backward-compatible alias used by old UI hooks.
+    ipcMain.handle(
+      "jitsi:change-video-quality",
+      async (_event, presetName: keyof typeof CAPTURE_PRESETS) =>
+        this.changeNativeQualityPreset(presetName),
+    );
+
+    ipcMain.handle(
+      "jitsi:set-native-custom-quality",
+      async (_event, width: number, height: number, fps: number) =>
+        this.setCustomNativeQuality(width, height, fps),
+    );
+
+    // Backward-compatible alias used by old UI hooks.
+    ipcMain.handle(
+      "jitsi:set-custom-quality",
+      async (_event, width: number, height: number, fps: number) =>
+        this.setCustomNativeQuality(width, height, fps),
+    );
   }
 
   async createWindow(
@@ -1047,9 +1341,16 @@ export class JitsiSDKManager {
       await this.injectConferenceHandlers();
       await this.injectAudioMuteIndicatorButton();
 
-      // Инжектим индикатор статуса нативного плагина (macOS = true, другие платформы проверяем)
-      const nativeAvailable = process.platform === "darwin"; // На macOS нативный плагин доступен
+      // Поддерживаем quality controls на обеих платформах, если нативный модуль доступен.
+      const nativeAvailable = Boolean(
+        this.nativeCaptureManager &&
+          typeof this.nativeCaptureManager.isNativeAvailable === "function" &&
+          this.nativeCaptureManager.isNativeAvailable(),
+      );
       await this.injectNativeStatusIndicator(nativeAvailable);
+      if (nativeAvailable) {
+        await this.injectQualityControls();
+      }
 
       // ВАЖНО: Инжектим audio bridge сразу после загрузки конференции
       // Это нужно сделать ДО начала screen share, чтобы перехватчик getDisplayMedia был готов

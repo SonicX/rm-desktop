@@ -18,8 +18,8 @@
     "node": ">=18"
   },
   "scripts": {
-    "start": "vite > log.txt 2>&1",
-    "start-debug": "ELECTRON_ENABLE_LOGGING=1 vite 2>&1 | tee log.txt",
+    "start": "env -u ELECTRON_RUN_AS_NODE vite > log.txt 2>&1",
+    "start-debug": "env -u ELECTRON_RUN_AS_NODE ELECTRON_ENABLE_LOGGING=1 vite 2>&1 | tee log.txt",
     "start-win": "set ELECTRON_ENABLE_LOGGING=1 && vite 2>&1 | tee log.txt",
     "build-only": "vite build && npm run copy-addon",
     "copy-addon": "cp native-addon/addon.node dist-electron/native-addon.node",

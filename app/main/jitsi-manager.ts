@@ -624,13 +624,13 @@ export class JitsiManager {
                         select.style.cssText = 'width: 100%; padding: 6px; border-radius: 6px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; font-size: 11px; margin-bottom: 8px; cursor: pointer;';
                         
                         const options = [
-                            ['ULTRALOW', 'Очень низкое (320x240 @ 15fps)'],
-                            ['LOW', 'Низкое (640x480 @ 15fps)'],
-                            ['MEDIUM', 'Среднее (1280x720 @ 10fps)', true],
+                            ['ULTRALOW', 'Базовое (640x360 @ 30fps)'],
+                            ['LOW', 'Низкое (854x480 @ 30fps)'],
+                            ['MEDIUM', 'Среднее (1280x720 @ 30fps)', true],
                             ['HIGH', 'Высокое (1920x1080 @ 30fps)'],
-                            ['ULTRAHIGH', 'Ультра (2560x1440 @ 30fps)'],
-                            ['PRESENTATION', 'Презентация (1920x1080 @ 5fps)'],
-                            ['SCREENSHARE', 'Демонстрация (1920x1080 @ 15fps)'],
+                            ['ULTRAHIGH', 'Ультра (1920x1080 @ 60fps)'],
+                            ['PRESENTATION', 'Презентация (2560x1440 @ 30fps)'],
+                            ['SCREENSHARE', 'Демонстрация (2560x1440 @ 60fps)'],
                             ['CUSTOM', '➤ Настроить...']
                         ];
                         

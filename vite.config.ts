@@ -18,7 +18,6 @@ export default defineConfig({
             rollupOptions: {
               external: [
                 "electron",
-                /^electron\//,
                 /^node:/,
                 "path",
                 "fs",
@@ -31,7 +30,10 @@ export default defineConfig({
           },
           resolve: {
             alias: {
-              "zulip:remote": "electron/main",
+              "electron/main": "electron",
+              "electron/renderer": "electron",
+              "electron/common": "electron",
+              "zulip:remote": "electron",
             },
           },
           ssr: {
@@ -49,7 +51,6 @@ export default defineConfig({
             rollupOptions: {
               external: [
                 "electron",
-                /^electron\//,
                 /\.node$/,
                 /^node:/,
                 "path",
@@ -61,6 +62,11 @@ export default defineConfig({
             },
           },
           resolve: {
+            alias: {
+              "electron/main": "electron",
+              "electron/renderer": "electron",
+              "electron/common": "electron",
+            },
             conditions: ["node"],
             mainFields: ["module", "main"], // Alternative to browserField
           },
@@ -86,11 +92,14 @@ export default defineConfig({
           build: {
             sourcemap: true,
             rollupOptions: {
-              external: ["electron", /^electron\//],
+              external: ["electron"],
             },
           },
           resolve: {
             alias: {
+              "electron/main": "electron",
+              "electron/renderer": "electron",
+              "electron/common": "electron",
               "zulip:remote": "@electron/remote",
             },
           },

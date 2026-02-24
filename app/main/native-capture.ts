@@ -42,19 +42,19 @@ export type CapturePreset = {
 // Предустановленные настройки качества
 export const CAPTURE_PRESETS: Record<string, CapturePreset> = {
   ULTRALOW: {
-    name: "Очень низкое",
-    quality: {width: 320, height: 240, fps: 15},
-    description: "Экономия трафика, 480p @ 10fps",
+    name: "Базовое",
+    quality: {width: 640, height: 360, fps: 30},
+    description: "Стабильно и экономно, 360p @ 30fps",
   },
   LOW: {
     name: "Низкое",
-    quality: {width: 640, height: 480, fps: 15},
-    description: "Экономия трафика, 480p @ 15fps",
+    quality: {width: 854, height: 480, fps: 30},
+    description: "Экономия ресурсов, 480p @ 30fps",
   },
   MEDIUM: {
     name: "Среднее",
-    quality: {width: 1280, height: 720, fps: 10},
-    description: "Оптимальный баланс, 720p @ 10fps",
+    quality: {width: 1280, height: 720, fps: 30},
+    description: "Оптимальный баланс, 720p @ 30fps",
   },
   HIGH: {
     name: "Высокое",
@@ -63,24 +63,24 @@ export const CAPTURE_PRESETS: Record<string, CapturePreset> = {
   },
   ULTRAHIGH: {
     name: "Ультра",
-    quality: {width: 2560, height: 1440, fps: 30},
-    description: "Максимальное качество, 1440p @ 30fps",
+    quality: {width: 1920, height: 1080, fps: 60},
+    description: "Плавная картинка, 1080p @ 60fps",
   },
   PRESENTATION: {
     name: "Презентация",
-    quality: {width: 1920, height: 1080, fps: 5},
-    description: "Для показа слайдов, 1080p @ 5fps",
+    quality: {width: 2560, height: 1440, fps: 30},
+    description: "Четкие детали, 1440p @ 30fps",
   },
   SCREENSHARE: {
     name: "Демонстрация экрана",
-    quality: {width: 1920, height: 1080, fps: 15},
-    description: "Для демонстрации экрана, 1080p @ 15fps",
+    quality: {width: 2560, height: 1440, fps: 60},
+    description: "Максимально плавно, 1440p @ 60fps",
   },
 };
 
 export class NativeCaptureManager {
   private readonly state: NativeCaptureState;
-  private currentQuality: CaptureQuality = CAPTURE_PRESETS.ULTRALOW.quality;
+  private currentQuality: CaptureQuality = CAPTURE_PRESETS.MEDIUM.quality;
   private addonType: "mac-swift" | "windows-cpp" | "unknown" = "unknown";
   private debugCallback?: (packetInfo: any) => void; // 🆕
   private audioStatusCallback?: (
@@ -272,6 +272,7 @@ export class NativeCaptureManager {
 
       // Настраиваем callbacks
       this.setupCallbacks();
+      await this.applyCaptureQualityToAddon();
 
       // Устанавливаем источник
       if (typeof this.state.addon.setCaptureSource === "function") {
@@ -484,6 +485,7 @@ export class NativeCaptureManager {
 
       // Настраиваем callbacks для аудио И видео
       this.setupCallbacks();
+      await this.applyCaptureQualityToAddon();
 
       // Устанавливаем источник
       if (typeof this.state.addon.setCaptureSourceById === "function") {
@@ -812,6 +814,69 @@ export class NativeCaptureManager {
     }
   }
 
+  /**
+   * Applies current capture quality to native addon when supported.
+   */
+  private async applyCaptureQualityToAddon(): Promise<void> {
+    if (
+      !this.state.addon ||
+      typeof this.state.addon.setCaptureQuality !== "function"
+    ) {
+      return;
+    }
+
+    try {
+      let result;
+      try {
+        // Windows addon accepts object payload (and now supports numbers too).
+        result = await this.state.addon.setCaptureQuality({
+          width: this.currentQuality.width,
+          height: this.currentQuality.height,
+          fps: this.currentQuality.fps,
+        });
+      } catch {
+        // MacOS addon wrapper expects positional numeric args.
+        result = await this.state.addon.setCaptureQuality(
+          this.currentQuality.width,
+          this.currentQuality.height,
+          this.currentQuality.fps,
+        );
+      }
+
+      log.info(
+        `[NATIVE-CAPTURE] Applied native quality: ${JSON.stringify(result)}`,
+      );
+    } catch (error: any) {
+      log.warn(
+        `[NATIVE-CAPTURE] Failed to apply native quality: ${error.message}`,
+      );
+    }
+  }
+
+  private normalizeQuality(quality: CaptureQuality): CaptureQuality {
+    return {
+      width: Math.max(320, Math.min(3840, quality.width)),
+      height: Math.max(240, Math.min(2160, quality.height)),
+      fps: Math.max(30, Math.min(60, quality.fps)),
+    };
+  }
+
+  /**
+   * Sets capture quality and applies it immediately when possible.
+   */
+  async setCaptureQuality(
+    quality: CaptureQuality,
+  ): Promise<{success: boolean; quality?: CaptureQuality; error?: string}> {
+    try {
+      const normalized = this.normalizeQuality(quality);
+      this.currentQuality = {...normalized};
+      await this.applyCaptureQualityToAddon();
+      return {success: true, quality: {...this.currentQuality}};
+    } catch (error: any) {
+      return {success: false, error: error.message};
+    }
+  }
+
   async startCapture(
     sourceId: string,
   ): Promise<{success: boolean; error?: string}> {
@@ -858,6 +923,7 @@ export class NativeCaptureManager {
 
       // Настраиваем колбэки
       this.setupCallbacks();
+      await this.applyCaptureQualityToAddon();
 
       // ВРЕМЕННЫЙ ОБХОДНОЙ ПУТЬ: используем числовую версию если доступна
       log.info(`Setting capture source...`);
@@ -1389,10 +1455,10 @@ export class NativeCaptureManager {
       `📐 Setting quality to: ${preset.quality.width}x${preset.quality.height} @ ${preset.quality.fps}fps`,
     );
 
-    // Сохраняем качество локально
-    this.currentQuality = {...preset.quality};
-
-    return {success: true};
+    const result = await this.setCaptureQuality(preset.quality);
+    return result.success
+      ? {success: true}
+      : {success: false, error: result.error};
   }
 
   // Запуск захвата с указанным качеством
