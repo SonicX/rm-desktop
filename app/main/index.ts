@@ -1189,19 +1189,27 @@ async function createMainWindow(): Promise<BrowserWindow> {
     <title>Изоляция звука</title>
     <style>
       :root { color-scheme: dark; }
-      body {
+      html, body {
         margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+      }
+      body {
+        box-sizing: border-box;
+        padding: 12px;
         font-family: "Segoe UI", Arial, sans-serif;
         background: #1e1f24;
         color: #f5f5f5;
         display: flex;
         align-items: center;
         justify-content: center;
-        height: 100vh;
       }
       .card {
-        width: 320px;
-        padding: 18px;
+        width: 100%;
+        max-width: 500px;
+        box-sizing: border-box;
+        padding: 16px;
         border-radius: 10px;
         background: #24262d;
         border: 1px solid rgba(255, 255, 255, 0.12);
@@ -1213,9 +1221,10 @@ async function createMainWindow(): Promise<BrowserWindow> {
         margin-bottom: 8px;
       }
       .message {
-        font-size: 14px;
+        font-size: 13px;
+        line-height: 1.35;
         opacity: 0.95;
-        margin-bottom: 14px;
+        margin-bottom: 16px;
       }
       .actions {
         display: flex;
@@ -1265,8 +1274,8 @@ async function createMainWindow(): Promise<BrowserWindow> {
     audioIsolationPopupWindow = new BrowserWindow({
       parent: mainWindow,
       modal: true,
-      width: 360,
-      height: 160,
+      width: 540,
+      height: 260,
       useContentSize: true,
       frame: false,
       resizable: false,
@@ -1274,7 +1283,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
       maximizable: false,
       fullscreenable: false,
       skipTaskbar: true,
-      alwaysOnTop: true,
+      alwaysOnTop: false,
       show: false,
       backgroundColor: "#1e1f24",
       webPreferences: {

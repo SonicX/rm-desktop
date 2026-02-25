@@ -62,3 +62,36 @@ test("windows native addon exports capture quality entry points", (t) => {
 
   t.end();
 });
+
+test("audio isolation popup keeps context-bound and sizing guards", (t) => {
+  const source = read("app/main/index.ts");
+
+  t.ok(
+    source.includes("width: 540,"),
+    "popup width is expanded to avoid cramped text",
+  );
+  t.ok(
+    source.includes("height: 260,"),
+    "popup height is expanded to avoid scrollbars",
+  );
+  t.ok(
+    source.includes("useContentSize: true,"),
+    "popup uses content sizing for stable layout",
+  );
+  t.ok(
+    source.includes("alwaysOnTop: false,"),
+    "popup is not pinned over every system app",
+  );
+  t.ok(
+    source.includes(
+      "window.parent.postMessage({type: 'AUDIO_ISOLATION_CLICK'}, '*');",
+    ),
+    "share-audio checkbox click is bridged to parent window",
+  );
+  t.ok(
+    source.includes("if (window.__audioIsolationObserver) return;"),
+    "iframe observer has duplicate-attach guard",
+  );
+
+  t.end();
+});
