@@ -188,6 +188,7 @@ const allowedInvokeChannels = new Set([
   "jitsi:route-app-audio-to-cable",
   "jitsi:restore-app-audio",
   "jitsi:get-audio-sessions",
+  "jitsi:show-audio-isolation-warning",
 ]);
 
 contextBridge.exposeInMainWorld("ipcRenderer", {

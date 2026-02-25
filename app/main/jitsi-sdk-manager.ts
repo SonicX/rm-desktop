@@ -308,10 +308,16 @@ export class JitsiSDKManager {
               }
               const result = await ipcRenderer.invoke('jitsi:set-native-custom-quality', width, height, fps);
               status.textContent = result?.success ? 'Сохранено' : ('Ошибка: ' + (result?.error || 'unknown'));
+              if (result?.success) {
+                panel.style.display = 'none';
+              }
             } else {
               const value = select.value;
               const result = await ipcRenderer.invoke('jitsi:change-native-quality', value);
               status.textContent = result?.success ? 'Сохранено' : ('Ошибка: ' + (result?.error || 'unknown'));
+              if (result?.success) {
+                panel.style.display = 'none';
+              }
             }
           };
 

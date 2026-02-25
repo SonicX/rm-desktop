@@ -187,6 +187,7 @@ sentryInit();
 
 let mainWindowState: windowStateKeeper.State;
 let mainWindow: BrowserWindow;
+let audioIsolationPopupWindow: BrowserWindow | null = null;
 let badgeCount: number;
 let isQuitting = false;
 
@@ -1120,6 +1121,153 @@ async function createMainWindow(): Promise<BrowserWindow> {
   ipcMain.on("jitsi-conference-left", () => {
     log.info(`🎯[Jitsi] User left conference`);
     sendEventToZulip("jitsi-conference-left", {});
+  });
+
+  ipcMain.handle("jitsi:show-audio-isolation-warning", async () => {
+    if (audioIsolationPopupWindow && !audioIsolationPopupWindow.isDestroyed()) {
+      audioIsolationPopupWindow.show();
+      audioIsolationPopupWindow.focus();
+      return {shown: true, action: "cancel" as const};
+    }
+
+    const popupHtml = `<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Изоляция звука</title>
+    <style>
+      :root { color-scheme: dark; }
+      body {
+        margin: 0;
+        font-family: "Segoe UI", Arial, sans-serif;
+        background: #1e1f24;
+        color: #f5f5f5;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+      }
+      .card {
+        width: 320px;
+        padding: 18px;
+        border-radius: 10px;
+        background: #24262d;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        box-shadow: 0 10px 26px rgba(0, 0, 0, 0.45);
+      }
+      .title {
+        font-size: 15px;
+        font-weight: 600;
+        margin-bottom: 8px;
+      }
+      .message {
+        font-size: 14px;
+        opacity: 0.95;
+        margin-bottom: 14px;
+      }
+      .actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+      }
+      button {
+        border: 0;
+        border-radius: 7px;
+        padding: 7px 14px;
+        cursor: pointer;
+        font-size: 13px;
+        color: #fff;
+        background: #2f7df6;
+      }
+      button:hover { background: #3f89fb; }
+      .btn-cancel {
+        background: #464b57;
+      }
+      .btn-cancel:hover {
+        background: #585f6d;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="title">Изоляция звука</div>
+      <div class="message">Измените режим звонка на изолированный звоно</div>
+      <div class="actions">
+        <button id="cancel-btn" class="btn-cancel" autofocus>Отмена</button>
+        <button id="switch-btn">Переключить</button>
+      </div>
+    </div>
+    <script>
+      const {ipcRenderer} = require("electron");
+      const sendAction = (action) => ipcRenderer.send("audio-isolation-popup-action", action);
+      document.getElementById("cancel-btn").addEventListener("click", () => sendAction("cancel"));
+      document.getElementById("switch-btn").addEventListener("click", () => sendAction("switch"));
+      window.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") sendAction("cancel");
+        if (event.key === "Enter") sendAction("switch");
+      });
+    </script>
+  </body>
+</html>`;
+
+    audioIsolationPopupWindow = new BrowserWindow({
+      parent: mainWindow,
+      modal: true,
+      width: 360,
+      height: 180,
+      frame: false,
+      resizable: false,
+      minimizable: false,
+      maximizable: false,
+      fullscreenable: false,
+      skipTaskbar: true,
+      alwaysOnTop: true,
+      show: false,
+      backgroundColor: "#1e1f24",
+      webPreferences: {
+        sandbox: false,
+        contextIsolation: false,
+        nodeIntegration: true,
+      },
+    });
+
+    await audioIsolationPopupWindow.loadURL(
+      `data:text/html;charset=utf-8,${encodeURIComponent(popupHtml)}`,
+    );
+    audioIsolationPopupWindow.show();
+    audioIsolationPopupWindow.focus();
+
+    const action = await new Promise<"cancel" | "switch">((resolve) => {
+      let settled = false;
+      const finalize = (value: "cancel" | "switch") => {
+        if (settled) {
+          return;
+        }
+
+        settled = true;
+        ipcMain.removeListener("audio-isolation-popup-action", onAction);
+        resolve(value);
+      };
+
+      const onAction = (_event: IpcMainEvent, value: "cancel" | "switch") => {
+        finalize(value === "switch" ? "switch" : "cancel");
+        if (
+          audioIsolationPopupWindow &&
+          !audioIsolationPopupWindow.isDestroyed()
+        ) {
+          audioIsolationPopupWindow.close();
+        }
+      };
+
+      ipcMain.on("audio-isolation-popup-action", onAction);
+      audioIsolationPopupWindow?.once("closed", () => {
+        audioIsolationPopupWindow = null;
+        finalize("cancel");
+      });
+    });
+
+    return {shown: true, action};
   });
 
   ipcMain.on("electron-bridge-event", async (event, data) => {

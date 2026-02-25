@@ -92,6 +92,7 @@ export type MainMessage = {
   "jitsi-api-ready": (data: any) => void;
   "jitsi-conference-joined": () => void;
   "jitsi-conference-left": () => void;
+  "audio-isolation-popup-action": (action: "cancel" | "switch") => void;
   "electron-bridge-event": (data: any) => void;
   "ipc-invoke": (data: InvokeData) => void;
   "show-update-button": (updateInfo: RemoteUpdateInfo) => void;
@@ -196,6 +197,10 @@ export type MainCall = {
     processPath: string,
   ) => Promise<{success: boolean; error?: string}>;
   "jitsi:get-audio-sessions": () => Promise<AudioSession[]>;
+  "jitsi:show-audio-isolation-warning": () => Promise<{
+    shown: boolean;
+    action: "cancel" | "switch";
+  }>;
 };
 
 export type RendererMessage = {
