@@ -1243,7 +1243,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
   <body>
     <div class="card">
       <div class="title">Изоляция звука</div>
-      <div class="message">Измените режим звонка на изолированный звоно</div>
+      <div class="message">Для возможности "поделться звуком" отдельного приложения, необходимо переключить на "режим звонка в отдельном окне". Изменить ваш выбор можно в настойках вверхнем правом углу - кнопка "⚙".</div>
       <div class="actions">
         <button id="cancel-btn" class="btn-cancel" autofocus>Отмена</button>
         <button id="switch-btn">Переключить</button>
