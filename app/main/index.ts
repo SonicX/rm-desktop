@@ -601,6 +601,57 @@ async function createMainWindow(): Promise<BrowserWindow> {
               `);
       }
     });
+
+    // Перехватываем клик по "Поделиться аудио" внутри Jitsi iframe
+    // и перенаправляем его в родительское окно через postMessage,
+    // чтобы connectRM мог показать Electron popup "Изоляция звука".
+    contents.on("did-frame-finish-load", (_event, isMainFrame) => {
+      if (isMainFrame) return;
+      try {
+        for (const frame of contents.mainFrame.framesInSubtree) {
+          if (frame.url.includes("jitsi-connectrm.ru")) {
+            frame
+              .executeJavaScript(
+                `(() => {
+                if (window.__audioIsolationObserver) return;
+                const intercept = () => {
+                  document.querySelectorAll('label').forEach(l => {
+                    if (l.dataset.isolationIntercepted) return;
+                    if (!/поделиться\\s+аудио|share\\s+audio/i.test(l.textContent || '')) return;
+                    l.dataset.isolationIntercepted = 'true';
+                    const handler = (e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      e.stopImmediatePropagation();
+                      window.parent.postMessage({type: 'AUDIO_ISOLATION_CLICK'}, '*');
+                    };
+                    l.addEventListener('click', handler, true);
+                    const cb = l.querySelector('input[type="checkbox"]');
+                    if (cb) {
+                      cb.addEventListener('click', handler, true);
+                      cb.addEventListener('change', (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        cb.checked = false;
+                      }, true);
+                    }
+                  });
+                };
+                intercept();
+                window.__audioIsolationObserver = new MutationObserver(intercept);
+                window.__audioIsolationObserver.observe(
+                  document.body,
+                  { childList: true, subtree: true },
+                );
+              })()`,
+              )
+              .catch(() => {});
+          }
+        }
+      } catch {
+        // Frame may already be destroyed
+      }
+    });
   });
 
   await win.loadFile(
@@ -1215,7 +1266,8 @@ async function createMainWindow(): Promise<BrowserWindow> {
       parent: mainWindow,
       modal: true,
       width: 360,
-      height: 180,
+      height: 160,
+      useContentSize: true,
       frame: false,
       resizable: false,
       minimizable: false,
