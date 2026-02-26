@@ -56,6 +56,53 @@ const GUID KSDATAFORMAT_SUBTYPE_PCM = {0x00000001, 0x0000, 0x0010, {0x80, 0x00, 
 #define WAVE_FORMAT_PCM 0x0001
 #endif
 
+// ========== Process Loopback API ==========
+// Force NTDDI high enough for process loopback types, then use SDK header.
+// Save/restore to avoid affecting the rest of the compilation unit.
+#if defined(NTDDI_VERSION) && (NTDDI_VERSION < 0x0A00000B)
+#undef NTDDI_VERSION
+#define NTDDI_VERSION 0x0A00000B  // NTDDI_WIN10_CO (21H2)
+#define _PID_LOOPBACK_RESTORED_NTDDI 1
+#endif
+
+#if __has_include(<audioclientactivationparams.h>)
+#include <audioclientactivationparams.h>
+#else
+
+typedef enum {
+    PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE = 0,
+    PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE = 1
+} PROCESS_LOOPBACK_MODE;
+
+typedef enum {
+    AUDIOCLIENT_ACTIVATION_TYPE_DEFAULT = 0,
+    AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK = 1
+} AUDIOCLIENT_ACTIVATION_TYPE;
+
+typedef struct {
+    DWORD TargetProcessId;
+    PROCESS_LOOPBACK_MODE ProcessLoopbackMode;
+} AUDIOCLIENT_PROCESS_LOOPBACK_PARAMS;
+
+typedef struct {
+    AUDIOCLIENT_ACTIVATION_TYPE ActivationType;
+    union {
+        AUDIOCLIENT_PROCESS_LOOPBACK_PARAMS ProcessLoopbackParams;
+    };
+} AUDIOCLIENT_ACTIVATION_PARAMS;
+
+#ifndef VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK
+#define VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK L"VAD\\Process_Loopback"
+#endif
+
+#endif // __has_include
+
+#ifdef _PID_LOOPBACK_RESTORED_NTDDI
+#undef NTDDI_VERSION
+#define NTDDI_VERSION 0x0A000000
+#undef _PID_LOOPBACK_RESTORED_NTDDI
+#endif
+
 // Глобальные переменные для callbacks
 static napi_threadsafe_function g_video_tsfn = nullptr;
 static napi_threadsafe_function g_audio_tsfn = nullptr;
@@ -381,6 +428,504 @@ public:
         
         if (detectCount > 0) {
             OutputDebugStringA("[SUCCESS] Echo cancellation is working! Modified echoes will sound distorted.\n");
+        }
+    }
+};
+
+// ========== Windows Process Loopback Capture ==========
+
+class ActivateAudioInterfaceHandler
+    : public IActivateAudioInterfaceCompletionHandler {
+private:
+    LONG refCount = 1;
+    HANDLE completionEvent;
+    IAudioClient* audioClient = nullptr;
+    HRESULT activationResult = E_FAIL;
+    IUnknown* ftm = nullptr; // free-threaded marshaler
+
+public:
+    ActivateAudioInterfaceHandler() {
+        completionEvent = CreateEvent(nullptr, TRUE, FALSE, nullptr);
+        CoCreateFreeThreadedMarshaler(
+            static_cast<IActivateAudioInterfaceCompletionHandler*>(this),
+            &ftm);
+    }
+
+    ~ActivateAudioInterfaceHandler() {
+        if (ftm) ftm->Release();
+        if (completionEvent) CloseHandle(completionEvent);
+    }
+
+    ULONG STDMETHODCALLTYPE AddRef() override {
+        return InterlockedIncrement(&refCount);
+    }
+
+    ULONG STDMETHODCALLTYPE Release() override {
+        ULONG count = InterlockedDecrement(&refCount);
+        if (count == 0) delete this;
+        return count;
+    }
+
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppv) override {
+        if (!ppv) return E_POINTER;
+        if (riid == __uuidof(IUnknown) ||
+            riid == __uuidof(IActivateAudioInterfaceCompletionHandler)) {
+            *ppv = static_cast<IActivateAudioInterfaceCompletionHandler*>(this);
+            AddRef();
+            return S_OK;
+        }
+        if (riid == __uuidof(IMarshal) && ftm) {
+            return ftm->QueryInterface(riid, ppv);
+        }
+        if (riid == __uuidof(IAgileObject)) {
+            *ppv = static_cast<IActivateAudioInterfaceCompletionHandler*>(this);
+            AddRef();
+            return S_OK;
+        }
+        *ppv = nullptr;
+        return E_NOINTERFACE;
+    }
+
+    HRESULT STDMETHODCALLTYPE ActivateCompleted(
+        IActivateAudioInterfaceAsyncOperation* operation) override
+    {
+        HRESULT hrActivate = S_OK;
+        IUnknown* punkAudioInterface = nullptr;
+
+        HRESULT hr = operation->GetActivateResult(&hrActivate, &punkAudioInterface);
+        if (SUCCEEDED(hr) && SUCCEEDED(hrActivate) && punkAudioInterface) {
+            punkAudioInterface->QueryInterface(
+                __uuidof(IAudioClient), (void**)&audioClient);
+        }
+
+        if (punkAudioInterface) punkAudioInterface->Release();
+        activationResult = SUCCEEDED(hr) ? hrActivate : hr;
+
+        SetEvent(completionEvent);
+        return S_OK;
+    }
+
+    HRESULT WaitForCompletion(DWORD timeoutMs = 5000) {
+        if (WaitForSingleObject(completionEvent, timeoutMs) != WAIT_OBJECT_0)
+            return HRESULT_FROM_WIN32(ERROR_TIMEOUT);
+        return activationResult;
+    }
+
+    IAudioClient* DetachAudioClient() {
+        IAudioClient* client = audioClient;
+        audioClient = nullptr;
+        return client;
+    }
+};
+
+class PidLoopbackCapture {
+private:
+    DWORD targetProcessId = 0;
+    std::wstring applicationName;
+    IAudioClient* audioClient = nullptr;
+    IAudioCaptureClient* captureClient = nullptr;
+    WAVEFORMATEX* waveFormat = nullptr;
+    bool comInitialized = false;
+
+    std::atomic<bool> isCapturing{false};
+    std::thread captureThread;
+    std::vector<float> accumulationBuffer;
+    std::mutex bufferMutex;
+    static constexpr int TARGET_FRAME_SIZE = 960; // 20ms at 48kHz
+
+    LARGE_INTEGER performanceFrequency;
+    LARGE_INTEGER captureStartTime;
+
+    int logFrameCounter = 0;
+    int logSendCounter = 0;
+
+public:
+    bool Initialize(DWORD pid) {
+        targetProcessId = pid;
+        QueryPerformanceFrequency(&performanceFrequency);
+        QueryPerformanceCounter(&captureStartTime);
+
+        HANDLE hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+        if (hProcess) {
+            wchar_t exePath[MAX_PATH];
+            DWORD pathLen = MAX_PATH;
+            if (QueryFullProcessImageNameW(hProcess, 0, exePath, &pathLen)) {
+                std::wstring fullPath(exePath);
+                size_t lastSlash = fullPath.find_last_of(L"\\/");
+                if (lastSlash != std::wstring::npos) {
+                    applicationName = fullPath.substr(lastSlash + 1);
+                }
+            }
+            CloseHandle(hProcess);
+        }
+
+        fprintf(stderr, "[PID-LOOPBACK] Initializing for PID %lu, "
+            "sizeof(AUDIOCLIENT_ACTIVATION_PARAMS)=%zu, "
+            "sizeof(AUDIOCLIENT_PROCESS_LOOPBACK_PARAMS)=%zu\n",
+            pid,
+            sizeof(AUDIOCLIENT_ACTIVATION_PARAMS),
+            sizeof(AUDIOCLIENT_PROCESS_LOOPBACK_PARAMS));
+
+        // ActivateAudioInterfaceAsync for process loopback requires MTA.
+        // Electron's main thread is STA, so we run activation on a
+        // dedicated MTA worker and block until done.
+        struct ActivationCtx {
+            DWORD pid;
+            IAudioClient* client = nullptr;
+            HRESULT result = E_FAIL;
+        } ctx;
+        ctx.pid = pid;
+
+        HANDLE hThread = CreateThread(nullptr, 0, [](LPVOID param) -> DWORD {
+            auto* ctx = static_cast<ActivationCtx*>(param);
+
+            HRESULT hrCo = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+            fprintf(stderr, "[PID-LOOPBACK] MTA thread CoInitializeEx=0x%08X tid=%lu\n",
+                hrCo, GetCurrentThreadId());
+
+            AUDIOCLIENT_ACTIVATION_PARAMS activationParams = {};
+            activationParams.ActivationType = AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK;
+            activationParams.ProcessLoopbackParams.TargetProcessId = ctx->pid;
+            activationParams.ProcessLoopbackParams.ProcessLoopbackMode =
+                PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE;
+
+            fprintf(stderr, "[PID-LOOPBACK] activationParams: type=%d, pid=%lu, mode=%d, "
+                "blob at %p, size=%zu\n",
+                (int)activationParams.ActivationType,
+                activationParams.ProcessLoopbackParams.TargetProcessId,
+                (int)activationParams.ProcessLoopbackParams.ProcessLoopbackMode,
+                &activationParams, sizeof(activationParams));
+
+            PROPVARIANT pvActivateParams = {};
+            pvActivateParams.vt = VT_BLOB;
+            pvActivateParams.blob.cbSize = sizeof(activationParams);
+            pvActivateParams.blob.pBlobData = reinterpret_cast<BYTE*>(&activationParams);
+
+            auto* handler = new ActivateAudioInterfaceHandler();
+            IActivateAudioInterfaceAsyncOperation* asyncOp = nullptr;
+
+            HRESULT hr = ActivateAudioInterfaceAsync(
+                VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK,
+                __uuidof(IAudioClient),
+                &pvActivateParams,
+                handler,
+                &asyncOp);
+
+            if (FAILED(hr)) {
+                fprintf(stderr, "[PID-LOOPBACK] ActivateAudioInterfaceAsync FAILED: 0x%08X\n", hr);
+                handler->Release();
+                ctx->result = hr;
+                if (SUCCEEDED(hrCo)) CoUninitialize();
+                return 1;
+            }
+            fprintf(stderr, "[PID-LOOPBACK] ActivateAudioInterfaceAsync OK, waiting...\n");
+
+            hr = handler->WaitForCompletion(5000);
+            if (FAILED(hr)) {
+                fprintf(stderr, "[PID-LOOPBACK] Activation completion FAILED: 0x%08X\n", hr);
+                if (asyncOp) asyncOp->Release();
+                handler->Release();
+                ctx->result = hr;
+                if (SUCCEEDED(hrCo)) CoUninitialize();
+                return 1;
+            }
+
+            ctx->client = handler->DetachAudioClient();
+            ctx->result = ctx->client ? S_OK : E_FAIL;
+            if (asyncOp) asyncOp->Release();
+            handler->Release();
+
+            fprintf(stderr, "[PID-LOOPBACK] MTA activation %s\n",
+                ctx->client ? "SUCCEEDED" : "FAILED (no client)");
+            if (SUCCEEDED(hrCo)) CoUninitialize();
+            return 0;
+        }, &ctx, 0, nullptr);
+
+        WaitForSingleObject(hThread, 10000);
+        CloseHandle(hThread);
+
+        if (FAILED(ctx.result) || !ctx.client) {
+            fprintf(stderr, "[PID-LOOPBACK] Activation result: 0x%08X\n", ctx.result);
+            return false;
+        }
+
+        audioClient = ctx.client;
+
+        // Process loopback: GetMixFormat returns E_NOTIMPL.
+        // Grab the format from the default render endpoint instead.
+        HRESULT hr = audioClient->GetMixFormat(&waveFormat);
+        if (FAILED(hr)) {
+            fprintf(stderr, "[PID-LOOPBACK] GetMixFormat returned 0x%08X, "
+                "querying default render endpoint\n", hr);
+
+            IMMDeviceEnumerator* pEnum = nullptr;
+            IMMDevice* pDev = nullptr;
+            IAudioClient* pRenderClient = nullptr;
+
+            hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr,
+                CLSCTX_ALL, __uuidof(IMMDeviceEnumerator), (void**)&pEnum);
+            if (SUCCEEDED(hr))
+                hr = pEnum->GetDefaultAudioEndpoint(eRender, eConsole, &pDev);
+            if (SUCCEEDED(hr))
+                hr = pDev->Activate(__uuidof(IAudioClient), CLSCTX_ALL,
+                    nullptr, (void**)&pRenderClient);
+            if (SUCCEEDED(hr))
+                hr = pRenderClient->GetMixFormat(&waveFormat);
+
+            if (pRenderClient) pRenderClient->Release();
+            if (pDev) pDev->Release();
+            if (pEnum) pEnum->Release();
+
+            if (FAILED(hr) || !waveFormat) {
+                fprintf(stderr, "[PID-LOOPBACK] Render endpoint format query "
+                    "failed: 0x%08X\n", hr);
+                return false;
+            }
+        }
+
+        fprintf(stderr, "[PID-LOOPBACK] Format: %luHz, %uch, %ubits, tag=0x%X\n",
+            waveFormat->nSamplesPerSec, waveFormat->nChannels,
+            waveFormat->wBitsPerSample, waveFormat->wFormatTag);
+
+        hr = audioClient->Initialize(
+            AUDCLNT_SHAREMODE_SHARED,
+            AUDCLNT_STREAMFLAGS_LOOPBACK,
+            0, 0,
+            waveFormat,
+            nullptr);
+
+        if (FAILED(hr)) {
+            fprintf(stderr, "[PID-LOOPBACK] Initialize(LOOPBACK) failed: 0x%08X, "
+                "retrying without flag\n", hr);
+            hr = audioClient->Initialize(
+                AUDCLNT_SHAREMODE_SHARED,
+                0, 0, 0,
+                waveFormat,
+                nullptr);
+        }
+
+        if (FAILED(hr)) {
+            fprintf(stderr, "[PID-LOOPBACK] Initialize failed: 0x%08X\n", hr);
+            return false;
+        }
+
+        hr = audioClient->GetService(
+            __uuidof(IAudioCaptureClient),
+            reinterpret_cast<void**>(&captureClient));
+
+        if (FAILED(hr)) {
+            fprintf(stderr, "[PID-LOOPBACK] GetService(CaptureClient) failed: 0x%08X\n", hr);
+            return false;
+        }
+
+        fprintf(stderr, "[PID-LOOPBACK] Initialization COMPLETE for PID %lu\n", pid);
+        return true;
+    }
+
+    void StartCapture() {
+        if (!audioClient || !captureClient) return;
+
+        isCapturing = true;
+        {
+            std::lock_guard<std::mutex> lock(bufferMutex);
+            accumulationBuffer.clear();
+            accumulationBuffer.reserve(192000);
+        }
+
+        HRESULT hr = audioClient->Start();
+        if (SUCCEEDED(hr)) {
+            captureThread = std::thread([this]() {
+                CoInitialize(nullptr);
+                CaptureLoop();
+                CoUninitialize();
+            });
+            OutputDebugStringA("[PID-LOOPBACK] Capture started\n");
+        } else {
+            char logBuf[128];
+            sprintf_s(logBuf, "[PID-LOOPBACK] Start failed: 0x%08X\n", hr);
+            OutputDebugStringA(logBuf);
+            isCapturing = false;
+        }
+    }
+
+    void StopCapture() {
+        isCapturing = false;
+        if (audioClient) audioClient->Stop();
+        if (captureThread.joinable()) captureThread.join();
+        {
+            std::lock_guard<std::mutex> lock(bufferMutex);
+            accumulationBuffer.clear();
+        }
+        OutputDebugStringA("[PID-LOOPBACK] Capture stopped\n");
+    }
+
+    ~PidLoopbackCapture() {
+        StopCapture();
+        if (captureClient) { captureClient->Release(); captureClient = nullptr; }
+        if (audioClient) { audioClient->Release(); audioClient = nullptr; }
+        if (waveFormat) { CoTaskMemFree(waveFormat); waveFormat = nullptr; }
+    }
+
+private:
+    void CaptureLoop() {
+        SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
+
+        while (isCapturing) {
+            UINT32 packetLength = 0;
+            HRESULT hr = captureClient->GetNextPacketSize(&packetLength);
+
+            if (SUCCEEDED(hr) && packetLength > 0) {
+                BYTE* data = nullptr;
+                UINT32 numFramesAvailable = 0;
+                DWORD flags = 0;
+
+                hr = captureClient->GetBuffer(
+                    &data, &numFramesAvailable, &flags, nullptr, nullptr);
+
+                if (SUCCEEDED(hr)) {
+                    if (numFramesAvailable > 0) {
+                        bool isSilent = (flags & AUDCLNT_BUFFERFLAGS_SILENT) != 0;
+                        ProcessAudioData(data, numFramesAvailable, isSilent);
+                    }
+                    captureClient->ReleaseBuffer(numFramesAvailable);
+                }
+            } else {
+                Sleep(2);
+            }
+        }
+    }
+
+    void ProcessAudioData(BYTE* data, UINT32 numFrames, bool isSilent) {
+        size_t sampleCount = numFrames * waveFormat->nChannels;
+        std::vector<float> samples(sampleCount);
+
+        if (isSilent) {
+            std::fill(samples.begin(), samples.end(), 0.0f);
+        } else {
+            ConvertToFloat(data, samples, sampleCount);
+        }
+
+        logFrameCounter++;
+        if (logFrameCounter <= 5 || logFrameCounter % 500 == 0) {
+            float maxAmp = 0;
+            for (size_t i = 0; i < (std::min)(sampleCount, (size_t)200); i++) {
+                maxAmp = (std::max)(maxAmp, std::abs(samples[i]));
+            }
+            char logBuf[256];
+            sprintf_s(logBuf, "[PID-LOOPBACK] Frame %d: %u frames, maxAmp=%.6f, silent=%d\n",
+                logFrameCounter, numFrames, maxAmp, isSilent ? 1 : 0);
+            OutputDebugStringA(logBuf);
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(bufferMutex);
+            accumulationBuffer.insert(accumulationBuffer.end(),
+                samples.begin(), samples.end());
+        }
+
+        SendBufferedFrames();
+    }
+
+    void ConvertToFloat(BYTE* data, std::vector<float>& samples, size_t sampleCount) {
+        if (waveFormat->wFormatTag == WAVE_FORMAT_IEEE_FLOAT) {
+            float* src = reinterpret_cast<float*>(data);
+            for (size_t i = 0; i < sampleCount; i++) samples[i] = src[i];
+        } else if (waveFormat->wFormatTag == WAVE_FORMAT_PCM) {
+            if (waveFormat->wBitsPerSample == 16) {
+                INT16* src = reinterpret_cast<INT16*>(data);
+                for (size_t i = 0; i < sampleCount; i++)
+                    samples[i] = src[i] / 32768.0f;
+            } else if (waveFormat->wBitsPerSample == 32) {
+                INT32* src = reinterpret_cast<INT32*>(data);
+                for (size_t i = 0; i < sampleCount; i++)
+                    samples[i] = src[i] / 2147483648.0f;
+            }
+        } else if (waveFormat->wFormatTag == WAVE_FORMAT_EXTENSIBLE) {
+            WAVEFORMATEXTENSIBLE* ext =
+                reinterpret_cast<WAVEFORMATEXTENSIBLE*>(waveFormat);
+            if (IsEqualGUID(ext->SubFormat, KSDATAFORMAT_SUBTYPE_IEEE_FLOAT)) {
+                float* src = reinterpret_cast<float*>(data);
+                for (size_t i = 0; i < sampleCount; i++) samples[i] = src[i];
+            } else if (IsEqualGUID(ext->SubFormat, KSDATAFORMAT_SUBTYPE_PCM)) {
+                if (waveFormat->wBitsPerSample == 16) {
+                    INT16* src = reinterpret_cast<INT16*>(data);
+                    for (size_t i = 0; i < sampleCount; i++)
+                        samples[i] = src[i] / 32768.0f;
+                } else if (waveFormat->wBitsPerSample == 32) {
+                    INT32* src = reinterpret_cast<INT32*>(data);
+                    for (size_t i = 0; i < sampleCount; i++)
+                        samples[i] = src[i] / 2147483648.0f;
+                } else if (waveFormat->wBitsPerSample == 24) {
+                    for (size_t i = 0; i < sampleCount; i++) {
+                        BYTE* p = data + (i * 3);
+                        INT32 sample = (p[0] | (p[1] << 8) | (p[2] << 16));
+                        if (sample & 0x800000) sample |= 0xFF000000;
+                        samples[i] = sample / 8388608.0f;
+                    }
+                }
+            }
+        }
+    }
+
+    void SendBufferedFrames() {
+        while (true) {
+            std::unique_lock<std::mutex> lock(bufferMutex);
+
+            size_t samplesPerChannel = accumulationBuffer.size() / waveFormat->nChannels;
+            if (samplesPerChannel < TARGET_FRAME_SIZE) break;
+
+            AudioFrameData* frameData = new AudioFrameData();
+            frameData->numSamples = TARGET_FRAME_SIZE;
+            frameData->sampleRate = waveFormat->nSamplesPerSec;
+            frameData->channels = waveFormat->nChannels;
+            frameData->timestamp = g_syncManager.GetAudioTimestamp();
+            frameData->isSystemAudio = false;
+
+            if (!applicationName.empty()) {
+                char appName[256] = {0};
+                wcstombs(appName, applicationName.c_str(), sizeof(appName) - 1);
+                frameData->applicationName = appName;
+            }
+
+            size_t frameSampleCount = TARGET_FRAME_SIZE * waveFormat->nChannels;
+            frameData->samples = new float[frameSampleCount];
+
+            for (size_t i = 0; i < frameSampleCount; i++) {
+                float s = accumulationBuffer[i];
+                frameData->samples[i] = (std::max)(-1.0f, (std::min)(1.0f, s));
+            }
+
+            accumulationBuffer.erase(
+                accumulationBuffer.begin(),
+                accumulationBuffer.begin() + frameSampleCount);
+
+            lock.unlock();
+
+            g_audio_frame_count++;
+
+            logSendCounter++;
+            if (logSendCounter <= 5 || logSendCounter % 500 == 0) {
+                float maxVal = 0;
+                for (size_t i = 0; i < frameSampleCount; i++)
+                    maxVal = (std::max)(maxVal, std::abs(frameData->samples[i]));
+                char logBuf[256];
+                sprintf_s(logBuf, "[PID-LOOPBACK] Send #%d: max=%.6f, samples=%d\n",
+                    logSendCounter, maxVal, frameData->numSamples);
+                OutputDebugStringA(logBuf);
+            }
+
+            if (g_audio_tsfn) {
+                napi_status status = napi_call_threadsafe_function(
+                    g_audio_tsfn, frameData, napi_tsfn_nonblocking);
+                if (status != napi_ok) {
+                    delete[] frameData->samples;
+                    delete frameData;
+                    break;
+                }
+            } else {
+                delete[] frameData->samples;
+                delete frameData;
+            }
         }
     }
 };
@@ -1258,6 +1803,8 @@ public:
 // Глобальные экземпляры захвата
 static std::unique_ptr<DXGIScreenCapture> g_screenCapture;
 static std::unique_ptr<ApplicationAudioCapture> g_appAudioCapture;
+static std::unique_ptr<PidLoopbackCapture> g_pidLoopbackCapture;
+static std::string g_audioCaptureMode = "none";
 static CaptureSource g_currentSource;
 
 // === N-API функции ===
@@ -1592,10 +2139,15 @@ napi_value StartCapture(napi_env env, napi_callback_info info) {
         g_screenCapture->StopCapture();
         g_screenCapture.reset();
     }
+    if (g_pidLoopbackCapture) {
+        g_pidLoopbackCapture->StopCapture();
+        g_pidLoopbackCapture.reset();
+    }
     if (g_appAudioCapture) {
         g_appAudioCapture->StopCapture();
         g_appAudioCapture.reset();
     }
+    g_audioCaptureMode = "none";
     
     bool videoStarted = false;
     bool audioStarted = false;
@@ -1620,30 +2172,53 @@ napi_value StartCapture(napi_env env, napi_callback_info info) {
         }
     }
     
-    // Запускаем аудио захват с поддержкой захвата от приложений
+    // Audio capture — try PID loopback first for window sources
     if (g_currentSource.type == "window") {
         try {
             HWND hwnd = (HWND)std::stoull(g_currentSource.id);
             
+            fprintf(stderr, "[PID-LOOPBACK] Window source: HWND=0x%p, IsWindow=%d\n", hwnd, IsWindow(hwnd));
+            
             if (IsWindow(hwnd)) {
-                g_appAudioCapture = std::make_unique<ApplicationAudioCapture>();
+                DWORD pid = 0;
+                GetWindowThreadProcessId(hwnd, &pid);
+                fprintf(stderr, "[PID-LOOPBACK] Target PID=%lu for HWND=0x%p\n", pid, hwnd);
                 
-                if (g_appAudioCapture->InitializeForApplication(hwnd)) {
-                    g_appAudioCapture->StartCapture();
+                g_pidLoopbackCapture = std::make_unique<PidLoopbackCapture>();
+                if (g_pidLoopbackCapture->Initialize(pid)) {
+                    g_pidLoopbackCapture->StartCapture();
                     audioStarted = true;
-                    OutputDebugStringA("Started application-specific audio capture\n");
+                    g_audioCaptureMode = "pid-loopback";
+                    fprintf(stderr, "[PID-LOOPBACK] SUCCESS - process-specific audio capture started for PID %lu\n", pid);
                 } else {
-                    OutputDebugStringA("Application audio capture init failed - system fallback disabled for window mode\n");
+                    fprintf(stderr, "[PID-LOOPBACK] FAILED - falling back to legacy loopback\n");
+                    g_pidLoopbackCapture.reset();
+                    
+                    g_appAudioCapture = std::make_unique<ApplicationAudioCapture>();
+                    if (g_appAudioCapture->InitializeForApplication(hwnd)) {
+                        g_appAudioCapture->StartCapture();
+                        audioStarted = true;
+                        g_audioCaptureMode = "legacy-loopback";
+                        fprintf(stderr, "[PID-LOOPBACK] Legacy application audio capture started\n");
+                    } else {
+                        fprintf(stderr, "[PID-LOOPBACK] Legacy audio capture init also failed\n");
+                        g_appAudioCapture.reset();
+                    }
                 }
+            } else {
+                fprintf(stderr, "[PID-LOOPBACK] HWND 0x%p is not a valid window\n", hwnd);
             }
+        } catch (const std::exception& e) {
+            fprintf(stderr, "[PID-LOOPBACK] Exception: %s\n", e.what());
         } catch (...) {
-            OutputDebugStringA("Exception in window audio capture\n");
+            fprintf(stderr, "[PID-LOOPBACK] Unknown exception in window audio capture\n");
         }
     } else {
         g_appAudioCapture = std::make_unique<ApplicationAudioCapture>();
         if (g_appAudioCapture->InitializeForSystemAudio()) {
             g_appAudioCapture->StartCapture();
             audioStarted = true;
+            g_audioCaptureMode = "system-loopback";
             OutputDebugStringA("Started system audio capture\n");
         }
     }
@@ -1660,9 +2235,13 @@ napi_value StartCapture(napi_env env, napi_callback_info info) {
     napi_value message;
     std::string msg = "Started: ";
     if (videoStarted) msg += "video ";
-    if (audioStarted) msg += "audio";
+    if (audioStarted) msg += "audio(" + g_audioCaptureMode + ")";
     napi_create_string_utf8(env, msg.c_str(), NAPI_AUTO_LENGTH, &message);
     napi_set_named_property(env, result, "message", message);
+    
+    napi_value captureMode;
+    napi_create_string_utf8(env, g_audioCaptureMode.c_str(), NAPI_AUTO_LENGTH, &captureMode);
+    napi_set_named_property(env, result, "captureMode", captureMode);
     
     return result;
 }
@@ -1676,10 +2255,17 @@ napi_value StopCapture(napi_env env, napi_callback_info info) {
         g_screenCapture.reset();
     }
     
+    if (g_pidLoopbackCapture) {
+        g_pidLoopbackCapture->StopCapture();
+        g_pidLoopbackCapture.reset();
+    }
+    
     if (g_appAudioCapture) {
         g_appAudioCapture->StopCapture();
         g_appAudioCapture.reset();
     }
+    
+    g_audioCaptureMode = "none";
     
     napi_value result;
     napi_create_object(env, &result);
@@ -1688,6 +2274,13 @@ napi_value StopCapture(napi_env env, napi_callback_info info) {
     napi_get_boolean(env, true, &success);
     napi_set_named_property(env, result, "success", success);
     
+    return result;
+}
+
+// Получение текущего режима захвата аудио
+napi_value GetCaptureMode(napi_env env, napi_callback_info info) {
+    napi_value result;
+    napi_create_string_utf8(env, g_audioCaptureMode.c_str(), NAPI_AUTO_LENGTH, &result);
     return result;
 }
 
@@ -1862,7 +2455,8 @@ napi_value Init(napi_env env, napi_value exports) {
         {"setCaptureQuality", nullptr, SetCaptureQuality, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"setCaptureSource", nullptr, SetCaptureSource, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"setWebRTCVideoCallback", nullptr, SetWebRTCVideoCallback, nullptr, nullptr, nullptr, napi_default, nullptr},
-        {"setWebRTCAudioCallback", nullptr, SetWebRTCAudioCallback, nullptr, nullptr, nullptr, napi_default, nullptr}
+        {"setWebRTCAudioCallback", nullptr, SetWebRTCAudioCallback, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"getCaptureMode", nullptr, GetCaptureMode, nullptr, nullptr, nullptr, napi_default, nullptr}
     };
     
     napi_define_properties(env, exports, sizeof(desc) / sizeof(desc[0]), desc);

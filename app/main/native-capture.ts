@@ -667,13 +667,25 @@ export class NativeCaptureManager {
     ipcMain.handle("native-capture:stop", async () => this.stopCapture());
 
     // Получение статуса
-    ipcMain.handle("native-capture:get-status", async () => ({
-      isCapturing: this.state.isCapturing,
-      currentSourceId: this.state.currentSourceId,
-      hasAddon: Boolean(this.state.addon),
-      videoFrames: this.state.videoFrameCount,
-      audioFrames: this.state.audioFrameCount,
-    }));
+    ipcMain.handle("native-capture:get-status", async () => {
+      let captureMode = "unknown";
+      try {
+        if (typeof this.state.addon?.getCaptureMode === "function") {
+          captureMode = this.state.addon.getCaptureMode();
+        }
+      } catch {
+        /* ignore */
+      }
+
+      return {
+        isCapturing: this.state.isCapturing,
+        currentSourceId: this.state.currentSourceId,
+        hasAddon: Boolean(this.state.addon),
+        videoFrames: this.state.videoFrameCount,
+        audioFrames: this.state.audioFrameCount,
+        captureMode,
+      };
+    });
   }
 
   private createDefaultThumbnail(): string {
@@ -978,6 +990,11 @@ export class NativeCaptureManager {
       const startResult = await this.state.addon.startCapture();
       log.info(`startCapture result: ${JSON.stringify(startResult)}`);
 
+      // Log the capture mode (pid-loopback vs legacy)
+      if (startResult?.captureMode) {
+        log.info(`Audio capture mode: ${startResult.captureMode}`);
+      }
+
       this.state.isCapturing = true;
       this.state.currentSourceId = sourceId;
 
@@ -1064,12 +1081,23 @@ export class NativeCaptureManager {
     currentSourceId: string | null;
     videoFrameCount: number;
     audioFrameCount: number;
+    captureMode: string;
   } {
+    let captureMode = "unknown";
+    try {
+      if (typeof this.state.addon?.getCaptureMode === "function") {
+        captureMode = this.state.addon.getCaptureMode();
+      }
+    } catch {
+      /* ignore */
+    }
+
     return {
       isCapturing: this.state.isCapturing,
       currentSourceId: this.state.currentSourceId,
       videoFrameCount: this.state.videoFrameCount,
       audioFrameCount: this.state.audioFrameCount,
+      captureMode,
     };
   }
 
