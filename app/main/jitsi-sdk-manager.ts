@@ -54,6 +54,9 @@ export class JitsiSDKManager {
   // Native Capture Manager reference (для macOS нативного захвата)
   private nativeCaptureManager: any = null;
   private currentNativeQualityPreset: keyof typeof CAPTURE_PRESETS = "MEDIUM";
+  private get incomingAudioBoost(): number {
+    return 2.4;
+  }
 
   constructor(iconPath: string, closure: (roomName: string) => void) {
     this.closureFunction = closure;
@@ -382,8 +385,11 @@ export class JitsiSDKManager {
           `[JITSI-SDK] User selected: ${selectedSource.name} (${selectedSource.id})`,
         );
 
-        // Запускаем нативный захват на macOS
-        if (process.platform === "darwin" && this.nativeCaptureManager) {
+        // Запускаем нативный захват на поддерживаемых платформах.
+        if (
+          (process.platform === "darwin" || process.platform === "win32") &&
+          this.nativeCaptureManager
+        ) {
           try {
             log.info(
               `[JITSI-SDK] Starting native capture for source: ${selectedSource.id}`,
@@ -442,8 +448,39 @@ export class JitsiSDKManager {
           (function() {
             window.selectedSourceId = '${selectedSource.id}';
             console.log('[JITSI] Source selected:', window.selectedSourceId, 'nativeCaptureActive:', window.nativeCaptureActive);
+
+            // IMPORTANT: when desktop audio is injected as local audio track,
+            // a global local-audio mute also mutes the shared app audio.
+            // Ensure local audio is unmuted right after native share start.
+            try {
+              if (window.nativeCaptureActive && window.APP?.conference?.isLocalAudioMuted?.()) {
+                window.APP.conference.toggleAudioMuted();
+                console.log('[NATIVE-AUDIO] Forced local audio unmute after native share start');
+              }
+            } catch (e) {
+              console.error('[NATIVE-AUDIO] Failed to force unmute after share start:', e);
+            }
           })();
         `);
+
+        // Keep desktop audio track active, but mute microphone track by default.
+        await this.setMicTrackMutedDuringNativeCapture(true);
+        // Jitsi may recreate local tracks shortly after share start; re-apply mic mute.
+        setTimeout(async () => {
+          try {
+            await this.setMicTrackMutedDuringNativeCapture(true);
+          } catch {}
+        }, 300);
+        setTimeout(async () => {
+          try {
+            await this.setMicTrackMutedDuringNativeCapture(true);
+          } catch {}
+        }, 1000);
+        setTimeout(async () => {
+          try {
+            await this.setMicTrackMutedDuringNativeCapture(true);
+          } catch {}
+        }, 2500);
       } else {
         log.info("[JITSI-SDK] User cancelled screen selection");
 
@@ -574,6 +611,162 @@ export class JitsiSDKManager {
     } catch (error: any) {
       log.error(
         `[JITSI-SDK] Failed to inject audio mute indicator button: ${error.message}`,
+      );
+    }
+  }
+
+  /**
+   * During native desktop share mute/unmute only microphone tracks.
+   * Desktop audio track must stay untouched to keep outgoing app audio.
+   */
+  private async setMicTrackMutedDuringNativeCapture(
+    muted: boolean,
+  ): Promise<boolean> {
+    if (!this.state.window || this.state.window.isDestroyed()) return false;
+
+    try {
+      const result = await this.state.window.webContents.executeJavaScript(`
+        (async function(targetMuted) {
+          try {
+            const conference = window.APP?.conference;
+            if (!conference?.getLocalTracks) return false;
+
+            const tracks = conference.getLocalTracks() || [];
+            const tasks = [];
+            let micTracksFound = 0;
+
+            for (const track of tracks) {
+              if (!track || track.getType?.() !== 'audio') continue;
+
+              const videoType = track.getVideoType?.() || track.videoType || '';
+              const isDesktopAudio = videoType === 'desktop';
+              if (isDesktopAudio) continue;
+              micTracksFound++;
+
+              const isMuted = Boolean(track.isMuted?.());
+              if (targetMuted && !isMuted && typeof track.mute === 'function') {
+                tasks.push(Promise.resolve(track.mute()).catch(() => {}));
+              }
+              if (!targetMuted && isMuted && typeof track.unmute === 'function') {
+                tasks.push(Promise.resolve(track.unmute()).catch(() => {}));
+              }
+            }
+
+            await Promise.all(tasks);
+            return { ok: true, micTracksFound };
+          } catch (e) {
+            console.error('[JITSI] Error muting mic track during native capture:', e);
+            return { ok: false };
+          }
+        })(${muted});
+      `);
+
+      return Boolean(result?.ok);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Усиливает входящий звук участников в локальном окне Jitsi.
+   * Использует WebAudio (MediaElementSource -> Gain -> destination),
+   * чтобы можно было усиливать сигнал выше x1.0.
+   */
+  private async injectIncomingAudioBoost(): Promise<void> {
+    if (!this.state.window || this.state.window.isDestroyed()) return;
+
+    try {
+      await this.state.window.webContents.executeJavaScript(`
+        (function() {
+          const gainValue = ${this.incomingAudioBoost};
+
+          if (window.__electronIncomingAudioBoost?.setGain) {
+            window.__electronIncomingAudioBoost.setGain(gainValue);
+            console.log('[ELECTRON-AUDIO] Updated incoming audio boost to x' + gainValue);
+            return;
+          }
+
+          let audioContext;
+          try {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+          } catch (e) {
+            console.warn('[ELECTRON-AUDIO] WebAudio unavailable, boost skipped');
+            return;
+          }
+
+          const connections = new WeakMap();
+          const gainNodes = new Set();
+          let observer = null;
+
+          function connectAudioElement(el) {
+            if (!(el instanceof HTMLMediaElement)) return;
+            if (connections.has(el)) return;
+
+            try {
+              // Keep element audible and boost with WebAudio gain.
+              el.volume = 1;
+
+              const source = audioContext.createMediaElementSource(el);
+              const gain = audioContext.createGain();
+              gain.gain.value = gainValue;
+
+              source.connect(gain);
+              gain.connect(audioContext.destination);
+              connections.set(el, { source, gain });
+              gainNodes.add(gain);
+            } catch (err) {
+              // Обычно срабатывает, если элемент уже привязан к другому AudioContext.
+              console.warn('[ELECTRON-AUDIO] Cannot connect media element to boost graph:', err?.message || err);
+            }
+          }
+
+          function scanAndConnect() {
+            const audioElements = document.querySelectorAll('audio');
+            audioElements.forEach((el) => connectAudioElement(el));
+          }
+
+          function setGain(nextGain) {
+            const clamped = Math.max(1, Math.min(4, Number(nextGain) || 1));
+            gainNodes.forEach((gain) => {
+              if (gain?.gain) gain.gain.value = clamped;
+            });
+          }
+
+          observer = new MutationObserver(() => {
+            scanAndConnect();
+          });
+
+          if (document.body) {
+            observer.observe(document.body, { childList: true, subtree: true });
+          }
+
+          // На случай suspended-контекста в autoplay-ограничениях.
+          if (audioContext.state === 'suspended') {
+            audioContext.resume().catch(() => {});
+          }
+
+          scanAndConnect();
+
+          window.__electronIncomingAudioBoost = {
+            setGain: setGain,
+            destroy: function() {
+              try { observer?.disconnect(); } catch {}
+              try { gainNodes.clear(); } catch {}
+              try { audioContext?.close(); } catch {}
+              window.__electronIncomingAudioBoost = null;
+            }
+          };
+
+          console.log('[ELECTRON-AUDIO] Incoming audio boost enabled x' + gainValue);
+        })();
+      `);
+
+      log.info(
+        `[JITSI-SDK] Incoming audio boost enabled: x${this.incomingAudioBoost}`,
+      );
+    } catch (error: any) {
+      log.warn(
+        `[JITSI-SDK] Failed to inject incoming audio boost: ${error.message}`,
       );
     }
   }
@@ -769,6 +962,7 @@ export class JitsiSDKManager {
 
           // Create audio context - check actual sample rate!
           const audioContext = new AudioContext({ sampleRate: 48000 });
+          const isWindowsCapture = ${process.platform === "win32"};
           const actualSampleRate = audioContext.sampleRate;
           const inputSampleRate = 48000; // Native capture always sends 48kHz
           const resampleRatio = inputSampleRate / actualSampleRate;
@@ -793,25 +987,37 @@ export class JitsiSDKManager {
           let lastSampleL = 0;
           let lastSampleR = 0;
 
-          // Function to push audio data to ring buffer
-          // ScreenCaptureKit sends PLANAR format: [L0 L1 L2...L959] [R0 R1 R2...R959]
-          // We need to convert to INTERLEAVED: [L0 R0 L1 R1 L2 R2...]
+          // Function to push audio data to ring buffer.
+          // Windows addon sends INTERLEAVED float32: [L0 R0 L1 R1 ...].
+          // macOS ScreenCaptureKit path sends PLANAR: [L...][R...].
           function pushAudioData(float32Array) {
             packetsReceived++;
             const totalSamples = float32Array.length;
-            const samplesPerChannel = totalSamples / 2; // 960 samples per channel
+            if (totalSamples < 2) return;
 
-            // Convert from planar to interleaved and write to ring buffer
-            for (let i = 0; i < samplesPerChannel; i++) {
-              const leftSample = float32Array[i];                        // First half is left channel
-              const rightSample = float32Array[samplesPerChannel + i];   // Second half is right channel
-
-              // Clamp and write interleaved
-              ringBuffer[writePos] = Math.max(-1, Math.min(1, leftSample));
-              ringBuffer[(writePos + 1) % BUFFER_SIZE] = Math.max(-1, Math.min(1, rightSample));
-              writePos = (writePos + 2) % BUFFER_SIZE;
+            if (isWindowsCapture) {
+              // Already interleaved L/R from Windows native addon.
+              const frames = Math.floor(totalSamples / 2);
+              for (let i = 0; i < frames * 2; i += 2) {
+                const leftSample = float32Array[i];
+                const rightSample = float32Array[i + 1];
+                ringBuffer[writePos] = Math.max(-1, Math.min(1, leftSample));
+                ringBuffer[(writePos + 1) % BUFFER_SIZE] = Math.max(-1, Math.min(1, rightSample));
+                writePos = (writePos + 2) % BUFFER_SIZE;
+              }
+              available += frames * 2;
+            } else {
+              // Convert planar to interleaved for macOS.
+              const samplesPerChannel = Math.floor(totalSamples / 2);
+              for (let i = 0; i < samplesPerChannel; i++) {
+                const leftSample = float32Array[i];
+                const rightSample = float32Array[samplesPerChannel + i];
+                ringBuffer[writePos] = Math.max(-1, Math.min(1, leftSample));
+                ringBuffer[(writePos + 1) % BUFFER_SIZE] = Math.max(-1, Math.min(1, rightSample));
+                writePos = (writePos + 2) % BUFFER_SIZE;
+              }
+              available += samplesPerChannel * 2;
             }
-            available += totalSamples; // totalSamples = samplesPerChannel * 2
 
             // Overflow prevention - keep buffer at ~200ms max
             const MAX_BUFFER = Math.ceil(actualSampleRate * 2 * 0.2); // 200ms stereo
@@ -1346,6 +1552,7 @@ export class JitsiSDKManager {
       await this.waitForConference();
       await this.injectConferenceHandlers();
       await this.injectAudioMuteIndicatorButton();
+      await this.setLocalAudioMuted(false);
 
       // Поддерживаем quality controls на обеих платформах, если нативный модуль доступен.
       const nativeAvailable = Boolean(
@@ -1358,10 +1565,13 @@ export class JitsiSDKManager {
         await this.injectQualityControls();
       }
 
-      // ВАЖНО: Инжектим audio bridge сразу после загрузки конференции
-      // Это нужно сделать ДО начала screen share, чтобы перехватчик getDisplayMedia был готов
-      if (process.platform === "darwin" && this.nativeCaptureManager) {
-        log.info("[JITSI-SDK] Injecting native audio bridge for macOS...");
+      // ВАЖНО: Инжектим audio bridge сразу после загрузки конференции.
+      // Это нужно сделать ДО начала screen share, чтобы перехватчик getDisplayMedia был готов.
+      if (
+        (process.platform === "darwin" || process.platform === "win32") &&
+        this.nativeCaptureManager
+      ) {
+        log.info("[JITSI-SDK] Injecting native audio bridge...");
         await this.injectNativeAudioBridge();
       }
 
@@ -1429,6 +1639,18 @@ export class JitsiSDKManager {
     }
 
     try {
+      await this.state.window.webContents.executeJavaScript(`
+        window.electronMicMuted = ${muted};
+      `);
+
+      if (this.isNativeCaptureActive()) {
+        const ok = await this.setMicTrackMutedDuringNativeCapture(muted);
+        log.info(
+          `[JITSI-SDK] Microphone ${muted ? "muted" : "unmuted"} (native-capture mic-only): ${ok}`,
+        );
+        return ok;
+      }
+
       const result = await this.state.window.webContents.executeJavaScript(`
         (function(targetMuted) {
           try {
@@ -1456,6 +1678,15 @@ export class JitsiSDKManager {
       return result;
     } catch (error: any) {
       log.error(`[JITSI-SDK] Failed to set microphone muted: ${error.message}`);
+      return false;
+    }
+  }
+
+  private isNativeCaptureActive(): boolean {
+    try {
+      if (!this.nativeCaptureManager) return false;
+      return Boolean(this.nativeCaptureManager.isCapturing);
+    } catch {
       return false;
     }
   }
@@ -2220,8 +2451,11 @@ export class JitsiSDKManager {
     // Восстанавливаем аудио при закрытии
     await this.restoreRoutedAudio();
 
-    // Останавливаем нативный захват на macOS и деактивируем bridge
-    if (process.platform === "darwin" && this.nativeCaptureManager) {
+    // Останавливаем нативный захват и деактивируем bridge
+    if (
+      (process.platform === "darwin" || process.platform === "win32") &&
+      this.nativeCaptureManager
+    ) {
       try {
         log.info("[JITSI-SDK] Stopping native capture on window close");
 

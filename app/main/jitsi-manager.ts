@@ -1110,6 +1110,7 @@ export class JitsiManager {
 
       // Небольшая задержка для корректного завершения
       setTimeout(async () => {
+        await this.setPresenterDeafMode(false);
         log.info("[JITSI-MANAGER] Closing window after conference leave");
         await this.closeWindow();
       }, 1000);
@@ -1308,11 +1309,15 @@ export class JitsiManager {
                         
                         // Сбрасываем флаг перехватчика - ВАЖНО!
                         window.__interceptorFlag = false;
+                        window.isPresenter = false;
+                        window.audioRoutingMode = 'normal';
                         
                         console.log('[JITSI-MANAGER] Screen share flags reset');
                     })();
                 `);
       }
+
+      await this.setPresenterDeafMode(false);
 
       return {success: true};
     });
@@ -3436,6 +3441,7 @@ export class JitsiManager {
       if (result?.success) {
         // ИСПРАВЛЕННЫЙ код уведомления
         await this.notifyScreenShareStart();
+        await this.setPresenterDeafMode(true);
       }
 
       return result;
@@ -3489,6 +3495,89 @@ export class JitsiManager {
     }
   }
 
+  private async setPresenterDeafMode(enabled: boolean): Promise<void> {
+    if (!this.state.window || this.state.window.isDestroyed()) return;
+
+    try {
+      await this.state.window.webContents.executeJavaScript(`
+                (function() {
+                    const shouldMute = ${enabled};
+                    
+                    if (!window.__applyPresenterDeafMode) {
+                        window.__applyPresenterDeafMode = function(muteRemoteAudio) {
+                            const applyToAudioElements = (mute) => {
+                                const audioElements = document.querySelectorAll('audio');
+                                audioElements.forEach((element) => {
+                                    if (!element || !(element instanceof HTMLMediaElement)) return;
+                                    
+                                    if (mute) {
+                                        if (element.dataset.presenterPrevMuted === undefined) {
+                                            element.dataset.presenterPrevMuted = element.muted ? '1' : '0';
+                                            element.dataset.presenterPrevVolume = String(element.volume ?? 1);
+                                        }
+                                        
+                                        element.muted = true;
+                                        element.volume = 0;
+                                    } else if (element.dataset.presenterPrevMuted !== undefined) {
+                                        element.muted = element.dataset.presenterPrevMuted === '1';
+                                        const prevVolume = Number.parseFloat(element.dataset.presenterPrevVolume ?? '1');
+                                        element.volume = Number.isFinite(prevVolume) ? prevVolume : 1;
+                                        
+                                        delete element.dataset.presenterPrevMuted;
+                                        delete element.dataset.presenterPrevVolume;
+                                    }
+                                });
+                            };
+                            
+                            if (muteRemoteAudio) {
+                                applyToAudioElements(true);
+                                
+                                if (!window.__presenterDeafObserver) {
+                                    window.__presenterDeafObserver = new MutationObserver(() => {
+                                        applyToAudioElements(true);
+                                    });
+                                    
+                                    window.__presenterDeafObserver.observe(document.body, {
+                                        childList: true,
+                                        subtree: true
+                                    });
+                                }
+                                
+                                window.__presenterDeafEnabled = true;
+                                return;
+                            }
+                            
+                            if (window.__presenterDeafObserver) {
+                                window.__presenterDeafObserver.disconnect();
+                                window.__presenterDeafObserver = null;
+                            }
+                            
+                            applyToAudioElements(false);
+                            window.__presenterDeafEnabled = false;
+                        };
+                    }
+                    
+                    window.__applyPresenterDeafMode(shouldMute);
+                    
+                    if (!shouldMute) {
+                        window.isPresenter = false;
+                        if (window.audioRoutingMode === 'presenter_mix') {
+                            window.audioRoutingMode = 'normal';
+                        }
+                    }
+                })();
+            `);
+
+      log.info(
+        `[STREAM-ELECTRON] Presenter deaf mode: ${enabled ? "ENABLED" : "DISABLED"}`,
+      );
+    } catch (error: any) {
+      log.error(
+        `[STREAM-ELECTRON] setPresenterDeafMode error: ${error.message}`,
+      );
+    }
+  }
+
   private async setupPrivateAudioChannels(): Promise<void> {
     if (!this.state.window || this.state.window.isDestroyed()) return;
 
@@ -3530,7 +3619,12 @@ export class JitsiManager {
                         const processor = audioContext.createScriptProcessor(2048, 1, 1);
                         
                         source.connect(processor);
-                        processor.connect(audioContext.destination);
+                        
+                        // Keep processor running for mixing, but avoid local playback for presenter.
+                        const silentGain = audioContext.createGain();
+                        silentGain.gain.value = 0;
+                        processor.connect(silentGain);
+                        silentGain.connect(audioContext.destination);
                         
                         processor.onaudioprocess = (e) => {
                             if (window.participantAudioMixer && window.audioRoutingMode === 'presenter_mix') {
@@ -3544,7 +3638,8 @@ export class JitsiManager {
                         window.privateAudioProcessors.set(participantId, {
                             context: audioContext,
                             processor: processor,
-                            source: source
+                            source: source,
+                            silentGain: silentGain
                         });
                         
                         console.log('[PRESENTER] Audio processor created for:', participantId);
@@ -5023,6 +5118,8 @@ export class JitsiManager {
     log.info("[STREAM-ELECTRON] >>> Starting comprehensive cleanup...");
 
     try {
+      await this.setPresenterDeafMode(false);
+
       // Для стандартного режима - минимальная очистка
       if (this.state.window && !this.state.window.isDestroyed()) {
         const isStandardMode = await this.state.window.webContents

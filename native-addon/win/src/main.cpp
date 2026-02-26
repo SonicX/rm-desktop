@@ -652,6 +652,7 @@ private:
     
     std::atomic<float> targetProcessVolume{0.0f};
     std::atomic<bool> isTargetProcessActive{false};
+    std::atomic<int> targetActivityGraceTicks{0};
     
     LARGE_INTEGER performanceFrequency;
     LARGE_INTEGER captureStartTime;
@@ -831,6 +832,17 @@ public:
         
         targetProcessVolume = maxVolume;
         isTargetProcessActive = foundTarget;
+
+        // Keep activity for a short period to avoid choppy gating
+        // when session state/meter briefly drops between callbacks.
+        if (foundTarget) {
+            targetActivityGraceTicks = 20; // ~2 seconds (monitor runs every 100ms)
+        } else {
+            int ticks = targetActivityGraceTicks.load();
+            if (ticks > 0) {
+                targetActivityGraceTicks = ticks - 1;
+            }
+        }
         
         sessionEnumerator->Release();
     }
@@ -1033,7 +1045,7 @@ public:
                 OutputDebugStringA("[TEST-MODE] Echo test active, listening for echoes...\n");
             }
         } 
-        else if (echoEnabled && !diagnosticMode) {
+        else if (echoEnabled && !diagnosticMode && targetProcessId == 0) {
             // ============================================
             // ОБЫЧНОЕ ЭХОПОДАВЛЕНИЕ (когда не в тесте)
             // ============================================
@@ -1089,8 +1101,8 @@ public:
         // ФИНАЛЬНАЯ ОБРАБОТКА И ОТПРАВКА
         // ============================================
         
-        // Применяем фильтрацию процесса (если нужно)
-        if (!diagnosticMode && !testMode && targetProcessId != 0 && !echoEnabled) {
+        // Для window capture применяем фильтрацию по активности целевого процесса.
+        if (!diagnosticMode && !testMode && targetProcessId != 0) {
             ApplyProcessFilter(samples);
         }
         
@@ -1105,23 +1117,28 @@ public:
     }
         
     void ApplyProcessFilter(std::vector<float>& samples) {
-        // ВРЕМЕННО ОТКЛЮЧЕНО для отладки
-        return;
-        
-        /* Оригинальный код фильтрации
-        if (!isTargetProcessActive) {
-            for (auto& sample : samples) {
-                sample *= 0.1f;
-            }
-        } else {
-            float volume = targetProcessVolume.load();
-            if (volume < 0.1f) {
-                for (auto& sample : samples) {
-                    sample *= 0.2f;
-                }
-            }
+        // Строгая фильтрация для app-capture:
+        // 1) если целевой процесс неактивен - тишина;
+        // 2) если у процесса нет заметной аудио-активности - тишина;
+        // 3) иначе усиливаем сигнал стрима (x2.5) и ограничиваем клиппинг.
+        const bool targetActive = isTargetProcessActive.load() || targetActivityGraceTicks.load() > 0;
+        const float targetLevel = targetProcessVolume.load();
+        constexpr float kTargetLevelGate = 0.008f;
+        constexpr float kStreamGain = 2.5f;
+
+        if (!targetActive) {
+            std::fill(samples.begin(), samples.end(), 0.0f);
+            return;
         }
-        */
+
+        if (targetLevel < kTargetLevelGate) {
+            std::fill(samples.begin(), samples.end(), 0.0f);
+            return;
+        }
+
+        for (auto& sample : samples) {
+            sample = (std::max)(-1.0f, (std::min)(1.0f, sample * kStreamGain));
+        }
     }
     
     void SendBufferedFrames() {
@@ -1616,11 +1633,7 @@ napi_value StartCapture(napi_env env, napi_callback_info info) {
                     audioStarted = true;
                     OutputDebugStringA("Started application-specific audio capture\n");
                 } else {
-                    if (g_appAudioCapture->InitializeForSystemAudio()) {
-                        g_appAudioCapture->StartCapture();
-                        audioStarted = true;
-                        OutputDebugStringA("Fallback to system audio capture\n");
-                    }
+                    OutputDebugStringA("Application audio capture init failed - system fallback disabled for window mode\n");
                 }
             }
         } catch (...) {

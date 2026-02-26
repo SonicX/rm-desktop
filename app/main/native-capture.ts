@@ -570,8 +570,14 @@ export class NativeCaptureManager {
       } else {
         // DEVELOPMENT пути
         possiblePaths.push(
+          path.join(__dirname, "native-addon-v3.node"),
+          path.join(__dirname, "native-addon-v2.node"),
           path.join(__dirname, "native-addon.node"),
+          path.join(__dirname, "..", "dist-electron", "native-addon-v3.node"),
+          path.join(__dirname, "..", "dist-electron", "native-addon-v2.node"),
           path.join(__dirname, "..", "dist-electron", "native-addon.node"),
+          path.join(process.cwd(), "dist-electron", "native-addon-v3.node"),
+          path.join(process.cwd(), "dist-electron", "native-addon-v2.node"),
           path.join(process.cwd(), "dist-electron", "native-addon.node"),
         );
       }
