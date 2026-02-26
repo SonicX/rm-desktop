@@ -678,86 +678,95 @@ export class JitsiSDKManager {
     try {
       await this.state.window.webContents.executeJavaScript(`
         (function() {
-          const gainValue = ${this.incomingAudioBoost};
-
-          if (window.__electronIncomingAudioBoost?.setGain) {
-            window.__electronIncomingAudioBoost.setGain(gainValue);
-            console.log('[ELECTRON-AUDIO] Updated incoming audio boost to x' + gainValue);
-            return;
+          if (window.__electronVoiceChat?.destroy) {
+            window.__electronVoiceChat.destroy();
           }
 
-          let audioContext;
-          try {
-            audioContext = new (window.AudioContext || window.webkitAudioContext)();
-          } catch (e) {
-            console.warn('[ELECTRON-AUDIO] WebAudio unavailable, boost skipped');
-            return;
-          }
+          // Jitsi hijacks audio elements via createMediaElementSource.
+          // We create ONE shadow audio element per unique track ID to play
+          // remote audio directly to speakers.
+          const knownTrackIds = new Set();
+          const shadowContainer = document.createElement('div');
+          shadowContainer.id = '__voice_chat_shadows__';
+          shadowContainer.style.display = 'none';
+          document.body.appendChild(shadowContainer);
 
-          const connections = new WeakMap();
-          const gainNodes = new Set();
-          let observer = null;
+          function scan() {
+            document.querySelectorAll('audio, video').forEach(el => {
+              if (!el.srcObject) return;
+              const tracks = el.srcObject.getAudioTracks ? el.srcObject.getAudioTracks() : [];
+              tracks.forEach(track => {
+                if (knownTrackIds.has(track.id)) return;
+                if (track.readyState !== 'live') return;
+                knownTrackIds.add(track.id);
 
-          function connectAudioElement(el) {
-            if (!(el instanceof HTMLMediaElement)) return;
-            if (connections.has(el)) return;
+                const shadow = document.createElement('audio');
+                shadow.srcObject = new MediaStream([track]);
+                shadow.autoplay = true;
+                shadow.muted = false;
+                shadow.volume = 1;
+                shadow.dataset.trackId = track.id;
+                shadowContainer.appendChild(shadow);
+                shadow.play().catch(() => {});
 
-            try {
-              // Keep element audible and boost with WebAudio gain.
-              el.volume = 1;
+                console.log('[VOICE-CHAT] Shadow for track: ' + track.id.substring(0,8) +
+                  ' label=' + track.label +
+                  ' enabled=' + track.enabled +
+                  ' muted=' + track.muted);
 
-              const source = audioContext.createMediaElementSource(el);
-              const gain = audioContext.createGain();
-              gain.gain.value = gainValue;
-
-              source.connect(gain);
-              gain.connect(audioContext.destination);
-              connections.set(el, { source, gain });
-              gainNodes.add(gain);
-            } catch (err) {
-              // Обычно срабатывает, если элемент уже привязан к другому AudioContext.
-              console.warn('[ELECTRON-AUDIO] Cannot connect media element to boost graph:', err?.message || err);
-            }
-          }
-
-          function scanAndConnect() {
-            const audioElements = document.querySelectorAll('audio');
-            audioElements.forEach((el) => connectAudioElement(el));
-          }
-
-          function setGain(nextGain) {
-            const clamped = Math.max(1, Math.min(4, Number(nextGain) || 1));
-            gainNodes.forEach((gain) => {
-              if (gain?.gain) gain.gain.value = clamped;
+                track.onunmute = () => {
+                  console.log('[VOICE-CHAT] Track unmuted: ' + track.id.substring(0,8));
+                  shadow.play().catch(() => {});
+                };
+                track.onended = () => {
+                  console.log('[VOICE-CHAT] Track ended: ' + track.id.substring(0,8));
+                  shadow.remove();
+                  knownTrackIds.delete(track.id);
+                };
+              });
             });
           }
 
-          observer = new MutationObserver(() => {
-            scanAndConnect();
-          });
+          function diagnostics() {
+            const shadows = shadowContainer.querySelectorAll('audio');
+            let details = [];
+            shadows.forEach(s => {
+              const tracks = s.srcObject?.getAudioTracks() || [];
+              const t = tracks[0];
+              if (!t) return;
+              details.push(t.id.substring(0,8) +
+                '(en=' + t.enabled +
+                ',mu=' + t.muted +
+                ',v=' + s.volume +
+                ',p=' + s.paused + ')');
+            });
+            console.log('[VOICE-CHAT] ' + shadows.length + ' shadows: [' +
+              details.join(' | ') + ']');
+          }
 
+          const observer = new MutationObserver(scan);
           if (document.body) {
             observer.observe(document.body, { childList: true, subtree: true });
           }
 
-          // На случай suspended-контекста в autoplay-ограничениях.
-          if (audioContext.state === 'suspended') {
-            audioContext.resume().catch(() => {});
-          }
+          scan();
+          const scanInterval = setInterval(scan, 2000);
+          const diagInterval = setInterval(diagnostics, 5000);
+          diagnostics();
 
-          scanAndConnect();
-
-          window.__electronIncomingAudioBoost = {
-            setGain: setGain,
+          window.__electronVoiceChat = {
+            scan,
+            diagnostics,
             destroy: function() {
+              try { clearInterval(scanInterval); } catch {}
+              try { clearInterval(diagInterval); } catch {}
               try { observer?.disconnect(); } catch {}
-              try { gainNodes.clear(); } catch {}
-              try { audioContext?.close(); } catch {}
-              window.__electronIncomingAudioBoost = null;
+              try { shadowContainer.remove(); } catch {}
+              window.__electronVoiceChat = null;
             }
           };
 
-          console.log('[ELECTRON-AUDIO] Incoming audio boost enabled x' + gainValue);
+          console.log('[VOICE-CHAT] Shadow audio system active');
         })();
       `);
 
@@ -1529,10 +1538,11 @@ export class JitsiSDKManager {
         show: false,
         backgroundColor: "#1a1a2e",
         webPreferences: {
-          nodeIntegration: true, // Включаем для работы IPC при передаче аудио
+          nodeIntegration: true,
           contextIsolation: false,
           sandbox: false,
           webSecurity: false,
+          autoplayPolicy: "no-user-gesture-required",
           preload: this.getSDKPreloadPath(),
         },
       });
@@ -1553,6 +1563,7 @@ export class JitsiSDKManager {
       await this.injectConferenceHandlers();
       await this.injectAudioMuteIndicatorButton();
       await this.setLocalAudioMuted(false);
+      await this.injectIncomingAudioBoost();
 
       // Поддерживаем quality controls на обеих платформах, если нативный модуль доступен.
       const nativeAvailable = Boolean(
@@ -1611,7 +1622,8 @@ export class JitsiSDKManager {
     }
 
     try {
-      this.state.window.webContents.setAudioMuted(muted);
+      // Do NOT call webContents.setAudioMuted — it mutes ALL audio
+      // including incoming remote participant voices
 
       await this.state.window.webContents.executeJavaScript(`
       (function() {
