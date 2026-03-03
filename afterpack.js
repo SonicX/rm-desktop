@@ -1,77 +1,132 @@
-// Afterpack.js - создайте этот файл в корне проекта
 const fs = require("node:fs");
 const path = require("node:path");
+const {execSync} = require("node:child_process");
+
+function findFiles(dir, extensions, results = []) {
+  if (!fs.existsSync(dir)) return results;
+  for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      findFiles(fullPath, extensions, results);
+    } else if (extensions.some((ext) => entry.name.endsWith(ext))) {
+      results.push(fullPath);
+    }
+  }
+
+  return results;
+}
+
+function signWindowsFile(filePath) {
+  const signBat = path.resolve(__dirname, "scripts", "sign.bat");
+  if (!fs.existsSync(signBat)) {
+    console.error(`[afterpack] sign.bat not found: ${signBat}`);
+    return false;
+  }
+
+  try {
+    console.log(`[afterpack] Signing: ${filePath}`);
+    execSync(`"${signBat}" "${filePath}"`, {stdio: "inherit"});
+    console.log(`[afterpack] OK: ${path.basename(filePath)}`);
+    return true;
+  } catch {
+    console.error(`[afterpack] FAILED to sign: ${filePath}`);
+    return false;
+  }
+}
 
 exports.default = async function (context) {
-  console.log("After pack hook running...");
+  console.log("[afterpack] Running...");
 
   const {appOutDir} = context;
   const platform = context.packager.platform.name;
 
-  if (platform === "windows") {
-    const sourcePath = path.join(
-      __dirname,
-      "dist-electron",
-      "native-addon.node",
-    );
-    const targetPath = path.join(
-      appOutDir,
-      "resources",
-      "app",
-      "dist-electron",
-      "native-addon.node",
-    );
+  if (platform !== "windows") {
+    console.log(`[afterpack] Skipping non-Windows platform: ${platform}`);
+    return;
+  }
 
-    console.log(`Copying native-addon.node...`);
-    console.log(`From: ${sourcePath}`);
-    console.log(`To: ${targetPath}`);
+  const appDistElectron = path.join(
+    appOutDir,
+    "resources",
+    "app",
+    "dist-electron",
+  );
+  const unpackedDistElectron = path.join(
+    appOutDir,
+    "resources",
+    "app.asar.unpacked",
+    "dist-electron",
+  );
 
-    // Также проверим если файл уже скопирован в resources через extraResources
-    const extraResourcePath = path.join(
-      appOutDir,
-      "resources",
-      "native-addon.node",
-    );
+  const sourcePath = path.join(__dirname, "dist-electron", "native-addon.node");
+  const extraResourcePath = path.join(
+    appOutDir,
+    "resources",
+    "native-addon.node",
+  );
+
+  // -- 1. Copy native-addon.node into the packaged app --
+  for (const targetDir of [appDistElectron, unpackedDistElectron]) {
+    const targetPath = path.join(targetDir, "native-addon.node");
 
     if (fs.existsSync(sourcePath)) {
-      // Создаем директорию если её нет
-      const targetDir = path.dirname(targetPath);
       if (!fs.existsSync(targetDir)) {
         fs.mkdirSync(targetDir, {recursive: true});
       }
 
-      // Копируем файл
       fs.copyFileSync(sourcePath, targetPath);
-      console.log(
-        "✓ native-addon.node copied successfully to app/dist-electron",
-      );
-
-      // Проверяем размер
       const stats = fs.statSync(targetPath);
-      console.log(`File size: ${stats.size} bytes`);
-
-      // Удаляем лишнюю копию из resources если она есть
-      if (fs.existsSync(extraResourcePath)) {
-        console.log("Removing duplicate from resources root...");
-        fs.unlinkSync(extraResourcePath);
-      }
-    } else if (fs.existsSync(extraResourcePath)) {
-      // Если файл есть в resources (от extraResources), переместим его
       console.log(
-        "Found native-addon.node in resources, moving to correct location...",
+        `[afterpack] Copied native-addon.node → ${targetDir} (${stats.size} bytes)`,
       );
-
-      // Создаем директорию если её нет
-      const targetDir = path.dirname(targetPath);
+    } else if (fs.existsSync(extraResourcePath)) {
       if (!fs.existsSync(targetDir)) {
         fs.mkdirSync(targetDir, {recursive: true});
       }
 
-      // Перемещаем файл
-      fs.renameSync(extraResourcePath, targetPath);
-      console.log("✓ native-addon.node moved to app/dist-electron");
+      fs.copyFileSync(extraResourcePath, targetPath);
+      console.log(
+        `[afterpack] Copied native-addon.node from resources → ${targetDir}`,
+      );
     } else {
-      console.error(`✗ Source file not found: ${sourcePath}`);
+      console.error(`[afterpack] native-addon.node not found: ${sourcePath}`);
+    }
+  }
+
+  if (fs.existsSync(extraResourcePath)) {
+    fs.unlinkSync(extraResourcePath);
+    console.log("[afterpack] Removed duplicate from resources root");
+  }
+
+  // -- 2. Sign ALL native binaries in the packaged app --
+  console.log("[afterpack] Scanning for native binaries to sign...");
+
+  const searchRoots = [
+    path.join(appOutDir, "resources", "app.asar.unpacked"),
+    appDistElectron,
+  ];
+
+  const signed = [];
+  const failed = [];
+
+  for (const root of searchRoots) {
+    const nativeBinaries = findFiles(root, [".node", ".exe", ".dll"]);
+    for (const binary of nativeBinaries) {
+      if (signWindowsFile(binary)) {
+        signed.push(binary);
+      } else {
+        failed.push(binary);
+      }
+    }
+  }
+
+  console.log(
+    `[afterpack] Signing complete: ${signed.length} signed, ${failed.length} failed`,
+  );
+  if (failed.length > 0) {
+    console.error("[afterpack] Failed files:");
+    for (const f of failed) {
+      console.error(`  - ${f}`);
     }
   }
 };

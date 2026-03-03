@@ -30,7 +30,9 @@
     "rebuild": "electron-rebuild -f -w dist-electron/native-addon.node",
     "rebuild-dev": "electron-rebuild -f -w dist-electron/native-addon.node",
     "rebuild-native": "electron-rebuild --all",
-    "dist-win": "npm run build-for-win && electron-builder --windows --config.win.target=nsis",
+    "sign-addon": "node scripts/sign-native-addon.js",
+    "verify-signatures": "node scripts/verify-signatures.js",
+    "dist-win": "npm run build-for-win && npm run sign-addon && electron-builder --windows --config.win.target=nsis && npm run verify-signatures",
     "watch-ts": "tsc -w",
     "sign-mac-key-server": "node scripts/sign-mac-key-server.js",
     "reinstall": "rimraf node_modules && npm install",
@@ -43,7 +45,7 @@
     "test": "tsc && npm run lint-html && npm run lint-css && npm run lint-js && npm run prettier-non-js",
     "test-e2e": "vite build && tape \"tests/**/*.js\"",
     "pack": "vite build && electron-builder --mac pkg",
-    "dist": "vite build && electron-builder --windows --config.win.target=nsis",
+    "dist": "vite build && npm run sign-addon && electron-builder --windows --config.win.target=nsis && npm run verify-signatures",
     "publish": "vite build && electron-builder --publish always",
     "mas": "vite build && electron-builder --windows --config.win.target=nsis",
     "store": "vite build && npm run copy-addon && electron-builder --mac --universal"
@@ -57,6 +59,7 @@
     "copyright": "©Цифровые технологии РМ",
     "npmRebuild": false,
     "buildDependenciesFromSource": false,
+    "afterPack": "afterpack.js",
     "afterSign": "scripts/notarize.js",
     "publish": [
       {
@@ -117,7 +120,12 @@
     "win": {
       "icon": "build/icon.ico",
       "publisherName": "ООО Цифровые Технологии Рм",
-      "sign": "scripts/sign.js"
+      "sign": "scripts/sign.js",
+      "asarUnpack": [
+        "dist-electron/native-addon.node",
+        "node_modules/node-global-key-listener/bin/*.exe",
+        "**/*.node"
+      ]
     },
     "nsis": {
       "oneClick": false,
