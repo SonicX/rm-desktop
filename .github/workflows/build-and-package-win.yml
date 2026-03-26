@@ -1,0 +1,97 @@
+name: Build & Package Windows
+
+on:
+  push:
+    branches: [main, developer]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout rm-desktop
+        uses: actions/checkout@v4
+
+      - name: Checkout rm-global-key-listener
+        uses: actions/checkout@v4
+        with:
+          repository: SonicX/rm-global-key-listener
+          path: ../rm-global-key-listener
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+        with:
+          msbuild-architecture: x64
+
+      - name: Install Windows SDK
+        uses: ChristopheLav/windows-sdk-install@v1
+        with:
+          version-sdk: "22621"
+          features: "OptionId.DesktopCPPx64"
+
+      - name: Install node-gyp
+        run: npm install -g node-gyp
+
+      - name: Build native addon (capture.node)
+        working-directory: native-addon/win
+        run: |
+          npm install
+          npm install node-addon-api
+          node-gyp clean
+          node-gyp configure
+          node-gyp build
+        shell: pwsh
+
+      - name: Copy native addon to expected location
+        run: |
+          node -e "require('fs').copyFileSync('native-addon/win/build/Release/capture.node','native-addon/win/capture.node')"
+        shell: pwsh
+
+      - name: Install app dependencies
+        run: npm install
+
+      - name: Build Electron app
+        run: npm run build-for-win
+
+      - name: Package with electron-builder (unsigned)
+        run: npx electron-builder --windows --config.win.target=nsis --config.win.sign=null
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: List build output
+        run: Get-ChildItem -Path dist -Recurse -Include *.exe,*.msi,*.nsis | Format-Table Name,Length
+        shell: pwsh
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: rmconnect-windows-unsigned
+          path: |
+            dist/*.exe
+            dist/*.blockmap
+          retention-days: 30
+
+      - name: Upload build logs on failure
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: build-failure-logs
+          path: |
+            npm-debug.log
+            native-addon/win/build/
+          retention-days: 7
